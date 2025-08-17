@@ -1,0 +1,654 @@
+"""
+HELM Diffusion模型
+结合HELM序列Transformer和Diffusion训练框架
+"""
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import numpy as np
+from typing import Optional, Dict, Tuple
+import pickle
+import json
+
+from helm_transformer import HELMTransformer
+from molformer_embedding import MolFormerEmbedding
+
+
+class HELMDiffusionModel(nn.Module):
+    """
+    HELM序列扩散模型
+    用于生成大环肽分子的HELM表示
+    """
+    
+    def __init__(
+        self,
+        embedding_dim: int = 768,  # MolFormer embedding维度
+        d_model: int = 512,
+        n_heads: int = 8,
+        n_layers: int = 6,
+        d_ff: int = 2048,
+        max_seq_len: int = 256,
+        dropout: float = 0.1,
+        num_diffusion_steps: int = 1000,
+        variance_schedule: str = "linear",  # "linear" or "cosine"
+        beta_start: float = 0.0001,
+        beta_end: float = 0.02
+    ):
+        super().__init__()
+        
+        self.embedding_dim = embedding_dim
+        self.num_steps = num_diffusion_steps
+        
+        # HELM Transformer去噪网络
+        self.denoising_network = HELMTransformer(
+            embedding_dim=embedding_dim,
+            d_model=d_model,
+            n_heads=n_heads,
+            n_layers=n_layers,
+            d_ff=d_ff,
+            max_seq_len=max_seq_len,
+            dropout=dropout
+        )
+        
+        # 设置扩散调度
+        self._setup_variance_schedule(variance_schedule, beta_start, beta_end)
+        
+    def _setup_variance_schedule(self, schedule_type: str, beta_start: float, beta_end: float):
+        """设置方差调度"""
+        if schedule_type == "linear":
+            betas = torch.linspace(beta_start, beta_end, self.num_steps)
+        elif schedule_type == "cosine":
+            # 余弦调度
+            def cosine_beta_schedule(timesteps, s=0.008):
+                steps = timesteps + 1
+                x = torch.linspace(0, timesteps, steps)
+                alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+                alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+                betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+                return torch.clip(betas, 0.0001, 0.9999)
+            betas = cosine_beta_schedule(self.num_steps)
+        else:
+            raise ValueError(f"Unknown schedule type: {schedule_type}")
+            
+        alphas = 1.0 - betas
+        alphas_cumprod = torch.cumprod(alphas, dim=0)
+        alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
+        
+        # 注册为buffer，这样它们会随着模型一起保存和加载
+        self.register_buffer('betas', betas)
+        self.register_buffer('alphas', alphas)
+        self.register_buffer('alphas_cumprod', alphas_cumprod)
+        self.register_buffer('alphas_cumprod_prev', alphas_cumprod_prev)
+        self.register_buffer('sqrt_alphas_cumprod', torch.sqrt(alphas_cumprod))
+        self.register_buffer('sqrt_one_minus_alphas_cumprod', torch.sqrt(1.0 - alphas_cumprod))
+        
+    def add_noise(
+        self,
+        x_0: torch.Tensor,
+        t: torch.Tensor,
+        noise: Optional[torch.Tensor] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        添加噪声到原始数据
+        
+        Args:
+            x_0: 原始embedding序列 [batch_size, seq_len, embedding_dim]
+            t: 时间步 [batch_size]
+            noise: 可选的噪声张量
+            
+        Returns:
+            x_t: 加噪后的数据
+            noise: 使用的噪声
+        """
+        if noise is None:
+            noise = torch.randn_like(x_0)
+            
+        sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t]
+        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t]
+        
+        # 广播到正确的形状
+        sqrt_alphas_cumprod_t = sqrt_alphas_cumprod_t.view(-1, 1, 1)
+        sqrt_one_minus_alphas_cumprod_t = sqrt_one_minus_alphas_cumprod_t.view(-1, 1, 1)
+        
+        x_t = sqrt_alphas_cumprod_t * x_0 + sqrt_one_minus_alphas_cumprod_t * noise
+        
+        return x_t, noise
+    
+    def predict_noise(
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        mask: Optional[torch.Tensor] = None
+    ) -> torch.Tensor:
+        """
+        预测噪声
+        
+        Args:
+            x_t: 加噪的数据 [batch_size, seq_len, embedding_dim]
+            t: 时间步 [batch_size]
+            mask: 序列掩码 [batch_size, seq_len]
+            
+        Returns:
+            预测的噪声 [batch_size, seq_len, embedding_dim]
+        """
+        # 归一化时间步到[0, 1]
+        t_normalized = t.float() / self.num_steps
+        
+        predicted_noise = self.denoising_network(x_t, t_normalized, mask)
+        
+        return predicted_noise
+    
+    def forward(
+        self,
+        x_0: torch.Tensor,
+        mask: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        训练时的前向传播
+        
+        Args:
+            x_0: 原始embedding序列 [batch_size, seq_len, embedding_dim]
+            mask: 序列掩码 [batch_size, seq_len]
+            
+        Returns:
+            包含损失信息的字典
+        """
+        batch_size = x_0.shape[0]
+        device = x_0.device
+        
+        # 随机采样时间步
+        t = torch.randint(0, self.num_steps, (batch_size,), device=device)
+        
+        # 添加噪声
+        x_t, noise = self.add_noise(x_0, t)
+        
+        # 预测噪声
+        predicted_noise = self.predict_noise(x_t, t, mask)
+        
+        # 计算MSE损失
+        if mask is not None:
+            # 只在有效位置计算损失
+            loss = F.mse_loss(predicted_noise, noise, reduction='none')  # [batch_size, seq_len, embedding_dim]
+            mask_expanded = mask.unsqueeze(-1).expand_as(loss)  # [batch_size, seq_len, embedding_dim]
+            loss = (loss * mask_expanded).sum() / mask_expanded.sum()
+        else:
+            loss = F.mse_loss(predicted_noise, noise)
+            
+        return {
+            'loss': loss,
+            'predicted_noise': predicted_noise,
+            'target_noise': noise,
+            't': t,
+            'x_t': x_t  # 添加noisy data
+        }
+    
+    @torch.no_grad()
+    def sample(
+        self,
+        shape: Tuple[int, int, int],  # (batch_size, seq_len, embedding_dim)
+        mask: Optional[torch.Tensor] = None,
+        device: str = 'cuda',
+        guidance_scale: float = 1.0,
+        eta: float = 0.0
+    ) -> torch.Tensor:
+        """
+        DDPM采样
+        
+        Args:
+            shape: 要生成的数据形状
+            mask: 序列掩码
+            device: 设备
+            guidance_scale: 引导比例
+            eta: DDIM参数
+            
+        Returns:
+            生成的embedding序列
+        """
+        batch_size, seq_len, embedding_dim = shape
+        
+        # 从纯噪声开始
+        x_t = torch.randn(shape, device=device)
+        
+        # 逆向扩散过程
+        for i in reversed(range(self.num_steps)):
+            t = torch.full((batch_size,), i, device=device, dtype=torch.long)
+            
+            # 预测噪声
+            predicted_noise = self.predict_noise(x_t, t, mask)
+            
+            # 计算前一步的数据
+            if i > 0:
+                # DDPM采样
+                alpha_t = self.alphas[i]
+                alpha_cumprod_t = self.alphas_cumprod[i]
+                alpha_cumprod_t_prev = self.alphas_cumprod[i-1]
+                beta_t = self.betas[i]
+                
+                # 预测x_0
+                x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
+                
+                # 计算均值
+                mean = (torch.sqrt(alpha_cumprod_t_prev) * beta_t) / (1 - alpha_cumprod_t) * x_0_pred + \
+                       (torch.sqrt(alpha_t) * (1 - alpha_cumprod_t_prev)) / (1 - alpha_cumprod_t) * x_t
+                
+                # 添加噪声
+                if eta > 0:
+                    variance = eta * beta_t
+                    noise = torch.randn_like(x_t)
+                    x_t = mean + torch.sqrt(variance) * noise
+                else:
+                    x_t = mean
+            else:
+                # 最后一步，直接预测x_0
+                alpha_cumprod_t = self.alphas_cumprod[i]
+                x_t = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
+                
+        return x_t
+    
+    @torch.no_grad()
+    def ddim_sample(
+        self,
+        shape: Tuple[int, int, int],
+        mask: Optional[torch.Tensor] = None,
+        device: str = 'cuda',
+        num_steps: int = 50,
+        eta: float = 0.0
+    ) -> torch.Tensor:
+        """
+        DDIM快速采样
+        
+        Args:
+            shape: 要生成的数据形状
+            mask: 序列掩码
+            device: 设备
+            num_steps: 采样步数（少于训练步数）
+            eta: DDIM参数
+            
+        Returns:
+            生成的embedding序列
+        """
+        batch_size, seq_len, embedding_dim = shape
+        
+        # 选择子集时间步
+        step_size = self.num_steps // num_steps
+        timesteps = list(range(0, self.num_steps, step_size))[:num_steps]
+        timesteps = timesteps[::-1]  # 反转
+        
+        x_t = torch.randn(shape, device=device)
+        
+        for i, t in enumerate(timesteps):
+            t_tensor = torch.full((batch_size,), t, device=device, dtype=torch.long)
+            
+            predicted_noise = self.predict_noise(x_t, t_tensor, mask)
+            
+            alpha_cumprod_t = self.alphas_cumprod[t]
+            
+            if i < len(timesteps) - 1:
+                alpha_cumprod_t_prev = self.alphas_cumprod[timesteps[i+1]]
+            else:
+                alpha_cumprod_t_prev = torch.tensor(1.0, device=device)
+            
+            # DDIM更新规则
+            x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
+            
+            direction_to_x_t = torch.sqrt(1 - alpha_cumprod_t_prev - eta**2 * (1 - alpha_cumprod_t_prev)) * predicted_noise
+            
+            x_t = torch.sqrt(alpha_cumprod_t_prev) * x_0_pred + direction_to_x_t
+            
+            if eta > 0 and i < len(timesteps) - 1:
+                noise = torch.randn_like(x_t)
+                x_t += eta * torch.sqrt(1 - alpha_cumprod_t_prev) * noise
+                
+        return x_t
+
+
+class HELMEmbeddingLoader:
+    """HELM单体embedding加载器"""
+    
+    def __init__(self, embedding_path: str):
+        """
+        初始化加载器
+        
+        Args:
+            embedding_path: embedding文件路径（pkl格式）
+        """
+        self.embedding_path = embedding_path
+        self.embeddings = None
+        self.symbol_to_idx = {}
+        self.idx_to_symbol = {}
+        self.load_embeddings()
+        
+    def load_embeddings(self):
+        """加载embedding数据"""
+        try:
+            with open(self.embedding_path, 'rb') as f:
+                data = pickle.load(f)
+                
+            self.embeddings = torch.from_numpy(data['embeddings']).float()
+            symbols = data['symbols']
+            
+            # 创建映射
+            for idx, symbol in enumerate(symbols):
+                self.symbol_to_idx[symbol] = idx
+                self.idx_to_symbol[idx] = symbol
+                
+            print(f"加载了 {len(symbols)} 个单体的embedding，维度为 {self.embeddings.shape[1]}")
+            
+        except Exception as e:
+            raise RuntimeError(f"加载embedding失败: {e}")
+    
+    def get_embedding(self, symbol: str) -> torch.Tensor:
+        """获取单个单体的embedding"""
+        if symbol not in self.symbol_to_idx:
+            raise ValueError(f"未找到单体 {symbol}")
+        idx = self.symbol_to_idx[symbol]
+        return self.embeddings[idx]
+    
+    def get_embeddings_by_symbols(self, symbols: list) -> torch.Tensor:
+        """根据符号列表获取embedding"""
+        indices = [self.symbol_to_idx[symbol] for symbol in symbols if symbol in self.symbol_to_idx]
+        if len(indices) != len(symbols):
+            missing = [s for s in symbols if s not in self.symbol_to_idx]
+            print(f"警告: 未找到以下单体的embedding: {missing}")
+        return self.embeddings[indices]
+    
+    def helm_to_embeddings(self, helm_sequence: str) -> torch.Tensor:
+        """
+        将HELM序列转换为embedding张量
+        
+        Args:
+            helm_sequence: HELM格式的序列字符串
+            
+        Returns:
+            embedding张量 [seq_len, embedding_dim]
+        """
+        # 简单的HELM解析（需要根据实际HELM格式调整）
+        # 这里假设HELM序列是用某种分隔符分开的单体符号
+        symbols = self._parse_helm_sequence(helm_sequence)
+        return self.get_embeddings_by_symbols(symbols)
+    
+    def _parse_helm_sequence(self, helm_sequence: str) -> list:
+        """
+        解析HELM序列
+        需要根据实际的HELM格式实现
+        """
+        # 这是一个简化的示例，实际需要根据HELM语法实现
+        # HELM格式类似: PEPTIDE1{A.L.V.I.L}$$$$
+        if '{' in helm_sequence and '}' in helm_sequence:
+            start = helm_sequence.find('{') + 1
+            end = helm_sequence.find('}')
+            sequence_part = helm_sequence[start:end]
+            return sequence_part.split('.')
+        else:
+            # 简单情况，假设直接是点分隔的符号
+            return helm_sequence.split('.')
+
+
+if __name__ == "__main__":
+    # 测试代码
+    print("初始化HELM Diffusion模型...")
+    
+    model = HELMDiffusionModel(
+        embedding_dim=768,
+        d_model=512,
+        n_heads=8,
+        n_layers=6,
+        num_diffusion_steps=1000
+    )
+    
+    # 模拟输入
+    batch_size = 2
+    seq_len = 10
+    embedding_dim = 768
+    
+    x_0 = torch.randn(batch_size, seq_len, embedding_dim)
+    mask = torch.ones(batch_size, seq_len)
+    
+    # 测试训练
+    print("测试训练前向传播...")
+    result = model(x_0, mask)
+    print(f"训练损失: {result['loss'].item():.4f}")
+    
+    # 测试采样
+    print("测试采样...")
+    samples = model.ddim_sample(
+        shape=(1, seq_len, embedding_dim),
+        num_steps=10
+    )
+    print(f"生成样本形状: {samples.shape}")
+    
+    print("模型测试完成!")
+
+
+# ===========================================
+# 兼容层类 - 用于ChEMBL32训练脚本
+# ===========================================
+
+class HELMDiffusion(nn.Module):
+    """
+    HELMDiffusion兼容类
+    使用MolFormer预训练embeddings作为ground truth
+    """
+    
+    def __init__(self, transformer, vocab_size: int, T: int = 1000, beta_schedule: str = "linear", 
+                 vocab: Optional[Dict[str, int]] = None, use_molformer: bool = True):
+        super().__init__()
+        
+        self.vocab_size = vocab_size
+        self.T = T
+        self.use_molformer = use_molformer
+        
+        # 选择embedding方式
+        if use_molformer and vocab is not None:
+            print(" 使用MolFormer预训练embeddings")
+            self.embedding = MolFormerEmbedding(
+                embeddings_dir="./molformer_embeddings",
+                vocab=vocab,
+                freeze_embeddings=False  # 允许微调
+            )
+            embedding_dim = self.embedding.embedding_dim  # 768
+        else:
+            print(" 使用随机初始化embeddings")
+            embedding_dim = transformer.embedding_dim
+            self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        
+        # 创建扩散模型
+        self.diffusion_model = HELMDiffusionModel(
+            embedding_dim=embedding_dim,
+            d_model=transformer.d_model,
+            n_heads=transformer.n_heads,
+            n_layers=transformer.n_layers,
+            max_seq_len=transformer.max_seq_len,
+            dropout=transformer.dropout,
+            num_diffusion_steps=T,
+            variance_schedule=beta_schedule
+        )
+        
+        # 输出投影层
+        self.output_projection = nn.Linear(embedding_dim, vocab_size)
+        
+    def get_ground_truth_embeddings(self, x):
+        """获取ground truth embeddings"""
+        if self.use_molformer:
+            # 使用MolFormer预训练embeddings作为ground truth
+            with torch.no_grad():
+                ground_truth = self.embedding(x)  # [batch, seq_len, 768]
+        else:
+            # 使用学习的embeddings
+            ground_truth = self.embedding(x)
+        return ground_truth
+        
+    def forward(self, x, mask=None):
+        """
+        前向传播 - 修改为使用MolFormer embeddings作为target
+        """
+        # 获取ground truth embeddings
+        target_embeddings = self.get_ground_truth_embeddings(x)  # [batch, seq_len, embed_dim]
+        
+        if mask is None:
+            mask = torch.ones(target_embeddings.shape[:2], device=target_embeddings.device)
+        
+        # 扩散训练：学习从噪声恢复到target embeddings
+        result = self.diffusion_model(target_embeddings, mask)
+        
+        # 简化损失计算：只计算重建后与MolFormer embedding的MSE loss
+        if 'predicted_noise' in result and target_embeddings is not None:
+            # 使用预测的噪声重建原始嵌入
+            t = result['t']
+            x_t = result.get('x_t', target_embeddings)
+            
+            # 获取diffusion参数，添加数值稳定性
+            sqrt_alphas_cumprod_t = self.diffusion_model.sqrt_alphas_cumprod[t].view(-1, 1, 1)
+            sqrt_one_minus_alphas_cumprod_t = self.diffusion_model.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
+            
+            # 添加数值稳定性：避免除零
+            sqrt_alphas_cumprod_t = torch.clamp(sqrt_alphas_cumprod_t, min=1e-8)
+            
+            # 重建原始数据
+            reconstructed = (x_t - sqrt_one_minus_alphas_cumprod_t * result['predicted_noise']) / sqrt_alphas_cumprod_t
+            
+            # 对重建结果进行clamp，避免数值爆炸
+            reconstructed = torch.clamp(reconstructed, min=-100, max=100)
+            
+            # 计算重建损失（与MolFormer target embeddings的MSE差异）
+            if mask is not None:
+                recon_loss = F.mse_loss(reconstructed, target_embeddings, reduction='none')
+                mask_expanded = mask.unsqueeze(-1).expand_as(recon_loss)
+                recon_loss = (recon_loss * mask_expanded).sum() / mask_expanded.sum()
+            else:
+                recon_loss = F.mse_loss(reconstructed, target_embeddings)
+            
+            # 对损失进行缩放，使其在合理范围内
+            scaled_loss = recon_loss / 100.0  # 缩放因子
+            
+            # 只使用重建损失作为主要损失
+            result['loss'] = scaled_loss
+            result['reconstruction_loss'] = recon_loss
+            result['reconstructed'] = reconstructed
+            result['target_embeddings'] = target_embeddings
+        
+        return result
+    
+    def compute_loss(self, x, mask=None):
+        """计算训练损失"""
+        result = self.forward(x, mask)
+        return result['loss']
+    
+    def sample(self, num_samples: int, max_seq_len: int, device=None):
+        """采样生成序列"""
+        if device is None:
+            device = next(self.parameters()).device
+            
+        shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
+        
+        # DDPM采样
+        samples = self.diffusion_model.sample(shape=shape, device=device)
+        
+        # 转换为token序列
+        token_samples = self._embedding_to_tokens(samples)
+        return token_samples
+    
+    def sample_ddim(self, num_samples: int, max_seq_len: int, ddim_steps: int = 50, eta: float = 0.0):
+        """DDIM采样"""
+        device = next(self.parameters()).device
+        shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
+        
+        # DDIM采样
+        samples = self.diffusion_model.ddim_sample(
+            shape=shape, 
+            num_steps=ddim_steps,
+            device=device
+        )
+        
+        # 转换为token序列
+        token_samples = self._embedding_to_tokens(samples)
+        return token_samples
+    
+    def _embedding_to_tokens(self, embeddings):
+        """将embedding转换为token序列"""
+        # 使用输出投影层
+        logits = self.output_projection(embeddings)  # [batch, seq_len, vocab_size]
+        tokens = torch.argmax(logits, dim=-1)  # [batch, seq_len]
+        return tokens
+
+
+class HELMSequenceDataset(torch.utils.data.Dataset):
+    """
+    HELM序列数据集
+    用于训练扩散模型
+    """
+    
+    def __init__(self, data_file: str, max_seq_len: int = 128, vocab_file: str = "./data/helm_vocab.json"):
+        self.data_file = data_file
+        self.max_seq_len = max_seq_len
+        
+        # 加载词汇表
+        with open(vocab_file, 'r') as f:
+            self.vocab = json.load(f)
+        
+        self.idx_to_token = {v: k for k, v in self.vocab.items()}
+        
+        # 加载序列
+        self.sequences = []
+        with open(data_file, 'r') as f:
+            for line in f:
+                helm_seq = line.strip()
+                if helm_seq:
+                    self.sequences.append(helm_seq)
+        
+        print(f"加载 {len(self.sequences)} 个HELM序列")
+    
+    def __len__(self):
+        return len(self.sequences)
+    
+    def __getitem__(self, idx):
+        helm_seq = self.sequences[idx]
+        
+        # 解析HELM序列
+        tokens = self._parse_helm_sequence(helm_seq)
+        
+        # 转换为索引
+        token_ids = self._tokens_to_ids(tokens)
+        
+        # 填充或截断
+        if len(token_ids) > self.max_seq_len:
+            token_ids = token_ids[:self.max_seq_len]
+        else:
+            # 使用PAD token填充
+            pad_id = self.vocab.get('<PAD>', 0)
+            token_ids.extend([pad_id] * (self.max_seq_len - len(token_ids)))
+        
+        return torch.tensor(token_ids, dtype=torch.long)
+    
+    def _parse_helm_sequence(self, helm_seq: str):
+        """解析HELM序列为token列表"""
+        if helm_seq.startswith('PEPTIDE1{') and helm_seq.endswith('}$$$$'):
+            content = helm_seq[len('PEPTIDE1{'):-len('}$$$$')]
+            if content:
+                return content.split('.')
+        return []
+    
+    def _tokens_to_ids(self, tokens):
+        """将token转换为索引"""
+        unk_id = self.vocab.get('<UNK>', 1)
+        return [self.vocab.get(token, unk_id) for token in tokens]
+    
+    def decode_sequence(self, token_ids):
+        """将token索引序列解码为HELM字符串"""
+        tokens = []
+        for token_id in token_ids:
+            if isinstance(token_id, torch.Tensor):
+                token_id = token_id.item()
+            
+            if token_id in self.idx_to_token:
+                token = self.idx_to_token[token_id]
+                if token == '<PAD>':
+                    break
+                elif token not in ['<UNK>', '<START>', '<END>']:
+                    tokens.append(token)
+        
+        if tokens:
+            return f"PEPTIDE1{{{'.'.join(tokens)}}}$$$$"
+        else:
+            return "PEPTIDE1{}$$$$"

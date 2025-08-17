@@ -1,0 +1,226 @@
+"""
+MolFormer预训练嵌入模块
+使用预训练的MolFormer embeddings作为单体表示
+"""
+
+import torch
+import torch.nn as nn
+import numpy as np
+import pandas as pd
+import json
+from pathlib import Path
+from typing import Dict, List, Optional
+
+
+class MolFormerEmbedding(nn.Module):
+    """使用预训练MolFormer embeddings的嵌入层"""
+    
+    def __init__(self, 
+                 embeddings_dir: str = "./molformer_embeddings",
+                 vocab: Optional[Dict[str, int]] = None,
+                 freeze_embeddings: bool = False):
+        """
+        初始化MolFormer嵌入层
+        
+        Args:
+            embeddings_dir: 预训练embeddings目录
+            vocab: 词汇表字典 {token: id}
+            freeze_embeddings: 是否冻结embedding参数
+        """
+        super().__init__()
+        
+        self.embeddings_dir = Path(embeddings_dir)
+        self.freeze_embeddings = freeze_embeddings
+        
+        # 加载预训练embeddings和映射
+        self._load_embeddings()
+        
+        # 如果提供vocab，建立vocab到embedding的映射
+        if vocab is not None:
+            self._setup_vocab_mapping(vocab)
+        
+        print(f"   MolFormer嵌入层初始化完成:")
+        print(f"   嵌入维度: {self.embedding_dim}")
+        print(f"   可用单体数: {self.num_monomers}")
+        print(f"   冻结参数: {self.freeze_embeddings}")
+    
+    def _load_embeddings(self):
+        """加载预训练embeddings和映射表"""
+        # 加载metadata
+        with open(self.embeddings_dir / "metadata.json", 'r') as f:
+            self.metadata = json.load(f)
+        
+        # 加载embeddings矩阵
+        embeddings_matrix = np.load(self.embeddings_dir / "complete_embeddings_matrix.npy")
+        self.embedding_dim = embeddings_matrix.shape[1]
+        self.num_monomers = embeddings_matrix.shape[0]
+        
+        # 加载单体映射
+        self.monomer_mapping = pd.read_csv(self.embeddings_dir / "complete_monomer_mapping.csv")
+        
+        # 创建symbol到索引的映射
+        self.symbol_to_idx = {symbol: idx for idx, symbol in enumerate(self.monomer_mapping['symbol'])}
+        self.idx_to_symbol = {idx: symbol for symbol, idx in self.symbol_to_idx.items()}
+        
+        # 转换为PyTorch embedding层
+        self.embeddings = nn.Embedding.from_pretrained(
+            torch.from_numpy(embeddings_matrix).float(),
+            freeze=self.freeze_embeddings
+        )
+        
+        # 创建特殊token的embedding
+        special_embeddings = torch.randn(4, self.embedding_dim) * 0.1  # 小的随机初始化
+        self.special_embeddings = nn.Parameter(special_embeddings, requires_grad=not self.freeze_embeddings)
+        
+        print(f"   加载的嵌入统计:")
+        print(f"   模型: {self.metadata['model_name']}")
+        print(f"   成功单体: {self.metadata['successful_count']}")
+        print(f"   失败单体: {self.metadata['failed_count']}")
+    
+    def _setup_vocab_mapping(self, vocab: Dict[str, int]):
+        """建立词汇表到embedding索引的映射"""
+        self.vocab = vocab
+        self.vocab_size = len(vocab)
+        
+        # 反向词汇表
+        self.idx_to_token = {idx: token for token, idx in vocab.items()}
+        
+        # 创建从vocab_id到embedding_id的映射
+        self.vocab_to_embedding = torch.full((self.vocab_size,), -1, dtype=torch.long)
+        
+        matched_count = 0
+        special_tokens = ['<PAD>', '<UNK>', '<START>', '<END>']  # 修正特殊tokens
+        
+        for token, vocab_idx in vocab.items():
+            if token in special_tokens:
+                # 特殊token使用特殊embeddings
+                special_idx = special_tokens.index(token)
+                self.vocab_to_embedding[vocab_idx] = self.num_monomers + special_idx
+            elif token in self.symbol_to_idx:
+                # 常规单体使用预训练embeddings
+                embedding_idx = self.symbol_to_idx[token]
+                self.vocab_to_embedding[vocab_idx] = embedding_idx
+                matched_count += 1
+            else:
+                # 尝试去掉括号匹配 [X123] -> X123
+                cleaned_token = token.strip('[]')
+                if cleaned_token in self.symbol_to_idx:
+                    embedding_idx = self.symbol_to_idx[cleaned_token]
+                    self.vocab_to_embedding[vocab_idx] = embedding_idx
+                    matched_count += 1
+                else:
+                    # 未匹配的token使用UNK
+                    unk_idx = special_tokens.index('<UNK>')
+                    self.vocab_to_embedding[vocab_idx] = self.num_monomers + unk_idx
+        
+        print(f"   词汇表映射统计:")
+        print(f"   词汇表大小: {self.vocab_size}")
+        print(f"   匹配单体: {matched_count}")
+        print(f"   匹配率: {matched_count/self.vocab_size*100:.1f}%")
+    
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """
+        前向传播
+        
+        Args:
+            input_ids: token索引 [batch_size, seq_len]
+            
+        Returns:
+            embeddings: 嵌入向量 [batch_size, seq_len, embedding_dim]
+        """
+        batch_size, seq_len = input_ids.shape
+        device = input_ids.device
+        
+        if hasattr(self, 'vocab_to_embedding'):
+            # 使用vocab映射
+            embedding_ids = self.vocab_to_embedding[input_ids.cpu()].to(device)
+            
+            # 分离常规embeddings和特殊embeddings
+            regular_mask = embedding_ids < self.num_monomers
+            special_mask = embedding_ids >= self.num_monomers
+            
+            output = torch.zeros(batch_size, seq_len, self.embedding_dim, device=device)
+            
+            if regular_mask.any():
+                regular_ids = embedding_ids[regular_mask]
+                output[regular_mask] = self.embeddings(regular_ids)
+            
+            if special_mask.any():
+                special_ids = embedding_ids[special_mask] - self.num_monomers
+                output[special_mask] = self.special_embeddings[special_ids]
+            
+            return output
+        else:
+            # 直接使用input_ids作为embedding索引
+            return self.embeddings(input_ids)
+    
+    def get_embedding_for_token(self, token: str) -> torch.Tensor:
+        """获取指定token的embedding"""
+        if hasattr(self, 'vocab') and token in self.vocab:
+            vocab_idx = self.vocab[token]
+            return self.forward(torch.tensor([[vocab_idx]]))[0, 0]
+        elif token in self.symbol_to_idx:
+            embedding_idx = self.symbol_to_idx[token]
+            return self.embeddings.weight[embedding_idx]
+        else:
+            # 返回UNK embedding
+            return self.special_embeddings[1]  # UNK在索引1
+    
+    def get_embedding(self, vocab_idx: int) -> torch.Tensor:
+        """
+        获取单个vocab索引的embedding
+        
+        Args:
+            vocab_idx: 词汇表索引
+            
+        Returns:
+            embedding: 对应的embedding向量, 形状为(embed_dim,)
+        """
+        embedding_idx = self.vocab_to_embedding[vocab_idx]
+        if embedding_idx < self.num_monomers:
+            return self.embeddings.weight[embedding_idx]
+        else:
+            # 特殊token
+            special_idx = embedding_idx - self.num_monomers
+            return self.special_embeddings[special_idx]
+    
+    def save_embeddings(self, path: str):
+        """保存当前的embedding状态"""
+        torch.save({
+            'embeddings': self.embeddings.state_dict(),
+            'special_embeddings': self.special_embeddings,
+            'vocab_to_embedding': getattr(self, 'vocab_to_embedding', None),
+            'vocab': getattr(self, 'vocab', None),
+            'metadata': self.metadata
+        }, path)
+    
+    def load_embeddings(self, path: str):
+        """加载embedding状态"""
+        checkpoint = torch.load(path, map_location='cpu')
+        self.embeddings.load_state_dict(checkpoint['embeddings'])
+        self.special_embeddings = checkpoint['special_embeddings']
+        if checkpoint['vocab_to_embedding'] is not None:
+            self.vocab_to_embedding = checkpoint['vocab_to_embedding']
+        if checkpoint['vocab'] is not None:
+            self.vocab = checkpoint['vocab']
+
+
+def create_molformer_embedding(vocab: Dict[str, int], 
+                              embeddings_dir: str = "./molformer_embeddings",
+                              freeze_embeddings: bool = False) -> MolFormerEmbedding:
+    """
+    便捷函数：创建MolFormer嵌入层
+    
+    Args:
+        vocab: 词汇表
+        embeddings_dir: embeddings目录
+        freeze_embeddings: 是否冻结参数
+        
+    Returns:
+        配置好的MolFormer嵌入层
+    """
+    return MolFormerEmbedding(
+        embeddings_dir=embeddings_dir,
+        vocab=vocab,
+        freeze_embeddings=freeze_embeddings
+    )
