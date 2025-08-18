@@ -1,7 +1,3 @@
-"""
-HELM序列Transformer模型，基于原始graph_transformer去除edge相关部分，专门用于HELM序列处理
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +6,6 @@ from typing import Optional, Tuple
 
 
 class PositionalEncoding(nn.Module):
-    """位置编码模块"""
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -29,7 +24,6 @@ class PositionalEncoding(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    """多头注意力机制"""
     def __init__(self, d_model: int, n_heads: int, dropout: float = 0.1):
         super().__init__()
         assert d_model % n_heads == 0
@@ -53,7 +47,6 @@ class MultiHeadAttention(nn.Module):
         K = self.w_k(key).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
         V = self.w_v(value).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
         
-        
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
         
         if mask is not None:
@@ -64,7 +57,6 @@ class MultiHeadAttention(nn.Module):
         
         context = torch.matmul(attn_weights, V)
         
-        # Concatenate heads
         context = context.transpose(1, 2).contiguous().view(
             batch_size, -1, self.d_model
         )
@@ -74,7 +66,6 @@ class MultiHeadAttention(nn.Module):
 
 
 class FeedForward(nn.Module):
-    """前馈神经网络"""
     def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
         self.linear1 = nn.Linear(d_model, d_ff)
@@ -86,7 +77,6 @@ class FeedForward(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
-    """Transformer编码器层"""
     def __init__(self, d_model: int, n_heads: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
         self.self_attn = MultiHeadAttention(d_model, n_heads, dropout)
@@ -96,11 +86,9 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x, mask=None):
-        # Self-attention
         attn_output, _ = self.self_attn(x, x, x, mask)
         x = self.norm1(x + self.dropout(attn_output))
         
-        # Feed forward
         ff_output = self.feed_forward(x)
         x = self.norm2(x + self.dropout(ff_output))
         
@@ -108,10 +96,6 @@ class TransformerEncoderLayer(nn.Module):
 
 
 class HELMTransformer(nn.Module):
-    """
-    HELM序列Transformer模型
-    专门用于处理HELM序列，不包含graph相关的edge信息
-    """
     def __init__(
         self,
         embedding_dim: int = 768,  # MolFormer embedding维度
@@ -128,38 +112,30 @@ class HELMTransformer(nn.Module):
         self.d_model = d_model
         self.embedding_dim = embedding_dim
         
-        # 将MolFormer embedding投影到transformer维度
         self.embedding_projection = nn.Linear(embedding_dim, d_model)
         
-        # 时间嵌入（用于diffusion）
         self.time_embedding = nn.Sequential(
             nn.Linear(1, time_embed_dim),
             nn.SiLU(),
             nn.Linear(time_embed_dim, d_model)
         )
         
-        # 位置编码
         self.pos_encoding = PositionalEncoding(d_model, dropout=dropout, max_len=max_seq_len)
         
-        # Transformer编码器层
         self.transformer_layers = nn.ModuleList([
             TransformerEncoderLayer(d_model, n_heads, d_ff, dropout)
             for _ in range(n_layers)
         ])
         
-        # 输出投影层
         self.output_projection = nn.Linear(d_model, embedding_dim)
-        
-        # Layer normalization
         self.layer_norm = nn.LayerNorm(d_model)
-        
         self.dropout_layer = nn.Dropout(dropout)
         
-        # 兼容性属性 - 用于ChEMBL32训练脚本
+        # 兼容性属性
         self.n_heads = n_heads
         self.n_layers = n_layers
         self.max_seq_len = max_seq_len
-        self.dropout = dropout  # 保存dropout率用于兼容性
+        self.dropout = dropout
         
     def forward(
         self,
@@ -167,48 +143,28 @@ class HELMTransformer(nn.Module):
         t: torch.Tensor,  # [batch_size] 时间步
         mask: Optional[torch.Tensor] = None  # [batch_size, seq_len]
     ) -> torch.Tensor:
-        """
-        前向传播
-        
-        Args:
-            x: 输入的embedding序列 [batch_size, seq_len, embedding_dim]
-            t: 时间步 [batch_size]
-            mask: 注意力掩码 [batch_size, seq_len]
-            
-        Returns:
-            输出的embedding序列 [batch_size, seq_len, embedding_dim]
-        """
         batch_size, seq_len, _ = x.shape
         
-        # 将embedding投影到transformer维度
         x = self.embedding_projection(x)  # [batch_size, seq_len, d_model]
         
-        # 添加时间嵌入
         t_embed = self.time_embedding(t.unsqueeze(-1))  # [batch_size, d_model]
         t_embed = t_embed.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, d_model]
         x = x + t_embed
         
-        # 位置编码
         x = x.transpose(0, 1)  # [seq_len, batch_size, d_model]
         x = self.pos_encoding(x)
         x = x.transpose(0, 1)  # [batch_size, seq_len, d_model]
         
-        # 准备注意力掩码
         if mask is not None:
-            # 扩展mask维度以适应多头注意力
             attn_mask = mask.unsqueeze(1).unsqueeze(2)  # [batch_size, 1, 1, seq_len]
             attn_mask = attn_mask.expand(-1, 1, seq_len, -1)  # [batch_size, 1, seq_len, seq_len]
         else:
             attn_mask = None
         
-        # 通过Transformer层
         for layer in self.transformer_layers:
             x = layer(x, attn_mask)
         
-        # Layer normalization
         x = self.layer_norm(x)
-        
-        # 输出投影回原始embedding维度
         x = self.output_projection(x)  # [batch_size, seq_len, embedding_dim]
         
         return x
@@ -219,9 +175,6 @@ class HELMTransformer(nn.Module):
         t: torch.Tensor,
         mask: Optional[torch.Tensor] = None
     ) -> list:
-        """
-        获取注意力权重（用于可视化）
-        """
         batch_size, seq_len, _ = x.shape
         
         x = self.embedding_projection(x)
@@ -249,7 +202,6 @@ class HELMTransformer(nn.Module):
         return attention_weights
 
 
-# 为ChEMBL32兼容性添加的简化构造函数
 def create_helm_transformer_for_chembl32(vocab_size, d_model=512, nhead=8, num_layers=10, 
                                         max_seq_len=150, dropout=0.15):
     """为ChEMBL32创建兼容的HELMTransformer"""
@@ -265,10 +217,8 @@ def create_helm_transformer_for_chembl32(vocab_size, d_model=512, nhead=8, num_l
 
 
 if __name__ == "__main__":
-    # 测试代码
     model = HELMTransformer()
     
-    # 模拟输入
     batch_size = 2
     seq_len = 10
     embedding_dim = 768

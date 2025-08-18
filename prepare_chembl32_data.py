@@ -1,8 +1,3 @@
-"""
-ChEMBL32数据预处理脚本
-将ChEMBL32的biotherapeutics_dict_prot_flt.csv转换为HELM预训练数据
-"""
-
 import pandas as pd
 import numpy as np
 import re
@@ -14,8 +9,6 @@ from collections import Counter
 import argparse
 
 class ChEMBL32DataProcessor:
-    """ChEMBL32数据处理器"""
-    
     def __init__(self, input_file: str = None, output_dir: str = "./data"):
         self.input_file = input_file or "./data/chembl32/biotherapeutics_dict_prot_flt.csv"
         self.output_dir = Path(output_dir)
@@ -31,17 +24,14 @@ class ChEMBL32DataProcessor:
             'too_long': 0,
             'length_distribution': Counter(),
             'monomer_usage': Counter(),
-            'avg_length': 0
         }
     
     def load_data(self) -> pd.DataFrame:
-        """加载ChEMBL32数据"""
         print(f" 正在加载数据: {self.input_file}")
         
         if not Path(self.input_file).exists():
             raise FileNotFoundError(f"数据文件不存在: {self.input_file}")
         
-        # 读取CSV数据
         df = pd.read_csv(self.input_file, low_memory=False)
         print(f" 成功读取 {len(df)} 行数据")
         print(f" 列名: {list(df.columns)}")
@@ -50,18 +40,15 @@ class ChEMBL32DataProcessor:
         return df
     
     def validate_helm_sequence(self, helm_seq: str, min_len: int = 3, max_len: int = 128) -> bool:
-        """验证HELM序列格式和长度"""
         if not isinstance(helm_seq, str) or not helm_seq.strip():
             return False
         
         helm_seq = helm_seq.strip()
         
-        # 检查基本格式
         if not (helm_seq.startswith('PEPTIDE1{') and helm_seq.endswith('}$$$$')):
             return False
         
         try:
-            # 提取单体部分
             content = helm_seq[len('PEPTIDE1{'):-len('}$$$$')]
             if not content:
                 return False

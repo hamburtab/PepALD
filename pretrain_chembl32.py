@@ -1,8 +1,3 @@
-"""
-基于ChEMBL32数据的HELM扩散模型预训练脚本
-专为ChEMBL32生物治疗药物数据优化
-"""
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -18,15 +13,12 @@ from tqdm import tqdm
 import math
 import random
 
-# 导入本地模块
 from helm_transformer import HELMTransformer, create_helm_transformer_for_chembl32
 from helm_diffusion import HELMDiffusion, HELMSequenceDataset
 from chembl32_config import CHEMBL32_CONFIG
 
 
 class ChEMBL32PretrainingConfig:
-    """ChEMBL32预训练配置"""
-    
     def __init__(self):
         # 从chembl32_config中获取基础配置
         for key, value in CHEMBL32_CONFIG.__dict__.items():

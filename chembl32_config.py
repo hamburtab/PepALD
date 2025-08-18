@@ -1,16 +1,9 @@
-"""
-ChEMBL32项目配置文件
-"""
-
 import os
 from pathlib import Path
 
 
 class ChEMBL32Config:
-    """ChEMBL32专用配置类"""
-    
     def __init__(self):
-        # 项目基本信息
         self.project_name = "HELM_Diffusion_ChEMBL32"
         self.version = "2.0.0"
         self.description = "基于ChEMBL32生物治疗药物数据的HELM扩散模型"
@@ -110,11 +103,9 @@ class ChEMBL32Config:
         self.post_process_sequences = True
         self.filter_invalid_sequences = True
         
-        # 确保目录存在
         self._create_directories()
     
     def _create_directories(self):
-        """创建必要的目录"""
         directories = [
             self.output_dir, self.checkpoint_dir, self.log_dir, 
             self.sample_dir, "./data/chembl32"
@@ -123,18 +114,15 @@ class ChEMBL32Config:
             Path(dir_path).mkdir(parents=True, exist_ok=True)
     
     def to_dict(self):
-        """转换为字典格式"""
         return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
     
     def save_config(self, file_path: str):
-        """保存配置到JSON文件"""
         import json
         with open(file_path, 'w') as f:
             json.dump(self.to_dict(), f, indent=2)
     
     @classmethod
     def load_config(cls, file_path: str):
-        """从JSON文件加载配置"""
         import json
         config = cls()
         with open(file_path, 'r') as f:
@@ -145,7 +133,6 @@ class ChEMBL32Config:
         return config
     
     def print_config(self):
-        """打印配置信息"""
         print("=" * 60)
         print(f"🔧 {self.project_name} 配置")
         print("=" * 60)
