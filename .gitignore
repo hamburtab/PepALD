@@ -6,6 +6,21 @@ __pycache__/
 # C extensions
 *.so
 
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test files (keep core functionality only)
+test_*.py
+demo_*.py
+*_test.py
+*_demo.py
+
 # Distribution / packaging
 .Python
 build/

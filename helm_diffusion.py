@@ -8,6 +8,7 @@ import json
 
 from helm_transformer import HELMTransformer
 from molformer_embedding import MolFormerEmbedding
+from helm_topology_analyzer import HELMTopologyAnalyzer
 
 
 class HELMDiffusionModel(nn.Module):
@@ -91,23 +92,31 @@ class HELMDiffusionModel(nn.Module):
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
+        peptide_type: Optional[list] = None,
+        connection_info: Optional[list] = None
     ) -> torch.Tensor:
         t_normalized = t.float() / self.num_steps
-        predicted_noise = self.denoising_network(x_t, t_normalized, mask)
+        predicted_noise = self.denoising_network(x_t, t_normalized, mask, 
+                                                peptide_type=peptide_type, 
+                                                connection_info=connection_info)
         return predicted_noise
-    
+
     def forward(
         self,
         x_0: torch.Tensor,
-        mask: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
+        peptide_type: Optional[list] = None,
+        connection_info: Optional[list] = None
     ) -> Dict[str, torch.Tensor]:
         batch_size = x_0.shape[0]
         device = x_0.device
         
         t = torch.randint(0, self.num_steps, (batch_size,), device=device)
         x_t, noise = self.add_noise(x_0, t)
-        predicted_noise = self.predict_noise(x_t, t, mask)
+        predicted_noise = self.predict_noise(x_t, t, mask, 
+                                           peptide_type=peptide_type, 
+                                           connection_info=connection_info)
         
         if mask is not None:
             loss = F.mse_loss(predicted_noise, noise, reduction='none')  # [batch_size, seq_len, embedding_dim]
@@ -131,7 +140,9 @@ class HELMDiffusionModel(nn.Module):
         mask: Optional[torch.Tensor] = None,
         device: str = 'cuda',
         guidance_scale: float = 1.0,
-        eta: float = 0.0
+        eta: float = 0.0,
+        peptide_type: Optional[list] = None,
+        connection_info: Optional[list] = None
     ) -> torch.Tensor:
         batch_size, seq_len, embedding_dim = shape
         
@@ -140,7 +151,9 @@ class HELMDiffusionModel(nn.Module):
         for i in reversed(range(self.num_steps)):
             t = torch.full((batch_size,), i, device=device, dtype=torch.long)
             
-            predicted_noise = self.predict_noise(x_t, t, mask)
+            predicted_noise = self.predict_noise(x_t, t, mask, 
+                                                peptide_type=peptide_type, 
+                                                connection_info=connection_info)
             
             if i > 0:
                 alpha_t = self.alphas[i]
@@ -178,22 +191,9 @@ class HELMDiffusionModel(nn.Module):
         num_steps: int = 50,
         eta: float = 0.0
     ) -> torch.Tensor:
-        """
-        DDIM快速采样
-        
-        Args:
-            shape: 要生成的数据形状
-            mask: 序列掩码
-            device: 设备
-            num_steps: 采样步数（少于训练步数）
-            eta: DDIM参数
-            
-        Returns:
-            生成的embedding序列
-        """
+        """DDIM采样"""
         batch_size, seq_len, embedding_dim = shape
         
-        # 选择子集时间步
         step_size = self.num_steps // num_steps
         timesteps = list(range(0, self.num_steps, step_size))[:num_steps]
         timesteps = timesteps[::-1]  # 反转
@@ -230,16 +230,11 @@ class HELMEmbeddingLoader:
     """HELM单体embedding加载器"""
     
     def __init__(self, embedding_path: str):
-        """
-        初始化加载器
-        
-        Args:
-            embedding_path: embedding文件路径（pkl格式）
-        """
         self.embedding_path = embedding_path
         self.embeddings = None
         self.symbol_to_idx = {}
         self.idx_to_symbol = {}
+        self.topology_analyzer = HELMTopologyAnalyzer()
         self.load_embeddings()
         
     def load_embeddings(self):
@@ -274,17 +269,9 @@ class HELMEmbeddingLoader:
         return self.embeddings[indices]
     
     def helm_to_embeddings(self, helm_sequence: str) -> torch.Tensor:
-        symbols = self._parse_helm_sequence(helm_sequence)
+        parsed_result = self.topology_analyzer.parse_helm_sequence(helm_sequence)
+        symbols = parsed_result['sequence'].split('.') if parsed_result['sequence'] else []
         return self.get_embeddings_by_symbols(symbols)
-    
-    def _parse_helm_sequence(self, helm_sequence: str) -> list:
-        if '{' in helm_sequence and '}' in helm_sequence:
-            start = helm_sequence.find('{') + 1
-            end = helm_sequence.find('}')
-            sequence_part = helm_sequence[start:end]
-            return sequence_part.split('.')
-        else:
-            return helm_sequence.split('.')
 
 
 if __name__ == "__main__":
@@ -364,38 +351,26 @@ class HELMDiffusion(nn.Module):
         return ground_truth
         
     def forward(self, x, mask=None):
-        """
-        前向传播 - 修改为使用MolFormer embeddings作为target
-        """
-        # 获取ground truth embeddings
         target_embeddings = self.get_ground_truth_embeddings(x)  # [batch, seq_len, embed_dim]
         
         if mask is None:
             mask = torch.ones(target_embeddings.shape[:2], device=target_embeddings.device)
         
-        # 扩散训练：学习从噪声恢复到target embeddings
         result = self.diffusion_model(target_embeddings, mask)
         
-        # 简化损失计算：只计算重建后与MolFormer embedding的MSE loss
         if 'predicted_noise' in result and target_embeddings is not None:
-            # 使用预测的噪声重建原始嵌入
             t = result['t']
             x_t = result.get('x_t', target_embeddings)
             
-            # 获取diffusion参数，添加数值稳定性
             sqrt_alphas_cumprod_t = self.diffusion_model.sqrt_alphas_cumprod[t].view(-1, 1, 1)
             sqrt_one_minus_alphas_cumprod_t = self.diffusion_model.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
             
-            # 添加数值稳定性：避免除零
             sqrt_alphas_cumprod_t = torch.clamp(sqrt_alphas_cumprod_t, min=1e-8)
             
-            # 重建原始数据
             reconstructed = (x_t - sqrt_one_minus_alphas_cumprod_t * result['predicted_noise']) / sqrt_alphas_cumprod_t
             
-            # 对重建结果进行clamp，避免数值爆炸
             reconstructed = torch.clamp(reconstructed, min=-100, max=100)
-            
-            # 计算重建损失（与MolFormer target embeddings的MSE差异）
+
             if mask is not None:
                 recon_loss = F.mse_loss(reconstructed, target_embeddings, reduction='none')
                 mask_expanded = mask.unsqueeze(-1).expand_as(recon_loss)
@@ -403,10 +378,8 @@ class HELMDiffusion(nn.Module):
             else:
                 recon_loss = F.mse_loss(reconstructed, target_embeddings)
             
-            # 对损失进行缩放，使其在合理范围内
             scaled_loss = recon_loss / 100.0  # 缩放因子
             
-            # 只使用重建损失作为主要损失
             result['loss'] = scaled_loss
             result['reconstruction_loss'] = recon_loss
             result['reconstructed'] = reconstructed
@@ -415,57 +388,46 @@ class HELMDiffusion(nn.Module):
         return result
     
     def compute_loss(self, x, mask=None):
-        """计算训练损失"""
         result = self.forward(x, mask)
         return result['loss']
     
     def sample(self, num_samples: int, max_seq_len: int, device=None):
-        """采样生成序列"""
         if device is None:
             device = next(self.parameters()).device
             
         shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
         
-        # DDPM采样
         samples = self.diffusion_model.sample(shape=shape, device=device)
         
-        # 转换为token序列
         token_samples = self._embedding_to_tokens(samples)
         return token_samples
     
     def sample_ddim(self, num_samples: int, max_seq_len: int, ddim_steps: int = 50, eta: float = 0.0):
-        """DDIM采样"""
+
         device = next(self.parameters()).device
         shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
         
-        # DDIM采样
         samples = self.diffusion_model.ddim_sample(
             shape=shape, 
             num_steps=ddim_steps,
             device=device
         )
         
-        # 转换为token序列
         token_samples = self._embedding_to_tokens(samples)
         return token_samples
     
     def _embedding_to_tokens(self, embeddings):
-        """将embedding转换为token序列"""
-        # 使用输出投影层
         logits = self.output_projection(embeddings)  # [batch, seq_len, vocab_size]
         tokens = torch.argmax(logits, dim=-1)  # [batch, seq_len]
         return tokens
 
 
 class HELMSequenceDataset(torch.utils.data.Dataset):
-    """
-    HELM序列数据集
-    用于训练扩散模型
-    """
-    
+
     def __init__(self, data_file: str, max_seq_len: int = 128, vocab_file: str = "./data/helm_vocab.json"):
         self.data_file = data_file
         self.max_seq_len = max_seq_len
+        self.topology_analyzer = HELMTopologyAnalyzer()
         
         # 加载词汇表
         with open(vocab_file, 'r') as f:
@@ -489,29 +451,23 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         helm_seq = self.sequences[idx]
         
-        # 解析HELM序列
         tokens = self._parse_helm_sequence(helm_seq)
         
-        # 转换为索引
         token_ids = self._tokens_to_ids(tokens)
         
-        # 填充或截断
         if len(token_ids) > self.max_seq_len:
             token_ids = token_ids[:self.max_seq_len]
         else:
-            # 使用PAD token填充
             pad_id = self.vocab.get('<PAD>', 0)
             token_ids.extend([pad_id] * (self.max_seq_len - len(token_ids)))
         
         return torch.tensor(token_ids, dtype=torch.long)
     
     def _parse_helm_sequence(self, helm_seq: str):
-        """解析HELM序列为token列表"""
-        if helm_seq.startswith('PEPTIDE1{') and helm_seq.endswith('}$$$$'):
-            content = helm_seq[len('PEPTIDE1{'):-len('}$$$$')]
-            if content:
-                return content.split('.')
-        return []
+        """解析HELM序列为token列表，使用HELMTopologyAnalyzer"""
+        parsed_result = self.topology_analyzer.parse_helm_sequence(helm_seq)
+        sequence = parsed_result['sequence']
+        return sequence.split('.') if sequence else []
     
     def _tokens_to_ids(self, tokens):
         """将token转换为索引"""
