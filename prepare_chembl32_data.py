@@ -25,6 +25,7 @@ class ChEMBL32DataProcessor:
             'length_distribution': Counter(),
             'monomer_usage': Counter(),
         }
+        self.ring_type_set = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
     
     def load_data(self) -> pd.DataFrame:
         print(f" 正在加载数据: {self.input_file}")
@@ -168,6 +169,43 @@ class ChEMBL32DataProcessor:
             print(f"   {monomer}: {count}")
         
         return str(output_file)
+    
+    def extract_ring_info(self, helm_seq: str) -> List[str]:
+        ring_type = []
+        ring_head_tail_idx = []
+        ring_head_tail_type = []
+        res_num = len(helm_seq.split('{')[1].split('}')[0].split('.'))
+        bond_matrix = np.triu(np.ones((res_num, res_num)), 1)
+
+        if helm_seq.split('}')[-1] != '$$$$':
+            ring_info = helm_seq.split('}')[-1]
+            for ring in ring_info.split('|'):
+                r_st = ring.split(':')[1].split('-')[0]
+                res_st = int(ring.split(':')[0].split(',')[-1]) - 1
+                r_ed = ring.split(':')[2].split('$')[0]
+                res_ed = int(ring.split(':')[1].split('-')[1]) - 1
+
+                #ith_bond = (res_ed + 1) * (res_st + 1) - 1
+                if res_st > res_ed:
+                    r_link = r_ed + r_st
+                    ring_head_tail_idx.append([res_ed, res_st])
+                    bond_matrix[res_ed, res_st] = 2 + self.ring_type_set.index(r_link)
+                    
+
+                else:
+                    r_link = r_st + r_ed
+                    ring_head_tail_idx.append([res_st, res_ed])
+                    bond_matrix[res_st, res_ed] = 2 + self.ring_type_set.index(r_link)
+                #if r_link not in  ring_type:
+                    # print(r_link)
+                    # print(helm)
+                ring_head_tail_type.append(r_link)
+                ring_type.append(self.ring_type_set.index(r_link))
+        
+        # 获得上半角的键连矩阵 0表示没有成环键连 往后表示 ['R3R3', 'R1R2', 'R1R3', 'R3R2']
+        bond_array = bond_matrix[np.where(bond_matrix > 0)] - 1
+        
+        return bond_array
 
 
 def main():

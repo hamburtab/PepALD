@@ -179,13 +179,13 @@ class TransformerEncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, x, mask=None):
-        attn_output, _ = self.self_attn(x, x, x, mask)
+        attn_output, attn_weights = self.self_attn(x, x, x, mask)
         x = self.norm1(x + self.dropout(attn_output))
         
         ff_output = self.feed_forward(x)
         x = self.norm2(x + self.dropout(ff_output))
         
-        return x
+        return x, attn_weights
 
 
 class HELMTransformer(nn.Module):
@@ -198,7 +198,8 @@ class HELMTransformer(nn.Module):
         d_ff: int = 2048,
         max_seq_len: int = 256,
         dropout: float = 0.1,
-        time_embed_dim: int = 128
+        time_embed_dim: int = 128,
+        ring_bond_type: int = 4
     ):
         super().__init__()
         
@@ -229,6 +230,11 @@ class HELMTransformer(nn.Module):
         self.n_layers = n_layers
         self.max_seq_len = max_seq_len
         self.dropout = dropout
+        self.ring_bond_embedding = nn.Sequential(
+            nn.Linear(1, ring_bond_type),
+            nn.SiLU(),
+            nn.Linear(ring_bond_type, ring_bond_type)
+        )
         
     def forward(
         self,
@@ -257,12 +263,16 @@ class HELMTransformer(nn.Module):
             attn_mask = None
         
         for layer in self.transformer_layers:
-            x = layer(x, attn_mask)
+            x, attn_weights = layer(x, attn_mask)
         
         x = self.layer_norm(x)
         x = self.output_projection(x)  # [batch_size, seq_len, embedding_dim]
-        
-        return x
+
+        ring_bond_embedding = self.ring_bond_embedding(attn_weights.unsqueeze(-1))
+        # attn_mask \in [batch_size, 1, seq_len, seq_len]
+        ring_bond_embedding = ring_bond_embedding[attn_mask.squeeze(1).bool().triu(1)]
+        # read_out ring_bond_embedding, then do softmax, compute loss when t is smaller than a threshold
+        return x, ring_bond_embedding
     
     def get_attention_weights(
         self,
