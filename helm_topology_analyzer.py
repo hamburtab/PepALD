@@ -19,7 +19,9 @@ class HELMTopologyAnalyzer:
             sequence_part = helm_sequence
             connection_part = ""
         
-        peptide_match = re.search(r'PEPTIDE\d+\{([^}]+)\}', sequence_part)
+        peptide_match = re.search(r'PEPTIDE\d+\{([^}]+)\}', sequence_part) 
+
+        # 默认不正常情况都是linear
         if not peptide_match:
             return {
                 'peptide_type': 'linear',
@@ -69,7 +71,7 @@ class HELMTopologyAnalyzer:
         if not connections:
             return 'linear'
         
-        amino_acids = re.findall(r'[A-Z][a-z]*', sequence)
+        amino_acids = sequence.split('.')
         seq_length = len(amino_acids)
         
         cyclic_connections = 0
@@ -97,7 +99,7 @@ class HELMTopologyAnalyzer:
         if not connections:
             return None
         
-        amino_acids = re.findall(r'[A-Z][a-z]*|\[[^\]]+\]', sequence)
+        amino_acids = sequence.split('.')
         seq_length = len(amino_acids)
         
         connection_pairs = []
@@ -131,7 +133,7 @@ class HELMTopologyAnalyzer:
         connections = helm_analysis.get('connections', [])
         sequence = helm_analysis.get('sequence', '')
         
-        amino_acids = re.findall(r'[A-Z][a-z]*', sequence)
+        amino_acids = sequence.split('.')
         seq_length = len(amino_acids)
         
         connection_info = None

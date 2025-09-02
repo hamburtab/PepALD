@@ -94,12 +94,14 @@ class HELMDiffusionModel(nn.Module):
         t: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         peptide_type: Optional[list] = None,
-        connection_info: Optional[list] = None
+        connection_info: Optional[list] = None,
+        helm_sequences: Optional[list] = None
     ) -> torch.Tensor:
         t_normalized = t.float() / self.num_steps
-        predicted_noise = self.denoising_network(x_t, t_normalized, mask, 
+        predicted_noise = self.denoising_network(x_t, t_normalized, mask=mask, 
                                                 peptide_type=peptide_type, 
-                                                connection_info=connection_info)
+                                                connection_info=connection_info,
+                                                helm_sequences=helm_sequences)
         return predicted_noise
 
     def forward(
@@ -107,7 +109,8 @@ class HELMDiffusionModel(nn.Module):
         x_0: torch.Tensor,
         mask: Optional[torch.Tensor] = None,
         peptide_type: Optional[list] = None,
-        connection_info: Optional[list] = None
+        connection_info: Optional[list] = None,
+        helm_sequences: Optional[list] = None
     ) -> Dict[str, torch.Tensor]:
         batch_size = x_0.shape[0]
         device = x_0.device
@@ -116,7 +119,8 @@ class HELMDiffusionModel(nn.Module):
         x_t, noise = self.add_noise(x_0, t)
         predicted_noise = self.predict_noise(x_t, t, mask, 
                                            peptide_type=peptide_type, 
-                                           connection_info=connection_info)
+                                           connection_info=connection_info,
+                                           helm_sequences=helm_sequences)
         
         if mask is not None:
             loss = F.mse_loss(predicted_noise, noise, reduction='none')  # [batch_size, seq_len, embedding_dim]

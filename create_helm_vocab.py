@@ -1,69 +1,55 @@
 import json
-import re
+import pandas as pd
 from pathlib import Path
 from collections import Counter
 from typing import Dict, Set, List
 
-def extract_monomers_from_chembl32() -> Set[str]:
+def extract_monomers_from_library() -> Set[str]:
+    """从monomer_library.csv中提取所有单体符号"""
     monomers = set()
     
-    data_file = "./data/helm_sequences_chembl32.txt"
+    library_file = "./data/monomer_library.csv"
     
-    if not Path(data_file).exists():
-        print(f"错误: 数据文件不存在 {data_file}")
+    if not Path(library_file).exists():
+        print(f"错误: 单体库文件不存在 {library_file}")
         return monomers
     
-    with open(data_file, 'r') as f:
-        for line in f:
-            helm_seq = line.strip()
-            if helm_seq.startswith('PEPTIDE1{') and helm_seq.endswith('}$$$$'):
-                content = helm_seq[len('PEPTIDE1{'):-len('}$$$$')]
-                if content:
-                    sequence_monomers = content.split('.')
-                    monomers.update(sequence_monomers)
-    
-    return monomers
-
-def extract_monomers_from_original() -> Set[str]:
-    monomers = set()
-    
-    original_file = "./data/helm_sequences_pretrain.txt"
-    
-    if Path(original_file).exists():
-        with open(original_file, 'r') as f:
-            for line in f:
-                helm_seq = line.strip()
-                if helm_seq.startswith('PEPTIDE1{') and helm_seq.endswith('}$$$$'):
-                    content = helm_seq[len('PEPTIDE1{'):-len('}$$$$')]
-                    if content:
-                        sequence_monomers = content.split('.')
-                        monomers.update(sequence_monomers)
+    try:
+        df = pd.read_csv(library_file)
+        if 'Symbol' in df.columns:
+            # 提取所有单体符号，去除空值
+            symbols = df['Symbol'].dropna().unique()
+            monomers.update(symbols)
+            print(f"   从单体库加载了 {len(monomers)} 个单体")
+        else:
+            print(f"错误: CSV文件中未找到'Symbol'列")
+    except Exception as e:
+        print(f"错误: 读取单体库文件失败 - {e}")
     
     return monomers
 
 def create_helm_vocab() -> Dict[str, int]:
     print(" 创建HELM词汇表...")
     
-    all_monomers = set()
+    # 从单体库加载所有单体
+    library_monomers = extract_monomers_from_library()
+    print(f"   单体库中的单体数: {len(library_monomers)}")
     
-    chembl32_monomers = extract_monomers_from_chembl32()
-    print(f"   ChEMBL32单体数: {len(chembl32_monomers)}")
-    all_monomers.update(chembl32_monomers)
+    # 使用单体库中的所有单体
+    all_monomers = library_monomers
     
-    original_monomers = extract_monomers_from_original()
-    if original_monomers:
-        print(f"   原始数据单体数: {len(original_monomers)}")
-        all_monomers.update(original_monomers)
-    
+    # 定义特殊token
     special_tokens = ['<PAD>', '<UNK>', '<START>', '<END>']
     
     vocab = {}
     idx = 0
     
+    # 首先添加特殊token
     for token in special_tokens:
         vocab[token] = idx
         idx += 1
     
+    # 然后添加所有单体（按字母顺序排序以保证一致性）
     sorted_monomers = sorted(list(all_monomers))
     for monomer in sorted_monomers:
         if monomer and monomer not in vocab:
@@ -74,28 +60,38 @@ def create_helm_vocab() -> Dict[str, int]:
     print(f"   特殊token: {special_tokens}")
     print(f"   单体数量: {len(sorted_monomers)}")
     
-    # 显示一些常见单体
+    # 显示一些常见氨基酸单体
     common_amino_acids = ['A', 'R', 'N', 'D', 'C', 'E', 'Q', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V']
     found_aa = [aa for aa in common_amino_acids if aa in vocab]
     print(f"   标准氨基酸: {found_aa}")
     
+    # 显示前10个单体作为示例
+    example_monomers = sorted_monomers[:10]
+    print(f"   示例单体: {example_monomers}")
+    
     return vocab
 
 def save_vocab_to_json(vocab: Dict[str, int], filepath: str):
+    """保存词汇表到JSON文件"""
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(vocab, f, ensure_ascii=False, indent=2)
     print(f"   词汇表已保存到: {filepath}")
 
 def create_reverse_vocab(vocab: Dict[str, int]) -> Dict[int, str]:
+    """创建反向词汇表（索引->单体）"""
     return {v: k for k, v in vocab.items()}
 
-def analyze_monomer_frequency(vocab: Dict[str, int]) -> Dict[str, int]:
-    frequency = {}
+def analyze_monomer_frequency() -> Dict[str, int]:
+    """分析ChEMBL32数据中的单体使用频率"""
+    print(" 分析单体使用频率...")
+    
+    monomer_counts = Counter()
     
     data_file = "./data/helm_sequences_chembl32.txt"
+    
     if not Path(data_file).exists():
-        print(f"数据文件不存在: {data_file}")
-        return frequency
+        print(f"   警告: 数据文件不存在 {data_file}")
+        return {}
     
     total_sequences = 0
     with open(data_file, 'r') as f:
@@ -107,33 +103,9 @@ def analyze_monomer_frequency(vocab: Dict[str, int]) -> Dict[str, int]:
                 if content:
                     monomers = content.split('.')
                     for monomer in monomers:
-                        if monomer in vocab:
-                            frequency[monomer] = frequency.get(monomer, 0) + 1
+                        monomer_counts[monomer] += 1
     
     print(f"   分析了 {total_sequences} 个序列")
-    return frequency
-
-def create_reverse_vocab(vocab: Dict[str, int]) -> Dict[int, str]:
-    return {v: k for k, v in vocab.items()}
-
-def analyze_monomer_frequency() -> Dict[str, int]:
-    print(" 分析单体使用频率...")
-    
-    monomer_counts = Counter()
-    
-    data_file = "./data/helm_sequences_chembl32.txt"
-    
-    if Path(data_file).exists():
-        with open(data_file, 'r') as f:
-            for line in f:
-                helm_seq = line.strip()
-                if helm_seq.startswith('PEPTIDE1{') and helm_seq.endswith('}$$$$'):
-                    content = helm_seq[len('PEPTIDE1{'):-len('}$$$$')]
-                    if content:
-                        monomers = content.split('.')
-                        for monomer in monomers:
-                            monomer_counts[monomer] += 1
-    
     print("   最常用单体 (Top 20):")
     for monomer, count in monomer_counts.most_common(20):
         print(f"     {monomer}: {count}")

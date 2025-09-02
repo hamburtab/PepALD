@@ -2,29 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import numpy as np
 from typing import Optional, Tuple
 
 
 class HybridPositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 100):
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 256):
         super().__init__()
         self.d_model = d_model
         self.dropout = nn.Dropout(p=dropout)
-        
-        # 标准位置编码
         self.register_buffer('linear_pe_buffer', self._create_linear_encoding(max_len, d_model))
-        
-        # 圆环投影层
-        self.ring_projection = nn.Linear(d_model, d_model)
-        
-        # 连接投影层 (考虑R基团类型)
-        self.connection_projection = nn.Linear(d_model, d_model)
-        
-        # R基团类型嵌入 (R1, R2, R3等)
-        self.r_group_embedding = nn.Embedding(10, d_model // 4)  # 支持R1-R9
-        
-        # 尾部投影层
-        self.tail_projection = nn.Linear(d_model, d_model)
+        self.ring_type_set = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
     
     def _create_linear_encoding(self, max_len: int, d_model: int):
         pe = torch.zeros(max_len, d_model)
@@ -34,84 +22,9 @@ class HybridPositionalEncoding(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         return pe.unsqueeze(0).transpose(0, 1)
     
-    def _create_circular_encoding(self, seq_len: int, d_model: int, start_pos: int = 0, end_pos: int = None):
-        if end_pos is None:
-            end_pos = seq_len
-        ring_len = end_pos - start_pos
-        
-        pe = torch.zeros(seq_len, d_model)
-        for i in range(start_pos, end_pos):
-            # 圆环相对位置
-            ring_pos = (i - start_pos) / ring_len * 2 * math.pi
-            
-            for j in range(0, d_model, 2):
-                freq = 1.0 / (10000.0 ** (j / d_model))
-                pe[i, j] = math.sin(ring_pos * freq)
-                if j + 1 < d_model:
-                    pe[i, j + 1] = math.cos(ring_pos * freq)
-        
-        return pe
-    
     def forward(self, x, peptide_type=None, connection_info=None):
         seq_len, batch_size, d_model = x.shape
-        
-        if peptide_type is None:
-            peptide_type = ['linear'] * batch_size
-        
-        pe = torch.zeros_like(x)
-        
-        for b in range(batch_size):
-            if peptide_type[b] == 'linear':
-                # 标准线性肽：使用线性位置编码
-                pe[:, b, :] = self.linear_pe_buffer[:seq_len, 0, :]
-                
-            elif peptide_type[b] == 'cyclic':
-                # 标准环肽：纯圆环位置编码
-                circular_pe = self._create_circular_encoding(seq_len, d_model)
-                pe[:, b, :] = self.ring_projection(circular_pe)
-                
-            elif peptide_type[b] == 'q_type' and connection_info is not None and connection_info[b] is not None:
-                # Q型环肽：混合编码
-                connections = connection_info[b]
-                if connections:
-                    conn_dict = connections[0]  # 使用第一个连接
-                    conn_start = conn_dict['pos1']
-                    conn_end = conn_dict['pos2']
-                    r1 = conn_dict['r1']
-                    r2 = conn_dict['r2']
-                    
-                    # 环部分：圆环编码
-                    if conn_start < conn_end:
-                        ring_pe = self._create_circular_encoding(seq_len, d_model, conn_start, conn_end + 1)
-                        pe[conn_start:conn_end + 1, b, :] = self.ring_projection(ring_pe[conn_start:conn_end + 1])
-                    
-                    # 连接点特殊标记（包含R基团类型）
-                    conn_encoding = torch.zeros(seq_len, d_model)
-                    
-                    # R基团类型嵌入
-                    r1_embed = self.r_group_embedding(torch.tensor(r1 - 1))  # R1->0, R2->1, etc.
-                    r2_embed = self.r_group_embedding(torch.tensor(r2 - 1))
-                    
-                    # 为连接位置添加R基团特定编码
-                    conn_encoding[conn_start, :d_model//4] = r1_embed
-                    conn_encoding[conn_end, :d_model//4] = r2_embed
-                    
-                    # 添加位置标记
-                    conn_encoding[conn_start, d_model//4:d_model//2] = 1.0
-                    conn_encoding[conn_end, d_model//2:3*d_model//4] = 1.0
-                pe[:, b, :] += self.connection_projection(conn_encoding)
-                
-                # 尾部：线性编码 + 衰减
-                tail_start = max(conn_start, conn_end) + 1
-                if tail_start < seq_len:
-                    tail_pe = self.linear_pe_buffer[tail_start:seq_len, 0, :]
-                    for i, pos in enumerate(range(tail_start, seq_len)):
-                        decay = 1.0 - i / (seq_len - tail_start)
-                        pe[pos, b, :] = self.tail_projection(tail_pe[i] * decay)
-            else:
-                # 默认使用线性编码
-                pe[:, b, :] = self.linear_pe_buffer[:seq_len, 0, :]
-        
+        pe = self.linear_pe_buffer[:seq_len, 0, :].unsqueeze(1).expand(-1, batch_size, -1)
         x = x + pe
         return self.dropout(x)
 
@@ -216,6 +129,7 @@ class HELMTransformer(nn.Module):
         
         self.pos_encoding = HybridPositionalEncoding(d_model, dropout=dropout, max_len=max_seq_len)
         
+        #共循环TransformerEncoderLayer层6次
         self.transformer_layers = nn.ModuleList([
             TransformerEncoderLayer(d_model, n_heads, d_ff, dropout)
             for _ in range(n_layers)
@@ -230,6 +144,10 @@ class HELMTransformer(nn.Module):
         self.n_layers = n_layers
         self.max_seq_len = max_seq_len
         self.dropout = dropout
+        
+        # 环键类型定义
+        self.bond_types = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
+        
         self.ring_bond_embedding = nn.Sequential(
             nn.Linear(1, ring_bond_type),
             nn.SiLU(),
@@ -242,13 +160,14 @@ class HELMTransformer(nn.Module):
         t: torch.Tensor,  # [batch_size] 时间步
         mask: Optional[torch.Tensor] = None,  # [batch_size, seq_len]
         peptide_type: Optional[list] = None,
-        connection_info: Optional[list] = None
+        connection_info: Optional[list] = None,
+        helm_sequences: Optional[list] = None
     ) -> torch.Tensor:
         batch_size, seq_len, _ = x.shape
         
         x = self.embedding_projection(x)  # [batch_size, seq_len, d_model]
         
-        t_embed = self.time_embedding(t.unsqueeze(-1))  # [batch_size, d_model]
+        t_embed = self.time_embedding(t.float().unsqueeze(-1))  # [batch_size, d_model] - 确保float类型
         t_embed = t_embed.unsqueeze(1).expand(-1, seq_len, -1)  # [batch_size, seq_len, d_model]
         x = x + t_embed
         
@@ -266,13 +185,75 @@ class HELMTransformer(nn.Module):
             x, attn_weights = layer(x, attn_mask)
         
         x = self.layer_norm(x)
-        x = self.output_projection(x)  # [batch_size, seq_len, embedding_dim]
-
-        ring_bond_embedding = self.ring_bond_embedding(attn_weights.unsqueeze(-1))
-        # attn_mask \in [batch_size, 1, seq_len, seq_len]
-        ring_bond_embedding = ring_bond_embedding[attn_mask.squeeze(1).bool().triu(1)]
-        # read_out ring_bond_embedding, then do softmax, compute loss when t is smaller than a threshold
-        return x, ring_bond_embedding
+        x = self.output_projection(x)
+        
+        # 环键嵌入处理 - 仅在低噪声场景（t < 100）计算
+        ring_bond_loss = None
+        if hasattr(self, 'ring_bond_embedding') and helm_sequences is not None:
+            low_noise_mask = t < 100
+            if low_noise_mask.any():
+                try:
+                    ring_bond_targets = []
+                    valid_indices = []
+                    
+                    for idx, helm_seq in enumerate(helm_sequences):
+                        if low_noise_mask[idx].item():
+                            ring_info = self._extract_ring_info(helm_seq)
+                            if ring_info and ring_info.get('ring_connections'):
+                                # 构建环键类型矩阵
+                                bond_matrix = torch.zeros(seq_len, seq_len, dtype=torch.long, device=x.device)
+                                
+                                for connection in ring_info['ring_connections']:
+                                    pos1, r1, pos2, r2 = connection
+                                    if pos1 < seq_len and pos2 < seq_len:
+                                        bond_type = f"{r1}{r2}"
+                                        if bond_type in self.bond_types:
+                                            bond_idx = self.bond_types.index(bond_type)
+                                            bond_matrix[pos1, pos2] = bond_idx + 1  # 使用1-based索引，0表示无连接
+                                            bond_matrix[pos2, pos1] = bond_idx + 1
+                                
+                                ring_bond_targets.append(bond_matrix)
+                                valid_indices.append(idx)
+                    
+                    if ring_bond_targets and valid_indices:
+                        # 提取对应的注意力权重
+                        valid_attn_weights = attn_weights[valid_indices]  # [valid_batch, num_heads, seq_len, seq_len]
+                        
+                        # 平均所有注意力头
+                        avg_attn = valid_attn_weights.mean(dim=1).float()  # [valid_batch, seq_len, seq_len]，确保float类型
+                        
+                        # 构建上三角掩码
+                        triu_mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
+                        
+                        # 提取上三角部分用于环键预测
+                        triu_attn = avg_attn[:, triu_mask]  # [valid_batch, num_pairs]
+                        ring_bond_pred = self.ring_bond_embedding(triu_attn.unsqueeze(-1))  # [valid_batch, num_pairs, num_bond_types]
+                        
+                        # 构建目标标签
+                        ring_bond_targets_tensor = torch.stack(ring_bond_targets)  # [valid_batch, seq_len, seq_len]
+                        target_labels = ring_bond_targets_tensor[:, triu_mask]  # [valid_batch, num_pairs]
+                        
+                        # 计算环键分类损失（注意要调整标签）
+                        # 将1-based标签转为0-based，并只考虑有连接的位置
+                        valid_positions = target_labels > 0
+                        if valid_positions.any():
+                            valid_labels = target_labels[valid_positions] - 1  # 转为0-based
+                            valid_preds = ring_bond_pred.view(-1, len(self.bond_types))[valid_positions.view(-1)]
+                            
+                            ring_bond_loss = F.cross_entropy(valid_preds, valid_labels)
+                        
+                except Exception as e:
+                    print(f"环键损失计算中的错误: {e}")
+                    ring_bond_loss = None
+        
+        # 对于简单的环键嵌入，当没有特定损失时使用均值嵌入
+        if ring_bond_loss is None:
+            # 确保数据类型一致
+            attn_mean = attn_weights.mean(dim=1).float()  # 转换为float
+            ring_bond_embedding = self.ring_bond_embedding(attn_mean.unsqueeze(-1))
+            return x, ring_bond_embedding
+        else:
+            return x, ring_bond_loss
     
     def get_attention_weights(
         self,
@@ -284,7 +265,7 @@ class HELMTransformer(nn.Module):
         
         x = self.embedding_projection(x)
         
-        t_embed = self.time_embedding(t.unsqueeze(-1))
+        t_embed = self.time_embedding(t.float().unsqueeze(-1))
         t_embed = t_embed.unsqueeze(1).expand(-1, seq_len, -1)
         x = x + t_embed
         
@@ -305,6 +286,65 @@ class HELMTransformer(nn.Module):
             x = layer(x, attn_mask)
         
         return attention_weights
+    
+    def _extract_ring_info(self, helm_seq: str):
+        """从HELM序列中提取环键信息
+        基于prepare_chembl32_data.py的正确实现
+        格式: PEPTIDE1{[dY].[dC].F.W.K.[meT].C.T.[am]}$PEPTIDE1,PEPTIDE1,7:R3-2:R3$$$
+        """
+        # 检查是否是环肽（不以}$$$$结尾）
+        if helm_seq.split('}')[-1] == '$$$$':
+            return None
+        
+        try:
+            # 提取序列部分
+            seq_part = helm_seq.split('{')[1].split('}')[0]
+            res_num = len(seq_part.split('.'))
+            
+            # 提取环键信息部分（在}之后）
+            ring_info = helm_seq.split('}')[-1]
+            if not ring_info:
+                return None
+            
+            ring_connections = []
+            
+            # 按|分割不同的环键信息
+            for ring in ring_info.split('|'):
+                if not ring or ':' not in ring:
+                    continue
+                    
+                try:
+                    # 按prepare_chembl32_data.py的解析逻辑
+                    # 格式：某些前缀,某些内容,位置:R基团-位置:R基团
+                    parts = ring.split(':')
+                    if len(parts) < 3:
+                        continue
+                    
+                    # 提取起始信息
+                    r_st = parts[1].split('-')[0]  # 'R3-3' -> 'R3'
+                    res_st = int(parts[0].split(',')[-1]) - 1  # '位置' -> 0-based
+                    
+                    # 提取结束信息  
+                    r_ed = parts[2].split('$')[0]  # 'R3$$$' -> 'R3'
+                    res_ed = int(parts[1].split('-')[1]) - 1  # 'R3-3' -> '3' -> 2 (0-based)
+                    
+                    # 验证位置有效性
+                    if 0 <= res_st < res_num and 0 <= res_ed < res_num:
+                        ring_connections.append((res_st, r_st, res_ed, r_ed))
+                    
+                except (ValueError, IndexError):
+                    continue
+            
+            if ring_connections:
+                return {
+                    'sequence_length': res_num,
+                    'ring_connections': ring_connections
+                }
+            else:
+                return None
+            
+        except (IndexError, ValueError):
+            return None
 
 
 def create_helm_transformer_for_chembl32(vocab_size, d_model=512, nhead=8, num_layers=10, 
