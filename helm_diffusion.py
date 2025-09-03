@@ -98,10 +98,17 @@ class HELMDiffusionModel(nn.Module):
         helm_sequences: Optional[list] = None
     ) -> torch.Tensor:
         t_normalized = t.float() / self.num_steps
-        predicted_noise = self.denoising_network(x_t, t_normalized, mask=mask, 
-                                                peptide_type=peptide_type, 
-                                                connection_info=connection_info,
-                                                helm_sequences=helm_sequences)
+        transformer_output = self.denoising_network(x_t, t_normalized, mask=mask, 
+                                                   peptide_type=peptide_type, 
+                                                   connection_info=connection_info,
+                                                   helm_sequences=helm_sequences)
+        
+        # HELMTransformer 返回 (predicted_noise, ring_bond_loss/embedding)
+        if isinstance(transformer_output, tuple):
+            predicted_noise = transformer_output[0]
+        else:
+            predicted_noise = transformer_output
+            
         return predicted_noise
 
     def forward(
