@@ -8,19 +8,16 @@ class ChEMBL32Config:
         self.version = "2.0.0"
         self.description = "基于ChEMBL32生物治疗药物数据的HELM扩散模型"
         
-        # 数据路径
         self.chembl32_raw_file = "./data/chembl32/biotherapeutics_dict_prot_flt.csv"
         self.chembl32_processed_file = "./data/helm_sequences_chembl32.txt"
         self.chembl32_stats_file = "./data/chembl32_processing_stats.json"
         
-        # 数据处理参数
         self.min_seq_len = 3        
         self.max_seq_len = 150      
         self.vocab_file = "./data/helm_vocab.json"
         self.train_ratio = 0.9      
         self.val_ratio = 0.1        
 
-        # Transformer配置
         self.d_model = 512
         self.nhead = 8
         self.num_layers = 10
@@ -28,7 +25,6 @@ class ChEMBL32Config:
         self.dropout = 0.15
         self.activation = "gelu"
         
-        # 扩散模型配置
         self.T = 1000
         self.beta_start = 1e-4
         self.beta_end = 0.02
@@ -36,7 +32,6 @@ class ChEMBL32Config:
         self.loss_type = "mse"
         self.predict_type = "noise"
         
-        # 训练配置
         self.train_epochs = 15
         self.batch_size = 24
         self.learning_rate = 3e-5
@@ -50,7 +45,6 @@ class ChEMBL32Config:
         self.warmup_steps = 2000
         self.min_lr = 1e-6
         
-        # 训练策略
         self.use_data_augmentation = True
         self.augment_prob = 0.1
         self.use_mixed_precision = True
@@ -58,13 +52,11 @@ class ChEMBL32Config:
         self.use_ema = True
         self.ema_decay = 0.999
         
-        # 输出目录
         self.output_dir = "./chembl32_outputs"
         self.checkpoint_dir = "./chembl32_checkpoints"
         self.log_dir = "./chembl32_logs"
         self.sample_dir = "./chembl32_samples"
         
-        # 保存和日志
         self.save_every_n_epochs = 1
         self.save_every_n_steps = 2000
         self.keep_last_n_checkpoints = 5
@@ -73,7 +65,6 @@ class ChEMBL32Config:
         self.sample_interval = 2000
         self.tensorboard_log = True
         
-        # 验证和采样
         self.val_batch_size = 32
         self.val_num_batches = 50
         self.sample_num_sequences = 10
@@ -81,22 +72,19 @@ class ChEMBL32Config:
         self.ddim_steps = 50
         self.ddim_eta = 0.0
         
-        # 计算资源
         self.device = "auto"
         self.num_workers = 8
         self.pin_memory = True
         self.gradient_checkpointing = True
         self.dataloader_drop_last = True
         
-        # 实验设置
         self.experiment_name = "chembl32_v1"
         self.seed = 42
         self.deterministic = True
         self.debug_mode = False
         self.profile_training = False
         self.fast_dev_run = False
-        
-        # ChEMBL32特定功能
+
         self.analyze_chembl32_properties = True
         self.validate_generated_molecules = True
         self.compute_molecular_metrics = True
@@ -134,7 +122,7 @@ class ChEMBL32Config:
     
     def print_config(self):
         print("=" * 60)
-        print(f"🔧 {self.project_name} 配置")
+        print(f" {self.project_name} 配置")
         print("=" * 60)
         
         sections = {

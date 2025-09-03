@@ -14,7 +14,7 @@ from helm_topology_analyzer import HELMTopologyAnalyzer
 class HELMDiffusionModel(nn.Module):
     def __init__(
         self,
-        embedding_dim: int = 768,  # MolFormer embedding维度
+        embedding_dim: int = 768,
         d_model: int = 512,
         n_heads: int = 8,
         n_layers: int = 6,
@@ -22,7 +22,7 @@ class HELMDiffusionModel(nn.Module):
         max_seq_len: int = 256,
         dropout: float = 0.1,
         num_diffusion_steps: int = 1000,
-        variance_schedule: str = "linear",  # "linear" or "cosine"
+        variance_schedule: str = "linear",
         beta_start: float = 0.0001,
         beta_end: float = 0.02
     ):
@@ -123,8 +123,8 @@ class HELMDiffusionModel(nn.Module):
                                            helm_sequences=helm_sequences)
         
         if mask is not None:
-            loss = F.mse_loss(predicted_noise, noise, reduction='none')  # [batch_size, seq_len, embedding_dim]
-            mask_expanded = mask.unsqueeze(-1).expand_as(loss)  # [batch_size, seq_len, embedding_dim]
+            loss = F.mse_loss(predicted_noise, noise, reduction='none')
+            mask_expanded = mask.unsqueeze(-1).expand_as(loss)
             loss = (loss * mask_expanded).sum() / mask_expanded.sum()
         else:
             loss = F.mse_loss(predicted_noise, noise)
@@ -180,7 +180,6 @@ class HELMDiffusionModel(nn.Module):
                 else:
                     x_t = mean
             else:
-                # 最后一步，直接预测x_0
                 alpha_cumprod_t = self.alphas_cumprod[i]
                 x_t = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
                 
@@ -195,12 +194,11 @@ class HELMDiffusionModel(nn.Module):
         num_steps: int = 50,
         eta: float = 0.0
     ) -> torch.Tensor:
-        """DDIM采样"""
         batch_size, seq_len, embedding_dim = shape
         
         step_size = self.num_steps // num_steps
         timesteps = list(range(0, self.num_steps, step_size))[:num_steps]
-        timesteps = timesteps[::-1]  # 反转
+        timesteps = timesteps[::-1]
         
         x_t = torch.randn(shape, device=device)
         
@@ -216,7 +214,6 @@ class HELMDiffusionModel(nn.Module):
             else:
                 alpha_cumprod_t_prev = torch.tensor(1.0, device=device)
             
-            # DDIM更新规则
             x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
             
             direction_to_x_t = torch.sqrt(1 - alpha_cumprod_t_prev - eta**2 * (1 - alpha_cumprod_t_prev)) * predicted_noise
@@ -231,7 +228,6 @@ class HELMDiffusionModel(nn.Module):
 
 
 class HELMEmbeddingLoader:
-    """HELM单体embedding加载器"""
     
     def __init__(self, embedding_path: str):
         self.embedding_path = embedding_path
@@ -242,7 +238,6 @@ class HELMEmbeddingLoader:
         self.load_embeddings()
         
     def load_embeddings(self):
-        """加载embedding数据"""
         try:
             with open(self.embedding_path, 'rb') as f:
                 data = pickle.load(f)
@@ -320,15 +315,13 @@ class HELMDiffusion(nn.Module):
         self.use_molformer = use_molformer
         
         if use_molformer and vocab is not None:
-            print(" 使用MolFormer预训练embeddings")
             self.embedding = MolFormerEmbedding(
                 embeddings_dir="./molformer_embeddings",
                 vocab=vocab,
                 freeze_embeddings=False
             )
-            embedding_dim = self.embedding.embedding_dim  # 768
+            embedding_dim = self.embedding.embedding_dim
         else:
-            print(" 使用随机初始化embeddings")
             embedding_dim = transformer.embedding_dim
             self.embedding = nn.Embedding(vocab_size, embedding_dim)
         
@@ -348,47 +341,18 @@ class HELMDiffusion(nn.Module):
     def get_ground_truth_embeddings(self, x):
         if self.use_molformer:
             with torch.no_grad():
-                ground_truth = self.embedding(x)  # [batch, seq_len, 768]
+                ground_truth = self.embedding(x)
         else:
-            # 使用学习的embeddings
             ground_truth = self.embedding(x)
         return ground_truth
         
     def forward(self, x, mask=None):
-        target_embeddings = self.get_ground_truth_embeddings(x)  # [batch, seq_len, embed_dim]
+        target_embeddings = self.get_ground_truth_embeddings(x)
         
         if mask is None:
             mask = torch.ones(target_embeddings.shape[:2], device=target_embeddings.device)
         
         result = self.diffusion_model(target_embeddings, mask)
-        
-        if 'predicted_noise' in result and target_embeddings is not None:
-            t = result['t']
-            x_t = result.get('x_t', target_embeddings)
-            
-            sqrt_alphas_cumprod_t = self.diffusion_model.sqrt_alphas_cumprod[t].view(-1, 1, 1)
-            sqrt_one_minus_alphas_cumprod_t = self.diffusion_model.sqrt_one_minus_alphas_cumprod[t].view(-1, 1, 1)
-            
-            sqrt_alphas_cumprod_t = torch.clamp(sqrt_alphas_cumprod_t, min=1e-8)
-            
-            reconstructed = (x_t - sqrt_one_minus_alphas_cumprod_t * result['predicted_noise']) / sqrt_alphas_cumprod_t
-            
-            reconstructed = torch.clamp(reconstructed, min=-100, max=100)
-
-            if mask is not None:
-                recon_loss = F.mse_loss(reconstructed, target_embeddings, reduction='none')
-                mask_expanded = mask.unsqueeze(-1).expand_as(recon_loss)
-                recon_loss = (recon_loss * mask_expanded).sum() / mask_expanded.sum()
-            else:
-                recon_loss = F.mse_loss(reconstructed, target_embeddings)
-            
-            scaled_loss = recon_loss / 100.0  # 缩放因子
-            
-            result['loss'] = scaled_loss
-            result['reconstruction_loss'] = recon_loss
-            result['reconstructed'] = reconstructed
-            result['target_embeddings'] = target_embeddings
-        
         return result
     
     def compute_loss(self, x, mask=None):
@@ -407,7 +371,6 @@ class HELMDiffusion(nn.Module):
         return token_samples
     
     def sample_ddim(self, num_samples: int, max_seq_len: int, ddim_steps: int = 50, eta: float = 0.0):
-
         device = next(self.parameters()).device
         shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
         
@@ -421,8 +384,8 @@ class HELMDiffusion(nn.Module):
         return token_samples
     
     def _embedding_to_tokens(self, embeddings):
-        logits = self.output_projection(embeddings)  # [batch, seq_len, vocab_size]
-        tokens = torch.argmax(logits, dim=-1)  # [batch, seq_len]
+        logits = self.output_projection(embeddings)
+        tokens = torch.argmax(logits, dim=-1)
         return tokens
 
 
@@ -433,13 +396,11 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
         self.max_seq_len = max_seq_len
         self.topology_analyzer = HELMTopologyAnalyzer()
         
-        # 加载词汇表
         with open(vocab_file, 'r') as f:
             self.vocab = json.load(f)
         
         self.idx_to_token = {v: k for k, v in self.vocab.items()}
         
-        # 加载序列
         self.sequences = []
         with open(data_file, 'r') as f:
             for line in f:
@@ -468,18 +429,15 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
         return torch.tensor(token_ids, dtype=torch.long)
     
     def _parse_helm_sequence(self, helm_seq: str):
-        """解析HELM序列为token列表，使用HELMTopologyAnalyzer"""
         parsed_result = self.topology_analyzer.parse_helm_sequence(helm_seq)
         sequence = parsed_result['sequence']
         return sequence.split('.') if sequence else []
     
     def _tokens_to_ids(self, tokens):
-        """将token转换为索引"""
         unk_id = self.vocab.get('<UNK>', 1)
         return [self.vocab.get(token, unk_id) for token in tokens]
     
     def decode_sequence(self, token_ids):
-        """将token索引序列解码为HELM字符串"""
         tokens = []
         for token_id in token_ids:
             if isinstance(token_id, torch.Tensor):

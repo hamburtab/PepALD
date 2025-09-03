@@ -20,34 +20,27 @@ from chembl32_config import CHEMBL32_CONFIG
 
 class ChEMBL32PretrainingConfig:
     def __init__(self):
-        # 从chembl32_config中获取基础配置
         for key, value in CHEMBL32_CONFIG.__dict__.items():
             if not key.startswith('_'):
                 setattr(self, key, value)
         
-        # ChEMBL32特定配置
-        self.data_source = "ChEMBL32"
         self.model_name = "helm_diffusion_chembl32"
         
-        # 数据相关
         self.chembl32_data_file = "./data/helm_sequences_chembl32.txt"
-        self.max_seq_len = 150  # ChEMBL32序列较长，调整最大长度
+        self.max_seq_len = 150
         
-        # 训练配置
-        self.train_epochs = 10  # 增加训练轮次
+        self.train_epochs = 10
         self.batch_size = 64
-        self.learning_rate = 5e-5  # 稍微降低学习率
+        self.learning_rate = 5e-5
         self.warmup_steps = 1000
         self.weight_decay = 0.01
         
-        # 扩散模型配置
         self.T = 1000
-        self.beta_schedule = "cosine"  # 使用余弦调度
+        self.beta_schedule = "cosine"
         
-        # Transformer配置 (为更长序列优化)
         self.d_model = 512
         self.nhead = 8
-        self.num_layers = 10  # 增加层数
+        self.num_layers = 10 
         self.dropout = 0.15
         
         # 输出配置
@@ -58,27 +51,22 @@ class ChEMBL32PretrainingConfig:
 
 
 class ChEMBL32Trainer:
-    """ChEMBL32预训练器"""
-    
+
     def __init__(self, config: ChEMBL32PretrainingConfig):
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        # 创建输出目录
         self.checkpoint_dir = Path(config.checkpoint_dir)
         self.checkpoint_dir.mkdir(exist_ok=True)
         
-        # 设置日志
         self.setup_logging()
         
-        # 初始化组件
         self.model = None
         self.dataset = None
         self.dataloader = None
         self.optimizer = None
         self.scheduler = None
         
-        # 训练状态
         self.current_epoch = 0
         self.global_step = 0
         self.best_loss = float('inf')
@@ -105,14 +93,12 @@ class ChEMBL32Trainer:
         """准备ChEMBL32数据"""
         print(" 准备ChEMBL32数据...")
         
-        # 检查数据文件
         if not Path(self.config.chembl32_data_file).exists():
             raise FileNotFoundError(
                 f"ChEMBL32数据文件不存在: {self.config.chembl32_data_file}\n"
                 f"请先运行 prepare_chembl32_data.py 处理数据"
             )
         
-        # 创建数据集
         self.dataset = HELMSequenceDataset(
             data_file=self.config.chembl32_data_file,
             max_seq_len=self.config.max_seq_len,
@@ -124,7 +110,6 @@ class ChEMBL32Trainer:
         print(f"   最大序列长度: {self.config.max_seq_len}")
         print(f"   词汇表大小: {len(self.dataset.vocab)}")
         
-        # 创建数据加载器
         self.dataloader = DataLoader(
             self.dataset,
             batch_size=self.config.batch_size,
@@ -142,7 +127,6 @@ class ChEMBL32Trainer:
         """构建模型"""
         print("   构建HELM扩散模型...")
         
-        # 创建Transformer
         transformer = create_helm_transformer_for_chembl32(
             vocab_size=len(self.dataset.vocab),
             d_model=self.config.d_model,
@@ -152,17 +136,15 @@ class ChEMBL32Trainer:
             dropout=self.config.dropout
         )
         
-        # 创建扩散模型
         self.model = HELMDiffusion(
             transformer=transformer,
             vocab_size=len(self.dataset.vocab),
             T=self.config.T,
             beta_schedule=self.config.beta_schedule,
-            vocab=self.dataset.vocab,  # 传递词汇表
-            use_molformer=True  # 启用MolFormer embeddings
+            vocab=self.dataset.vocab,  
+            use_molformer=True
         ).to(self.device)
         
-        # 计算参数数量
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         
@@ -172,7 +154,6 @@ class ChEMBL32Trainer:
         print(f"   模型大小: {total_params * 4 / 1024 / 1024:.1f} MB")
     
     def setup_optimizer(self):
-        """设置优化器和调度器"""
         print("   设置优化器...")
         
         # 优化器
@@ -234,7 +215,6 @@ class ChEMBL32Trainer:
         num_batches = 0
         
         with torch.no_grad():
-            # 计算验证损失（使用部分数据）
             for i, batch in enumerate(self.dataloader):
                 if i >= 50:  # 只使用50个批次进行验证
                     break
@@ -250,8 +230,8 @@ class ChEMBL32Trainer:
         try:
             samples = self.model.sample(num_samples=5, max_seq_len=self.config.max_seq_len)
             
-            print("\n🔬 生成的样本序列:")
-            for i, sample in enumerate(samples[:3]):  # 只显示前3个
+            print("\n 生成的样本序列:")
+            for i, sample in enumerate(samples[:3]): 
                 helm_seq = self.dataset.decode_sequence(sample)
                 print(f"   样本 {i+1}: {helm_seq[:100]}...")
                 
@@ -265,7 +245,6 @@ class ChEMBL32Trainer:
         """主训练循环"""
         print("   开始ChEMBL32预训练...")
         
-        # 保存配置
         config_path = self.checkpoint_dir / "chembl32_config.json"
         with open(config_path, 'w') as f:
             json.dump(self.config.__dict__, f, indent=2)
@@ -277,7 +256,6 @@ class ChEMBL32Trainer:
             epoch_loss = 0
             num_batches = 0
             
-            # 创建进度条
             pbar = tqdm(
                 self.dataloader, 
                 desc=f"Epoch {epoch+1}/{self.config.train_epochs}",
@@ -285,26 +263,21 @@ class ChEMBL32Trainer:
             )
             
             for batch_idx, batch in enumerate(pbar):
-                # 前向传播
                 x = batch.to(self.device)
                 loss = self.model.compute_loss(x)
                 
-                # 反向传播
                 self.optimizer.zero_grad()
                 loss.backward()
                 
-                # 梯度裁剪
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 
                 self.optimizer.step()
                 self.scheduler.step()
                 
-                # 更新统计
                 epoch_loss += loss.item()
                 num_batches += 1
                 self.global_step += 1
                 
-                # 更新进度条
                 current_lr = self.scheduler.get_last_lr()[0]
                 pbar.set_postfix({
                     'loss': f'{loss.item():.4f}',
@@ -312,34 +285,31 @@ class ChEMBL32Trainer:
                     'lr': f'{current_lr:.2e}'
                 })
                 
-                # 日志记录
+
                 if self.global_step % self.config.log_interval == 0:
                     self.logger.info(
                         f"Epoch {epoch+1}, Step {self.global_step}, "
                         f"Loss: {loss.item():.4f}, LR: {current_lr:.2e}"
                     )
                 
-                # 验证
                 if self.global_step % self.config.val_interval == 0:
                     val_loss = self.validate_model()
                     self.logger.info(f"验证损失: {val_loss:.4f}")
-                    
-                    # 保存最佳模型
+                
                     if val_loss < self.best_loss:
                         self.best_loss = val_loss
                         self.save_checkpoint(epoch, self.global_step, val_loss, is_best=True)
                 
-                # 定期保存
+
                 if self.global_step % self.config.save_interval == 0:
                     self.save_checkpoint(epoch, self.global_step, loss.item())
             
-            # 每轮结束
+
             avg_epoch_loss = epoch_loss / num_batches
             print(f"\n  Epoch {epoch+1} 完成:")
             print(f"   平均损失: {avg_epoch_loss:.4f}")
             print(f"   全局步数: {self.global_step}")
             
-            # 每轮保存检查点
             self.save_checkpoint(epoch, self.global_step, avg_epoch_loss)
     
         print("  ChEMBL32预训练完成!")
@@ -364,7 +334,6 @@ def main():
     args = parser.parse_args()
     
     try:
-        # 创建配置
         config = ChEMBL32PretrainingConfig()
         config.chembl32_data_file = args.data_file
         config.train_epochs = args.epochs
@@ -372,19 +341,16 @@ def main():
         config.learning_rate = args.learning_rate
         config.max_seq_len = args.max_seq_len
         
-        # 创建训练器
         trainer = ChEMBL32Trainer(config)
         
-        # 准备数据
         trainer.prepare_data()
         
-        # 构建模型
+
         trainer.build_model()
         
-        # 设置优化器
+
         trainer.setup_optimizer()
         
-        # 开始训练
         trainer.train()
         
     except Exception as e:
