@@ -147,11 +147,11 @@ class HELMTransformer(nn.Module):
         
         # 环键类型定义
         self.bond_types = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
-        
+
         self.ring_bond_embedding = nn.Sequential(
-            nn.Linear(1, ring_bond_type),
+            nn.Linear(1, 5),
             nn.SiLU(),
-            nn.Linear(ring_bond_type, ring_bond_type)
+            nn.Linear(5, 5)
         )
         
     def forward(
@@ -199,58 +199,51 @@ class HELMTransformer(nn.Module):
                     for idx, helm_seq in enumerate(helm_sequences):
                         if low_noise_mask[idx].item():
                             ring_info = self._extract_ring_info(helm_seq)
-                            if ring_info and ring_info.get('ring_connections'):
-                                # 构建环键类型矩阵
-                                bond_matrix = torch.zeros(seq_len, seq_len, dtype=torch.long, device=x.device)
-                                
-                                for connection in ring_info['ring_connections']:
-                                    pos1, r1, pos2, r2 = connection
-                                    if pos1 < seq_len and pos2 < seq_len:
-                                        bond_type = f"{r1}{r2}"
-                                        if bond_type in self.bond_types:
-                                            bond_idx = self.bond_types.index(bond_type)
-                                            bond_matrix[pos1, pos2] = bond_idx + 1  # 使用1-based索引，0表示无连接
-                                            bond_matrix[pos2, pos1] = bond_idx + 1
-                                
-                                ring_bond_targets.append(bond_matrix)
-                                valid_indices.append(idx)
+                            if ring_info:  # 有环键信息
+                                bond_array = ring_info['bond_array']
+                            else: 
+                            
+                                seq_part = helm_seq.split('{')[1].split('}')[0]
+                                res_num = len(seq_part.split('.'))
+                                num_pairs = res_num * (res_num - 1) // 2
+                                bond_array = np.zeros(num_pairs, dtype=int)
+                            
+                            ring_bond_targets.append(torch.tensor(bond_array, dtype=torch.long, device=x.device))
+                            valid_indices.append(idx)
                     
                     if ring_bond_targets and valid_indices:
-                        # 提取对应的注意力权重
+
                         valid_attn_weights = attn_weights[valid_indices]  # [valid_batch, num_heads, seq_len, seq_len]
                         
-                        # 平均所有注意力头
-                        avg_attn = valid_attn_weights.mean(dim=1).float()  # [valid_batch, seq_len, seq_len]，确保float类型
+                        avg_attn = valid_attn_weights.mean(dim=1).float()  # [valid_batch, seq_len, seq_len]
                         
                         # 构建上三角掩码
                         triu_mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
                         
                         # 提取上三角部分用于环键预测
                         triu_attn = avg_attn[:, triu_mask]  # [valid_batch, num_pairs]
-                        ring_bond_pred = self.ring_bond_embedding(triu_attn.unsqueeze(-1))  # [valid_batch, num_pairs, num_bond_types]
+                        ring_bond_pred = self.ring_bond_embedding(triu_attn.unsqueeze(-1))  # [valid_batch, num_pairs, 5]
                         
-                        # 构建目标标签
-                        ring_bond_targets_tensor = torch.stack(ring_bond_targets)  # [valid_batch, seq_len, seq_len]
-                        target_labels = ring_bond_targets_tensor[:, triu_mask]  # [valid_batch, num_pairs]
+                        # 堆叠目标标签
+                        target_labels = torch.stack(ring_bond_targets)  # [valid_batch, num_pairs]
                         
-                        # 计算环键分类损失（注意要调整标签）
-                        # 将1-based标签转为0-based，并只考虑有连接的位置
-                        valid_positions = target_labels > 0
-                        if valid_positions.any():
-                            valid_labels = target_labels[valid_positions] - 1  # 转为0-based
-                            valid_preds = ring_bond_pred.view(-1, len(self.bond_types))[valid_positions.view(-1)]
-                            
-                            ring_bond_loss = F.cross_entropy(valid_preds, valid_labels)
+                        ring_bond_pred_flat = ring_bond_pred.view(-1, 5)  # [valid_batch * num_pairs, 5]
+                        target_labels_flat = target_labels.view(-1)  # [valid_batch * num_pairs]
+                        
+                        # 创建分类权重：非成环位点权重1，成环位点权重3
+                        class_weights = torch.tensor([1.0, 3.0, 3.0, 3.0, 3.0], device=x.device)  # [no_bond, R3R3, R1R2, R1R3, R3R2]
+                        
+                        ring_bond_loss = F.cross_entropy(ring_bond_pred_flat, target_labels_flat, weight=class_weights)
                         
                 except Exception as e:
-                    print(f"环键损失计算中的错误: {e}")
+                    print(f"错误: {e}")
                     ring_bond_loss = None
         
-        # 对于简单的环键嵌入，当没有特定损失时使用均值嵌入
         if ring_bond_loss is None:
-            # 确保数据类型一致
             attn_mean = attn_weights.mean(dim=1).float()  # 转换为float
-            ring_bond_embedding = self.ring_bond_embedding(attn_mean.unsqueeze(-1))
+            triu_mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
+            triu_attn = attn_mean[:, triu_mask]  # [batch_size, num_pairs]
+            ring_bond_embedding = self.ring_bond_embedding(triu_attn.unsqueeze(-1))
             return x, ring_bond_embedding
         else:
             return x, ring_bond_loss
@@ -288,60 +281,49 @@ class HELMTransformer(nn.Module):
         return attention_weights
     
     def _extract_ring_info(self, helm_seq: str):
-        """从HELM序列中提取环键信息
-        基于prepare_chembl32_data.py的正确实现
-        格式: PEPTIDE1{[dY].[dC].F.W.K.[meT].C.T.[am]}$PEPTIDE1,PEPTIDE1,7:R3-2:R3$$$
-        """
-        # 检查是否是环肽（不以}$$$$结尾）
         if helm_seq.split('}')[-1] == '$$$$':
             return None
         
         try:
-            # 提取序列部分
             seq_part = helm_seq.split('{')[1].split('}')[0]
             res_num = len(seq_part.split('.'))
             
-            # 提取环键信息部分（在}之后）
+            
+            bond_matrix = np.triu(np.ones((res_num, res_num)), 1).astype(int) * 0
+            
             ring_info = helm_seq.split('}')[-1]
-            if not ring_info:
-                return None
-            
-            ring_connections = []
-            
-            # 按|分割不同的环键信息
-            for ring in ring_info.split('|'):
-                if not ring or ':' not in ring:
-                    continue
-                    
-                try:
-                    # 按prepare_chembl32_data.py的解析逻辑
-                    # 格式：某些前缀,某些内容,位置:R基团-位置:R基团
-                    parts = ring.split(':')
-                    if len(parts) < 3:
+            if ring_info:
+                for ring in ring_info.split('|'):
+                    if not ring or ':' not in ring:
                         continue
-                    
-                    # 提取起始信息
-                    r_st = parts[1].split('-')[0]  # 'R3-3' -> 'R3'
-                    res_st = int(parts[0].split(',')[-1]) - 1  # '位置' -> 0-based
-                    
-                    # 提取结束信息  
-                    r_ed = parts[2].split('$')[0]  # 'R3$$$' -> 'R3'
-                    res_ed = int(parts[1].split('-')[1]) - 1  # 'R3-3' -> '3' -> 2 (0-based)
-                    
-                    # 验证位置有效性
-                    if 0 <= res_st < res_num and 0 <= res_ed < res_num:
-                        ring_connections.append((res_st, r_st, res_ed, r_ed))
-                    
-                except (ValueError, IndexError):
-                    continue
+                        
+                    try:
+                        r_st = ring.split(':')[1].split('-')[0]
+                        res_st = int(ring.split(':')[0].split(',')[-1]) - 1
+                        r_ed = ring.split(':')[2].split('$')[0]
+                        res_ed = int(ring.split(':')[1].split('-')[1]) - 1
+                        
+                        if 0 <= res_st < res_num and 0 <= res_ed < res_num:
+                            # 确保上三角矩阵格式
+                            if res_st > res_ed:
+                                r_link = r_ed + r_st
+                                bond_matrix[res_ed, res_st] = 1 + self.bond_types.index(r_link)
+                            else:
+                                r_link = r_st + r_ed
+                                bond_matrix[res_st, res_ed] = 1 + self.bond_types.index(r_link)
+                        
+                    except (ValueError, IndexError):
+                        continue
             
-            if ring_connections:
-                return {
-                    'sequence_length': res_num,
-                    'ring_connections': ring_connections
-                }
-            else:
-                return None
+            triu_mask = np.triu(np.ones((res_num, res_num)), 1).astype(bool)
+
+            # 使用布尔索引自动压平矩阵
+            bond_array = bond_matrix[triu_mask] # [num_pairs]
+            
+            return {
+                'sequence_length': res_num,
+                'bond_array': bond_array
+            }
             
         except (IndexError, ValueError):
             return None
