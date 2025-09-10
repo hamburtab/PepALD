@@ -37,7 +37,7 @@ class MolFormerEmbedding(nn.Module):
         self.num_monomers = embeddings_matrix.shape[0]
         
         # 加载单体映射
-        self.monomer_mapping = pd.read_csv(self.embeddings_dir / "complete_monomer_mapping.csv")
+        self.monomer_mapping = pd.read_csv(self.embeddings_dir / "（3104*768）complete_monomer_mapping.csv")
         
         # 创建symbol到索引的映射
         self.symbol_to_idx = {symbol: idx for idx, symbol in enumerate(self.monomer_mapping['symbol'])}
@@ -77,6 +77,8 @@ class MolFormerEmbedding(nn.Module):
                 embedding_idx = self.symbol_to_idx[token]
                 self.vocab_to_embedding[vocab_idx] = embedding_idx
                 matched_count += 1
+
+            # 认为存在vocab中的token可能带有括号且symbol_to_idx中没有括号的情况
             else:
                 cleaned_token = token.strip('[]')
                 if cleaned_token in self.symbol_to_idx:
@@ -127,60 +129,3 @@ class MolFormerEmbedding(nn.Module):
         else:
             # 直接使用input_ids作为embedding索引
             return self.embeddings(input_ids)
-    
-    def get_embedding_for_token(self, token: str) -> torch.Tensor:
-        if hasattr(self, 'vocab') and token in self.vocab:
-            vocab_idx = self.vocab[token]
-            return self.forward(torch.tensor([[vocab_idx]]))[0, 0]
-        elif token in self.symbol_to_idx:
-            embedding_idx = self.symbol_to_idx[token]
-            return self.embeddings.weight[embedding_idx]
-        else:
-            return self.special_embeddings[1]  # UNK在索引1
-    
-    def get_embedding(self, vocab_idx: int) -> torch.Tensor:
-        embedding_idx = self.vocab_to_embedding[vocab_idx]
-        if embedding_idx < self.num_monomers:
-            return self.embeddings.weight[embedding_idx]
-        else:
-            special_idx = embedding_idx - self.num_monomers
-            return self.special_embeddings[special_idx]
-    
-    def save_embeddings(self, path: str):
-        torch.save({
-            'embeddings': self.embeddings.state_dict(),
-            'special_embeddings': self.special_embeddings,
-            'vocab_to_embedding': getattr(self, 'vocab_to_embedding', None),
-            'vocab': getattr(self, 'vocab', None),
-            'metadata': self.metadata
-        }, path)
-    
-    def load_embeddings(self, path: str):
-        checkpoint = torch.load(path, map_location='cpu')
-        self.embeddings.load_state_dict(checkpoint['embeddings'])
-        self.special_embeddings = checkpoint['special_embeddings']
-        if checkpoint['vocab_to_embedding'] is not None:
-            self.vocab_to_embedding = checkpoint['vocab_to_embedding']
-        if checkpoint['vocab'] is not None:
-            self.vocab = checkpoint['vocab']
-
-
-def create_molformer_embedding(vocab: Dict[str, int], 
-                              embeddings_dir: str = "./molformer_embeddings",
-                              freeze_embeddings: bool = False) -> MolFormerEmbedding:
-    """
-    便捷函数：创建MolFormer嵌入层
-    
-    Args:
-        vocab: 词汇表
-        embeddings_dir: embeddings目录
-        freeze_embeddings: 是否冻结参数
-        
-    Returns:
-        配置好的MolFormer嵌入层
-    """
-    return MolFormerEmbedding(
-        embeddings_dir=embeddings_dir,
-        vocab=vocab,
-        freeze_embeddings=freeze_embeddings
-    )

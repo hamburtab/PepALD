@@ -18,9 +18,9 @@ def extract_helm_sequences(input_csv, output_txt):
     
     helm_sequences = helm_sequences[helm_sequences != '']
     
-    linear_count = helm_sequences.str.endswith('}$$$$').sum()
+    linear_count = helm_sequences.str.endswith('$$$$').sum()
 
-    cyclic_count = (helm_sequences.str.endswith('$$$') & ~helm_sequences.str.endswith('}$$$$')).sum()
+    cyclic_count = (helm_sequences.str.endswith('$$$') & ~helm_sequences.str.endswith('$$$$')).sum()
     
     output_path = Path(output_txt)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -32,7 +32,7 @@ def extract_helm_sequences(input_csv, output_txt):
     print(f"\n提取完成!")
     print(f"总数据行数: {len(df):,}")
     print(f"有效HELM序列: {len(helm_sequences):,}")
-    print(f"  - 线性肽 (}}$$$$): {linear_count:,}")
+    print(f"  - 线性肽 ($$$$): {linear_count:,}")
     print(f"  - 环肽 (含连接信息，以$$$结尾): {cyclic_count:,}")
     print(f"输出文件: {output_path}")
     
