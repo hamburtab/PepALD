@@ -32,9 +32,9 @@ class ChEMBL32Config:
         self.loss_type = "mse"
         self.predict_type = "noise"
         
-        self.train_epochs = 15
-        self.batch_size = 24
-        self.learning_rate = 3e-5
+        self.train_epochs = 10
+        self.batch_size = 64
+        self.learning_rate = 5e-5
         self.weight_decay = 0.01
         self.grad_clip_norm = 1.0
         self.optimizer_type = "adamw"
@@ -42,7 +42,7 @@ class ChEMBL32Config:
         self.beta2 = 0.95
         self.eps = 1e-8
         self.scheduler_type = "cosine"
-        self.warmup_steps = 2000
+        self.warmup_steps = 1000
         self.min_lr = 1e-6
         
         self.use_data_augmentation = True
@@ -58,10 +58,10 @@ class ChEMBL32Config:
         self.sample_dir = "./chembl32_samples"
         
         self.save_every_n_epochs = 1
-        self.save_every_n_steps = 2000
+        self.save_every_n_steps = 1000
         self.keep_last_n_checkpoints = 5
         self.log_interval = 100
-        self.val_interval = 1000
+        self.val_interval = 500
         self.sample_interval = 2000
         self.tensorboard_log = True
         

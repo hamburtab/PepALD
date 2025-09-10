@@ -24,32 +24,8 @@ class ChEMBL32PretrainingConfig:
             if not key.startswith('_'):
                 setattr(self, key, value)
         
-        self.model_name = "helm_diffusion_chembl32"
-        
         self.chembl32_data_file = "./data/helm_sequences_chembl32.txt"
-        self.max_seq_len = 150
         
-        self.train_epochs = 10
-        self.batch_size = 64
-        self.learning_rate = 5e-5
-        self.warmup_steps = 1000
-        self.weight_decay = 0.01
-        
-        self.T = 1000
-        self.beta_schedule = "cosine"
-        
-        self.d_model = 512
-        self.nhead = 8
-        self.num_layers = 10 
-        self.dropout = 0.15
-        
-        # 输出配置
-        self.checkpoint_dir = "./chembl32_checkpoints"
-        self.log_interval = 100
-        self.save_interval = 1000
-        self.val_interval = 500
-
-
 class ChEMBL32Trainer:
 
     def __init__(self, config: ChEMBL32PretrainingConfig):
@@ -301,7 +277,7 @@ class ChEMBL32Trainer:
                         self.save_checkpoint(epoch, self.global_step, val_loss, is_best=True)
                 
 
-                if self.global_step % self.config.save_interval == 0:
+                if self.global_step % self.config.save_every_n_steps == 0:
                     self.save_checkpoint(epoch, self.global_step, loss.item())
             
 

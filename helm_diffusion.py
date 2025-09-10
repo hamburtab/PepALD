@@ -197,7 +197,8 @@ class HELMDiffusionModel(nn.Module):
         self,
         shape: Tuple[int, int, int],
         mask: Optional[torch.Tensor] = None,
-        device: str = 'cuda',
+        # device: str = 'cuda',
+        device: str = 'cpu',
         num_steps: int = 50,
         eta: float = 0.0
     ) -> torch.Tensor:
@@ -232,86 +233,7 @@ class HELMDiffusionModel(nn.Module):
                 x_t += eta * torch.sqrt(1 - alpha_cumprod_t_prev) * noise
                 
         return x_t
-
-
-class HELMEmbeddingLoader:
     
-    def __init__(self, embedding_path: str):
-        self.embedding_path = embedding_path
-        self.embeddings = None
-        self.symbol_to_idx = {}
-        self.idx_to_symbol = {}
-        self.topology_analyzer = HELMTopologyAnalyzer()
-        self.load_embeddings()
-        
-    def load_embeddings(self):
-        try:
-            with open(self.embedding_path, 'rb') as f:
-                data = pickle.load(f)
-                
-            self.embeddings = torch.from_numpy(data['embeddings']).float()
-            symbols = data['symbols']
-            
-            for idx, symbol in enumerate(symbols):
-                self.symbol_to_idx[symbol] = idx
-                self.idx_to_symbol[idx] = symbol
-                
-            print(f"加载了 {len(symbols)} 个单体的embedding，维度为 {self.embeddings.shape[1]}")
-            
-        except Exception as e:
-            raise RuntimeError(f"加载embedding失败: {e}")
-    
-    def get_embedding(self, symbol: str) -> torch.Tensor:
-        if symbol not in self.symbol_to_idx:
-            raise ValueError(f"未找到单体 {symbol}")
-        idx = self.symbol_to_idx[symbol]
-        return self.embeddings[idx]
-    
-    def get_embeddings_by_symbols(self, symbols: list) -> torch.Tensor:
-        indices = [self.symbol_to_idx[symbol] for symbol in symbols if symbol in self.symbol_to_idx]
-        if len(indices) != len(symbols):
-            missing = [s for s in symbols if s not in self.symbol_to_idx]
-            print(f"警告: 未找到以下单体的embedding: {missing}")
-        return self.embeddings[indices]
-    
-    def helm_to_embeddings(self, helm_sequence: str) -> torch.Tensor:
-        parsed_result = self.topology_analyzer.parse_helm_sequence(helm_sequence)
-        symbols = parsed_result['sequence'].split('.') if parsed_result['sequence'] else []
-        return self.get_embeddings_by_symbols(symbols)
-
-
-if __name__ == "__main__":
-    print("初始化HELM Diffusion模型...")
-    
-    model = HELMDiffusionModel(
-        embedding_dim=768,
-        d_model=512,
-        n_heads=8,
-        n_layers=6,
-        num_diffusion_steps=1000
-    )
-    
-    batch_size = 2
-    seq_len = 10
-    embedding_dim = 768
-    
-    x_0 = torch.randn(batch_size, seq_len, embedding_dim)
-    mask = torch.ones(batch_size, seq_len)
-    
-    print("测试训练前向传播...")
-    result = model(x_0, mask)
-    print(f"训练损失: {result['loss'].item():.4f}")
-    
-    print("测试采样...")
-    samples = model.ddim_sample(
-        shape=(1, seq_len, embedding_dim),
-        num_steps=10
-    )
-    print(f"生成样本形状: {samples.shape}")
-    
-    print("模型测试完成!")
-
-
 class HELMDiffusion(nn.Module):
     def __init__(self, transformer, vocab_size: int, T: int = 1000, beta_schedule: str = "linear", 
                  vocab: Optional[Dict[str, int]] = None, use_molformer: bool = True):
