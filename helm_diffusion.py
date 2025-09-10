@@ -1,9 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 from typing import Optional, Dict, Tuple
-import pickle
 import json
 
 from helm_transformer import HELMTransformer
@@ -14,17 +12,17 @@ from helm_topology_analyzer import HELMTopologyAnalyzer
 class HELMDiffusionModel(nn.Module):
     def __init__(
         self,
-        embedding_dim: int = 768,
-        d_model: int = 512,
-        n_heads: int = 8,
-        n_layers: int = 6,
-        d_ff: int = 2048,
-        max_seq_len: int = 256,
-        dropout: float = 0.1,
-        num_diffusion_steps: int = 1000,
-        variance_schedule: str = "linear",
-        beta_start: float = 0.0001,
-        beta_end: float = 0.02
+        embedding_dim: int,
+        d_model: int,
+        n_heads: int,
+        n_layers: int,
+        d_ff: int,
+        max_seq_len: int,
+        dropout: float,
+        num_diffusion_steps: int,
+        variance_schedule: str,
+        beta_start: float,
+        beta_end: float
     ):
         super().__init__()
         
@@ -54,7 +52,7 @@ class HELMDiffusionModel(nn.Module):
                 alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
                 betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
                 return torch.clip(betas, 0.0001, 0.9999)
-            betas = cosine_beta_schedule(self.num_steps)
+            betas = cosine_beta_schedule(self.num_steps) # beta的长度是 num_steps
         else:
             raise ValueError(f"Unknown schedule type: {schedule_type}")
             
@@ -192,47 +190,49 @@ class HELMDiffusionModel(nn.Module):
                 
         return x_t
     
-    @torch.no_grad()
-    def ddim_sample(
-        self,
-        shape: Tuple[int, int, int],
-        mask: Optional[torch.Tensor] = None,
-        # device: str = 'cuda',
-        device: str = 'cpu',
-        num_steps: int = 50,
-        eta: float = 0.0
-    ) -> torch.Tensor:
-        batch_size, seq_len, embedding_dim = shape
+    # @torch.no_grad()
+
+    # 更快的采样方法
+    # def ddim_sample(
+    #     self,
+    #     shape: Tuple[int, int, int],
+    #     mask: Optional[torch.Tensor] = None,
+    #     # device: str = 'cuda',
+    #     device: str = 'cpu',
+    #     num_steps: int = 50,
+    #     eta: float = 0.0
+    # ) -> torch.Tensor:
+    #     batch_size, seq_len, embedding_dim = shape
         
-        step_size = self.num_steps // num_steps
-        timesteps = list(range(0, self.num_steps, step_size))[:num_steps]
-        timesteps = timesteps[::-1]
+    #     step_size = self.num_steps // num_steps
+    #     timesteps = list(range(0, self.num_steps, step_size))[:num_steps]
+    #     timesteps = timesteps[::-1]
         
-        x_t = torch.randn(shape, device=device)
+    #     x_t = torch.randn(shape, device=device)
         
-        for i, t in enumerate(timesteps):
-            t_tensor = torch.full((batch_size,), t, device=device, dtype=torch.long)
+    #     for i, t in enumerate(timesteps):
+    #         t_tensor = torch.full((batch_size,), t, device=device, dtype=torch.long)
             
-            predicted_noise = self.predict_noise(x_t, t_tensor, mask)
+    #         predicted_noise = self.predict_noise(x_t, t_tensor, mask)
             
-            alpha_cumprod_t = self.alphas_cumprod[t]
+    #         alpha_cumprod_t = self.alphas_cumprod[t]
             
-            if i < len(timesteps) - 1:
-                alpha_cumprod_t_prev = self.alphas_cumprod[timesteps[i+1]]
-            else:
-                alpha_cumprod_t_prev = torch.tensor(1.0, device=device)
+    #         if i < len(timesteps) - 1:
+    #             alpha_cumprod_t_prev = self.alphas_cumprod[timesteps[i+1]]
+    #         else:
+    #             alpha_cumprod_t_prev = torch.tensor(1.0, device=device)
             
-            x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
+    #         x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
             
-            direction_to_x_t = torch.sqrt(1 - alpha_cumprod_t_prev - eta**2 * (1 - alpha_cumprod_t_prev)) * predicted_noise
+    #         direction_to_x_t = torch.sqrt(1 - alpha_cumprod_t_prev - eta**2 * (1 - alpha_cumprod_t_prev)) * predicted_noise
             
-            x_t = torch.sqrt(alpha_cumprod_t_prev) * x_0_pred + direction_to_x_t
+    #         x_t = torch.sqrt(alpha_cumprod_t_prev) * x_0_pred + direction_to_x_t
             
-            if eta > 0 and i < len(timesteps) - 1:
-                noise = torch.randn_like(x_t)
-                x_t += eta * torch.sqrt(1 - alpha_cumprod_t_prev) * noise
+    #         if eta > 0 and i < len(timesteps) - 1:
+    #             noise = torch.randn_like(x_t)
+    #             x_t += eta * torch.sqrt(1 - alpha_cumprod_t_prev) * noise
                 
-        return x_t
+    #     return x_t
     
 class HELMDiffusion(nn.Module):
     def __init__(self, transformer, vocab_size: int, T: int = 1000, beta_schedule: str = "linear", 
@@ -299,18 +299,18 @@ class HELMDiffusion(nn.Module):
         token_samples = self._embedding_to_tokens(samples)
         return token_samples
     
-    def sample_ddim(self, num_samples: int, max_seq_len: int, ddim_steps: int = 50, eta: float = 0.0):
-        device = next(self.parameters()).device
-        shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
+    # def sample_ddim(self, num_samples: int, max_seq_len: int, ddim_steps: int = 50, eta: float = 0.0):
+    #     device = next(self.parameters()).device
+    #     shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
         
-        samples = self.diffusion_model.ddim_sample(
-            shape=shape, 
-            num_steps=ddim_steps,
-            device=device
-        )
+    #     samples = self.diffusion_model.ddim_sample(
+    #         shape=shape, 
+    #         num_steps=ddim_steps,
+    #         device=device
+    #     )
         
-        token_samples = self._embedding_to_tokens(samples)
-        return token_samples
+    #     token_samples = self._embedding_to_tokens(samples)
+    #     return token_samples
     
     def _embedding_to_tokens(self, embeddings):
         logits = self.output_projection(embeddings)
