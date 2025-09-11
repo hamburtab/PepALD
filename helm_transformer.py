@@ -202,7 +202,6 @@ class HELMTransformer(nn.Module):
                             if ring_info:  # 有环键信息
                                 bond_array = ring_info['bond_array']
                             else: 
-                            
                                 seq_part = helm_seq.split('{')[1].split('}')[0]
                                 res_num = len(seq_part.split('.'))
                                 num_pairs = res_num * (res_num - 1) // 2
@@ -212,28 +211,35 @@ class HELMTransformer(nn.Module):
                             valid_indices.append(idx)
                     
                     if ring_bond_targets and valid_indices:
-
                         valid_attn_weights = attn_weights[valid_indices]  # [valid_batch, num_heads, seq_len, seq_len]
-                        
                         avg_attn = valid_attn_weights.mean(dim=1).float()  # [valid_batch, seq_len, seq_len]
                         
-                        # 构建上三角掩码
-                        triu_mask = torch.triu(torch.ones(seq_len, seq_len, device=x.device), diagonal=1).bool()
+                        # per sequence triu_mask
+                        all_preds, all_targets = [], []
+                        for i, (helm_seq, target_tensor) in enumerate(zip([helm_sequences[idx] for idx in valid_indices], ring_bond_targets)):
+                            
+                            actual_len = len(helm_seq.split('{')[1].split('}')[0].split('.'))
+                            if mask is not None:
+                                actual_len = min(actual_len, mask[valid_indices[i]].sum().item())
+                            actual_len = min(actual_len, seq_len)
+                            
+                            if actual_len > 1:
+                                seq_attn = avg_attn[i, :actual_len, :actual_len]
+                                triu_mask = torch.triu(torch.ones(actual_len, actual_len, device=x.device), diagonal=1).bool()
+                                triu_attn = seq_attn[triu_mask]  # [actual_pairs]
+                                
+                                pred = self.ring_bond_embedding(triu_attn.unsqueeze(-1))  # [actual_pairs, 5]
+                                all_preds.append(pred)
+                                all_targets.append(target_tensor[:len(triu_attn)])
                         
-                        # 提取上三角部分用于环键预测
-                        triu_attn = avg_attn[:, triu_mask]  # [valid_batch, num_pairs]
-                        ring_bond_pred = self.ring_bond_embedding(triu_attn.unsqueeze(-1))  # [valid_batch, num_pairs, 5]
-                        
-                        # 堆叠目标标签
-                        target_labels = torch.stack(ring_bond_targets)  # [valid_batch, num_pairs]
-                        
-                        ring_bond_pred_flat = ring_bond_pred.view(-1, 5)  # [valid_batch * num_pairs, 5]
-                        target_labels_flat = target_labels.view(-1)  # [valid_batch * num_pairs]
-                        
-                        # 创建分类权重：非成环位点权重1，成环位点权重3
-                        class_weights = torch.tensor([1.0, 3.0, 3.0, 3.0, 3.0], device=x.device)  # [no_bond, R3R3, R1R2, R1R3, R3R2]
-                        
-                        ring_bond_loss = F.cross_entropy(ring_bond_pred_flat, target_labels_flat, weight=class_weights)
+                        if all_preds:
+                            ring_bond_pred_flat = torch.cat(all_preds, dim=0)  # [total_pairs, 5]
+                            target_labels_flat = torch.cat(all_targets, dim=0)  # [total_pairs]
+                            
+                            class_weights = torch.tensor([1.0, 3.0, 3.0, 3.0, 3.0], device=x.device)
+                            ring_bond_loss = F.cross_entropy(ring_bond_pred_flat, target_labels_flat, weight=class_weights)
+                        else:
+                            ring_bond_loss = None
                         
                 except Exception as e:
                     print(f"错误: {e}")
