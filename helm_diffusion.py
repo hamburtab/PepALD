@@ -43,7 +43,7 @@ class HELMDiffusionModel(nn.Module):
         
     def _setup_variance_schedule(self, schedule_type: str, beta_start: float, beta_end: float):
         if schedule_type == "linear":
-            betas = torch.linspace(beta_start, beta_end, self.num_steps)
+            betas = torch.linspace(beta_start, beta_end, self.num_steps) # The length of betas is num_steps
         elif schedule_type == "cosine":
             def cosine_beta_schedule(timesteps, s=0.008):
                 steps = timesteps + 1
@@ -52,7 +52,7 @@ class HELMDiffusionModel(nn.Module):
                 alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
                 betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
                 return torch.clip(betas, 0.0001, 0.9999)
-            betas = cosine_beta_schedule(self.num_steps) # beta的长度是 num_steps
+            betas = cosine_beta_schedule(self.num_steps) 
         else:
             raise ValueError(f"Unknown schedule type: {schedule_type}")
             
@@ -74,12 +74,12 @@ class HELMDiffusionModel(nn.Module):
         noise: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if noise is None:
-            noise = torch.randn_like(x_0)
+            noise = torch.randn_like(x_0) # [batch_size, seq_len, embedding_dim]
             
-        sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t]
+        sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t] # [batch_size]
         sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t]
         
-        sqrt_alphas_cumprod_t = sqrt_alphas_cumprod_t.view(-1, 1, 1)
+        sqrt_alphas_cumprod_t = sqrt_alphas_cumprod_t.view(-1, 1, 1) # [batch_size, 1, 1]
         sqrt_one_minus_alphas_cumprod_t = sqrt_one_minus_alphas_cumprod_t.view(-1, 1, 1)
         
         x_t = sqrt_alphas_cumprod_t * x_0 + sqrt_one_minus_alphas_cumprod_t * noise
@@ -236,7 +236,8 @@ class HELMDiffusionModel(nn.Module):
     
 class HELMDiffusion(nn.Module):
     def __init__(self, transformer, vocab_size: int, T: int = 1000, beta_schedule: str = "linear", 
-                 vocab: Optional[Dict[str, int]] = None, use_molformer: bool = True):
+                 vocab: Optional[Dict[str, int]] = None, use_molformer: bool = True,
+                 beta_start: float = 1e-4, beta_end: float = 0.02, d_ff: int = 2048):
         super().__init__()
         
         self.vocab_size = vocab_size
@@ -259,10 +260,13 @@ class HELMDiffusion(nn.Module):
             d_model=transformer.d_model,
             n_heads=transformer.n_heads,
             n_layers=transformer.n_layers,
+            d_ff=d_ff,
             max_seq_len=transformer.max_seq_len,
             dropout=transformer.dropout,
             num_diffusion_steps=T,
-            variance_schedule=beta_schedule
+            variance_schedule=beta_schedule,
+            beta_start=beta_start,
+            beta_end=beta_end
         )
         
         self.output_projection = nn.Linear(embedding_dim, vocab_size)

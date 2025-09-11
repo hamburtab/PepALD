@@ -120,7 +120,7 @@ class HELMTransformer(nn.Module):
         self.embedding_dim = embedding_dim
         
         self.embedding_projection = nn.Linear(embedding_dim, d_model)
-        
+
         self.time_embedding = nn.Sequential(
             nn.Linear(1, time_embed_dim),
             nn.SiLU(),
@@ -186,11 +186,11 @@ class HELMTransformer(nn.Module):
         
         x = self.layer_norm(x)
         x = self.output_projection(x)
-        
-        # 环键嵌入处理 - 仅在低噪声场景（t < 100）计算
+
+        # ring bond loss
         ring_bond_loss = None
         if hasattr(self, 'ring_bond_embedding') and helm_sequences is not None:
-            low_noise_mask = t < 100
+            low_noise_mask = t < 0.1 # t should be original, but is normalized
             if low_noise_mask.any():
                 try:
                     ring_bond_targets = []
