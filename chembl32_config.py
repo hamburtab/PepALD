@@ -4,99 +4,48 @@ from pathlib import Path
 
 class ChEMBL32Config:
     def __init__(self):
+        # 项目信息
         self.project_name = "HELM_Diffusion_ChEMBL32"
         self.version = "2.0.0"
         self.description = "基于ChEMBL32生物治疗药物数据的HELM扩散模型"
         
+        # 数据配置
         self.chembl32_raw_file = "./data/chembl32/biotherapeutics_dict_prot_flt.csv"
         self.chembl32_processed_file = "./data/helm_sequences_chembl32.txt"
-        self.chembl32_stats_file = "./data/chembl32_processing_stats.json"
-        
-        self.min_seq_len = 3        
-        self.max_seq_len = 150      
+        self.chembl32_data_file = "./data/helm_sequences_chembl32.txt"  # 实际使用的数据文件
+        self.max_seq_len = 150
         self.vocab_file = "./data/helm_vocab.json"
-        self.train_ratio = 0.9      
-        self.val_ratio = 0.1        
 
+        # 模型架构
         self.d_model = 512
-        self.nhead = 8
+        self.nhead = 16
         self.num_layers = 10
         self.dim_feedforward = 2048
         self.dropout = 0.15
-        self.activation = "gelu"
-        
+
+        # diffusion参数
         self.T = 1000
         self.beta_start = 1e-4
         self.beta_end = 0.02
         self.beta_schedule = "cosine"
-        self.loss_type = "mse"
-        self.predict_type = "noise"
         
-        self.train_epochs = 10
+        # 训练参数
+        self.train_epochs = 100
         self.batch_size = 64
         self.learning_rate = 5e-5
         self.weight_decay = 0.01
-        self.grad_clip_norm = 1.0
-        self.optimizer_type = "adamw"
-        self.beta1 = 0.9
-        self.beta2 = 0.95
-        self.eps = 1e-8
-        self.scheduler_type = "cosine"
-        self.warmup_steps = 1000
-        self.min_lr = 1e-6
         
-        self.use_data_augmentation = True
-        self.augment_prob = 0.1
-        self.use_mixed_precision = True
-        self.grad_scale_init = 65536
-        self.use_ema = True
-        self.ema_decay = 0.999
-        
-        self.output_dir = "./chembl32_outputs"
+        # 日志
         self.checkpoint_dir = "./chembl32_checkpoints"
-        self.log_dir = "./chembl32_logs"
-        self.sample_dir = "./chembl32_samples"
-        
-        self.save_every_n_epochs = 1
-        self.save_every_n_steps = 1000
-        self.keep_last_n_checkpoints = 5
         self.log_interval = 100
         self.val_interval = 500
-        self.sample_interval = 2000
-        self.tensorboard_log = True
-        
-        self.val_batch_size = 32
-        self.val_num_batches = 50
-        self.sample_num_sequences = 10
-        self.sample_algorithm = "ddim"
-        self.ddim_steps = 50
-        self.ddim_eta = 0.0
-        
-        self.device = "auto"
-        self.num_workers = 8
-        self.pin_memory = True
-        self.gradient_checkpointing = True
-        self.dataloader_drop_last = True
-        
-        self.experiment_name = "chembl32_v1"
-        self.seed = 42
-        self.deterministic = True
-        self.debug_mode = False
-        self.profile_training = False
-        self.fast_dev_run = False
-
-        self.analyze_chembl32_properties = True
-        self.validate_generated_molecules = True
-        self.compute_molecular_metrics = True
-        self.post_process_sequences = True
-        self.filter_invalid_sequences = True
+        self.save_every_n_steps = 1000
         
         self._create_directories()
     
     def _create_directories(self):
         directories = [
-            self.output_dir, self.checkpoint_dir, self.log_dir, 
-            self.sample_dir, "./data/chembl32"
+            self.checkpoint_dir, "./data/chembl32"
         ]
         for dir_path in directories:
             Path(dir_path).mkdir(parents=True, exist_ok=True)
@@ -127,11 +76,11 @@ class ChEMBL32Config:
         
         sections = {
             "项目信息": ["project_name", "version", "description"],
-            "数据配置": ["chembl32_raw_file", "max_seq_len", "min_seq_len", "train_ratio"],
-            "模型架构": ["d_model", "nhead", "num_layers", "T", "beta_schedule"],
-            "训练参数": ["train_epochs", "batch_size", "learning_rate", "scheduler_type"],
-            "输出设置": ["checkpoint_dir", "log_interval", "save_every_n_epochs"],
-            "采样配置": ["sample_num_sequences", "sample_algorithm", "ddim_steps"]
+            "数据配置": ["chembl32_data_file", "max_seq_len", "vocab_file"],
+            "模型架构": ["d_model", "nhead", "num_layers", "dim_feedforward", "dropout"],
+            "扩散模型": ["T", "beta_start", "beta_end", "beta_schedule"],
+            "训练参数": ["train_epochs", "batch_size", "learning_rate", "weight_decay"],
+            "输出设置": ["checkpoint_dir", "log_interval", "val_interval", "save_every_n_steps"]
         }
         
         for section_name, keys in sections.items():
