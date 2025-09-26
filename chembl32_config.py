@@ -13,7 +13,7 @@ class ChEMBL32Config:
         self.chembl32_raw_file = "./data/chembl32/biotherapeutics_dict_prot_flt.csv"
         self.chembl32_processed_file = "./data/helm_sequences_chembl32.txt"
         self.chembl32_data_file = "./data/helm_sequences_chembl32.txt"  # 实际使用的数据文件
-        self.max_seq_len = 150
+        self.max_seq_len = 46  # chembl32中的最长数据集
         self.vocab_file = "./data/helm_vocab.json"
 
         # 模型架构
@@ -30,7 +30,7 @@ class ChEMBL32Config:
         self.beta_schedule = "cosine"
         
         # 训练参数
-        self.train_epochs = 100
+        self.train_epochs = 99
         self.batch_size = 64
         self.learning_rate = 5e-5
         self.weight_decay = 0.01

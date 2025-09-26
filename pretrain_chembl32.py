@@ -1,34 +1,22 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-import pandas as pd
-import numpy as np
+from torch.utils.data import DataLoader
 import json
 import logging
-import argparse
 from pathlib import Path
 from datetime import datetime
 from tqdm import tqdm
 import math
-import random
 
 from helm_transformer import HELMTransformer, create_helm_transformer_for_chembl32
 from helm_diffusion import HELMDiffusion, HELMSequenceDataset
 from chembl32_config import CHEMBL32_CONFIG
 
 
-class ChEMBL32PretrainingConfig:
-    def __init__(self):
-        for key, value in CHEMBL32_CONFIG.__dict__.items():
-            if not key.startswith('_'):
-                setattr(self, key, value)
-        
-        self.chembl32_data_file = "./data/helm_sequences_chembl32.txt"
-        
 class ChEMBL32Trainer:
 
-    def __init__(self, config: ChEMBL32PretrainingConfig):
+    def __init__(self, config):
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
@@ -47,9 +35,15 @@ class ChEMBL32Trainer:
         self.global_step = 0
         self.best_loss = float('inf')
         
-        print(f" ChEMBL32训练器初始化完成")
+        print(f" 初始化完成")
         print(f" 设备: {self.device}")
         print(f" 检查点目录: {self.checkpoint_dir}")
+    
+    def _print_section(self, title: str, items: dict):
+        print(f"   {title}:")
+        for key, value in items.items():
+            print(f"   {key}: {value}")
+        print()
     
     def setup_logging(self):
         """设置日志"""
@@ -58,21 +52,16 @@ class ChEMBL32Trainer:
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ]
+            handlers=[logging.FileHandler(log_file)]
         )
         self.logger = logging.getLogger(__name__)
     
     def prepare_data(self):
-        """准备ChEMBL32数据"""
         print(" 准备ChEMBL32数据...")
         
         if not Path(self.config.chembl32_data_file).exists():
             raise FileNotFoundError(
                 f"ChEMBL32数据文件不存在: {self.config.chembl32_data_file}\n"
-                f"请先运行 prepare_chembl32_data.py 处理数据"
             )
         
         self.dataset = HELMSequenceDataset(
@@ -82,9 +71,13 @@ class ChEMBL32Trainer:
         )
         
         print(f"   数据集加载完成:")
-        print(f"   训练序列数: {len(self.dataset):,}")
-        print(f"   最大序列长度: {self.config.max_seq_len}")
-        print(f"   词汇表大小: {len(self.dataset.vocab)}")
+        dataset_info = {
+            "训练序列数": f"{len(self.dataset):,}",
+            "最大序列长度": self.config.max_seq_len,
+            "词汇表大小": len(self.dataset.vocab)
+        }
+        for key, value in dataset_info.items():
+            print(f"   {key}: {value}")
         
         self.dataloader = DataLoader(
             self.dataset,
@@ -95,9 +88,13 @@ class ChEMBL32Trainer:
             drop_last=True
         )
         
+        dataloader_info = {
+            "批次大小": self.config.batch_size,
+            "每轮批次数": len(self.dataloader)
+        }
         print(f"   数据加载器创建完成:")
-        print(f"   批次大小: {self.config.batch_size}")
-        print(f"   每轮批次数: {len(self.dataloader)}")
+        for key, value in dataloader_info.items():
+            print(f"   {key}: {value}")
     
     def build_model(self):
         """构建模型"""
@@ -127,10 +124,14 @@ class ChEMBL32Trainer:
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
         
+        model_info = {
+            "总参数数": f"{total_params:,}",
+            "可训练参数": f"{trainable_params:,}",
+            "模型大小": f"{total_params * 4 / 1024 / 1024:.1f} MB"
+        }
         print(f"   模型构建完成:")
-        print(f"   总参数数: {total_params:,}")
-        print(f"   可训练参数: {trainable_params:,}")
-        print(f"   模型大小: {total_params * 4 / 1024 / 1024:.1f} MB")
+        for key, value in model_info.items():
+            print(f"   {key}: {value}")
     
     def setup_optimizer(self):
         print("   设置优化器...")
@@ -152,10 +153,14 @@ class ChEMBL32Trainer:
             eta_min=1e-6
         )
         
+        optimizer_info = {
+            "学习率": self.config.learning_rate,
+            "权重衰减": self.config.weight_decay,
+            "总训练步数": total_steps
+        }
         print(f"   优化器设置完成:")
-        print(f"   学习率: {self.config.learning_rate}")
-        print(f"   权重衰减: {self.config.weight_decay}")
-        print(f"   总训练步数: {total_steps}")
+        for key, value in optimizer_info.items():
+            print(f"   {key}: {value}")
     
     def save_checkpoint(self, epoch: int, step: int, loss: float, is_best: bool = False):
         """保存检查点"""
@@ -189,37 +194,63 @@ class ChEMBL32Trainer:
     
     def validate_model(self) -> float:
         """验证模型并生成样本"""
+        # 配置参数
+        val_batches = getattr(self.config, 'val_batches', 50)
+        sample_count = getattr(self.config, 'sample_count', 5)
+        # 默认展示全部生成的样本；如需限制数量，可在配置中设置 display_count
+        display_count = getattr(self.config, 'display_count', None)
+        
+        # 计算验证损失
         self.model.eval()
         total_loss = 0
-        num_batches = 0
-        
         with torch.no_grad():
             for i, batch in enumerate(self.dataloader):
-                if i >= 50:  # 只使用50个批次进行验证
+                if i >= val_batches:
                     break
-                    
-                x = batch.to(self.device)
-                loss = self.model.compute_loss(x)
-                total_loss += loss.item()
-                num_batches += 1
-            
-            avg_loss = total_loss / num_batches if num_batches > 0 else float('inf')
+                result = self.model(
+                    batch['token_ids'].to(self.device),
+                    mask=batch['mask'].to(self.device),
+                    helm_sequences=batch['helm_sequence']
+                )
+                total_loss += result['loss'].item()
         
-        # 生成样本序列
-        try:
-            samples = self.model.sample(num_samples=5, max_seq_len=self.config.max_seq_len)
-            
-            print("\n 生成的样本序列:")
-            for i, sample in enumerate(samples[:3]): 
-                helm_seq = self.dataset.decode_sequence(sample)
-                print(f"   样本 {i+1}: {helm_seq[:100]}...")
-                
-        except Exception as e:
-            self.logger.warning(f"样本生成失败: {e}")
+        avg_loss = total_loss / min(val_batches, len(self.dataloader))
+        
+        # 生成并显示样本
+        self._generate_and_display_samples(sample_count, display_count)
         
         self.model.train()
         return avg_loss
     
+    def _generate_and_display_samples(self, sample_count: int, display_count: int | None):
+        """生成样本并显示"""
+        try:
+            samples = self.model.sample(
+                num_samples=sample_count, 
+                max_seq_len=self.config.max_seq_len, 
+                predict_ring_bonds=True
+            )
+            
+            print(f"\n 生成的 {len(samples)} 个样本序列:")
+            
+            if display_count is None:
+                display_count = len(samples)
+            else:
+                display_count = min(display_count, len(samples))
+
+            for i, sample in enumerate(samples[:display_count]): 
+                if isinstance(sample, dict) and 'tokens' in sample:
+                    ring_connections = sample.get('ring_connections', [])
+                    helm_seq = self.dataset.decode_sequence(sample['tokens'], ring_connections)
+                    ring_info = f"[环键数: {len(ring_connections)}]" if ring_connections else "[线性]"
+                    print(f"   样本 {i+1} {ring_info}: {helm_seq}")
+                else:
+                    tokens = sample if not isinstance(sample, dict) else sample.get('tokens', sample)
+                    helm_seq = self.dataset.decode_sequence(tokens)
+                    print(f"   样本 {i+1}: {helm_seq}")
+                
+        except Exception as e:
+            self.logger.warning(f"样本生成失败: {e}")
     def train(self):
         """主训练循环"""
         print("   开始ChEMBL32预训练...")
@@ -242,13 +273,18 @@ class ChEMBL32Trainer:
             )
             
             for batch_idx, batch in enumerate(pbar):
-                x = batch.to(self.device)
-                loss = self.model.compute_loss(x)
+                x = batch['token_ids'].to(self.device)
+                mask = batch['mask'].to(self.device)  # 使用mask
+                helm_sequences = batch['helm_sequence']  # 这是一个列表
+                
+                result = self.model(x, mask=mask, helm_sequences=helm_sequences)
+                loss = result['loss']
                 
                 self.optimizer.zero_grad()
                 loss.backward()
                 
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
+                max_grad_norm = getattr(self.config, 'max_grad_norm', 1.0)
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=max_grad_norm)
                 
                 self.optimizer.step()
                 self.scheduler.step()
@@ -258,9 +294,16 @@ class ChEMBL32Trainer:
                 self.global_step += 1
                 
                 current_lr = self.scheduler.get_last_lr()[0]
+                
+                # 增强日志信息，显示分别的损失
+                diffusion_loss = result.get('diffusion_loss', torch.tensor(0.0))
+                ring_bond_loss = result.get('ring_bond_loss', torch.tensor(0.0))
+                
                 pbar.set_postfix({
-                    'loss': f'{loss.item():.4f}',
-                    'avg_loss': f'{epoch_loss/num_batches:.4f}',
+                    'total': f'{loss.item():.4f}',
+                    'diff': f'{diffusion_loss.item():.4f}',
+                    'ring': f'{ring_bond_loss.item():.4f}',
+                    'avg': f'{epoch_loss/num_batches:.4f}',
                     'lr': f'{current_lr:.2e}'
                 })
                 
@@ -268,7 +311,10 @@ class ChEMBL32Trainer:
                 if self.global_step % self.config.log_interval == 0:
                     self.logger.info(
                         f"Epoch {epoch+1}, Step {self.global_step}, "
-                        f"Loss: {loss.item():.4f}, LR: {current_lr:.2e}"
+                        f"Total Loss: {loss.item():.4f}, "
+                        f"Diffusion: {diffusion_loss.item():.4f}, "
+                        f"Ring Bond: {ring_bond_loss.item():.4f}, "
+                        f"LR: {current_lr:.2e}"
                     )
                 
                 if self.global_step % self.config.val_interval == 0:
@@ -296,42 +342,14 @@ class ChEMBL32Trainer:
 
 
 def main():
-    """主函数"""
-    parser = argparse.ArgumentParser(description="ChEMBL32 HELM扩散模型预训练")
-    parser.add_argument("--data_file", 
-                       default="./data/helm_sequences_chembl32.txt",
-                       help="ChEMBL32 HELM序列文件")
-    parser.add_argument("--epochs", type=int, default=10,
-                       help="训练轮次")
-    parser.add_argument("--batch_size", type=int, default=64,
-                       help="批次大小")
-    parser.add_argument("--learning_rate", type=float, default=5e-5,
-                       help="学习率")
-    parser.add_argument("--max_seq_len", type=int, default=150,
-                       help="最大序列长度")
-    
-    args = parser.parse_args()
-    
+    """主函数：完全使用配置文件中的参数进行训练"""
     try:
-        config = ChEMBL32PretrainingConfig()
-        config.chembl32_data_file = args.data_file
-        config.train_epochs = args.epochs
-        config.batch_size = args.batch_size
-        config.learning_rate = args.learning_rate
-        config.max_seq_len = args.max_seq_len
-        
+        config = CHEMBL32_CONFIG
         trainer = ChEMBL32Trainer(config)
-        
         trainer.prepare_data()
-        
-
         trainer.build_model()
-        
-
         trainer.setup_optimizer()
-        
         trainer.train()
-        
     except Exception as e:
         print(f"  训练失败: {e}")
         logging.exception("训练过程中发生错误")

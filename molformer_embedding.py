@@ -44,8 +44,9 @@ class MolFormerEmbedding(nn.Module):
         self.idx_to_symbol = {idx: symbol for symbol, idx in self.symbol_to_idx.items()}
         
         # 转换为PyTorch embedding层
+        self.embedding_matrix = torch.from_numpy(embeddings_matrix).float()
         self.embeddings = nn.Embedding.from_pretrained(
-            torch.from_numpy(embeddings_matrix).float(),
+            self.embedding_matrix,
             freeze=self.freeze_embeddings
         )
         

@@ -185,7 +185,7 @@ class HELMTransformer(nn.Module):
             x, attn_weights = layer(x, attn_mask)
         
         x = self.layer_norm(x)
-        x = self.output_projection(x)
+        x = self.output_projection(x) # [batch_size, seq_len, embedding_dim]
 
         # ring bond loss
         ring_bond_loss = None
@@ -220,8 +220,11 @@ class HELMTransformer(nn.Module):
                             
                             actual_len = len(helm_seq.split('{')[1].split('}')[0].split('.'))
                             if mask is not None:
-                                actual_len = min(actual_len, mask[valid_indices[i]].sum().item())
-                            actual_len = min(actual_len, seq_len)
+                                # mask.sum().item() 返回 float，需要转为 int 以用于切片
+                                mask_len = int(mask[valid_indices[i]].sum().item())
+                                actual_len = min(actual_len, mask_len)
+                            # 再次确保为 int 并且不超过当前序列长度
+                            actual_len = int(min(actual_len, seq_len))
                             
                             if actual_len > 1:
                                 seq_attn = avg_attn[i, :actual_len, :actual_len]
@@ -236,8 +239,12 @@ class HELMTransformer(nn.Module):
                             ring_bond_pred_flat = torch.cat(all_preds, dim=0)  # [total_pairs, 5]
                             target_labels_flat = torch.cat(all_targets, dim=0)  # [total_pairs]
                             
-                            class_weights = torch.tensor([1.0, 3.0, 3.0, 3.0, 3.0], device=x.device)
-                            ring_bond_loss = F.cross_entropy(ring_bond_pred_flat, target_labels_flat, weight=class_weights)
+                            # class_weights = torch.tensor([1.0, 3.0, 3.0, 3.0, 3.0], device=x.device)
+                            # ring_bond_loss = F.cross_entropy(ring_bond_pred_flat, target_labels_flat, weight=class_weights)
+                            ring_bond_loss_per_sample = F.cross_entropy(ring_bond_pred_flat, target_labels_flat, reduction='none')
+                            sample_weights = torch.ones_like(target_labels_flat, dtype=torch.float, device=x.device)
+                            sample_weights[target_labels_flat > 0] = 3.0
+                            ring_bond_loss = (ring_bond_loss_per_sample * sample_weights).mean()
                         else:
                             ring_bond_loss = None
                         
@@ -253,7 +260,7 @@ class HELMTransformer(nn.Module):
             return x, ring_bond_embedding
         else:
             return x, ring_bond_loss
-    
+        
     def get_attention_weights(
         self,
         x: torch.Tensor,

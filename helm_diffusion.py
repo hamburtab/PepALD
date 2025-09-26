@@ -101,13 +101,12 @@ class HELMDiffusionModel(nn.Module):
                                                    connection_info=connection_info,
                                                    helm_sequences=helm_sequences)
         
-        # HELMTransformer 返回 (predicted_noise, ring_bond_loss/embedding)
         if isinstance(transformer_output, tuple):
             predicted_noise = transformer_output[0]
-        else:
-            predicted_noise = transformer_output
-            
-        return predicted_noise
+            ring_bond_loss = transformer_output[1] if len(transformer_output) > 1 else None
+            if isinstance(ring_bond_loss, torch.Tensor) and ring_bond_loss.dim() == 0:
+                return predicted_noise, ring_bond_loss
+        return predicted_noise, None
 
     def forward(
         self,
@@ -122,20 +121,25 @@ class HELMDiffusionModel(nn.Module):
         
         t = torch.randint(0, self.num_steps, (batch_size,), device=device)
         x_t, noise = self.add_noise(x_0, t)
-        predicted_noise = self.predict_noise(x_t, t, mask, 
+        predicted_noise, ring_bond_loss = self.predict_noise(x_t, t, mask, 
                                            peptide_type=peptide_type, 
                                            connection_info=connection_info,
                                            helm_sequences=helm_sequences)
         
         if mask is not None:
-            loss = F.mse_loss(predicted_noise, noise, reduction='none')
-            mask_expanded = mask.unsqueeze(-1).expand_as(loss)
-            loss = (loss * mask_expanded).sum() / mask_expanded.sum()
+            diffusion_loss = F.mse_loss(predicted_noise, noise, reduction='none')
+            mask_expanded = mask.unsqueeze(-1).expand_as(diffusion_loss)
+            diffusion_loss = (diffusion_loss * mask_expanded).sum() / mask_expanded.sum()
         else:
-            loss = F.mse_loss(predicted_noise, noise)
-            
+            diffusion_loss = F.mse_loss(predicted_noise, noise)
+        total_loss = diffusion_loss
+        if ring_bond_loss is not None:
+            total_loss = diffusion_loss + 0.3 * ring_bond_loss
+
         return {
-            'loss': loss,
+            'loss': total_loss,
+            'diffusion_loss': diffusion_loss,
+            'ring_bond_loss': ring_bond_loss if ring_bond_loss is not None else torch.tensor(0.0, device=device),
             'predicted_noise': predicted_noise,
             'target_noise': noise,
             't': t,
@@ -160,9 +164,14 @@ class HELMDiffusionModel(nn.Module):
         for i in reversed(range(self.num_steps)):
             t = torch.full((batch_size,), i, device=device, dtype=torch.long)
             
-            predicted_noise = self.predict_noise(x_t, t, mask, 
-                                                peptide_type=peptide_type, 
-                                                connection_info=connection_info)
+            result = self.predict_noise(x_t, t, mask, 
+                                      peptide_type=peptide_type, 
+                                      connection_info=connection_info)
+            
+            if isinstance(result, tuple):
+                predicted_noise, _ = result
+            else:
+                predicted_noise = result
             
             if i > 0:
                 alpha_t = self.alphas[i]
@@ -190,50 +199,6 @@ class HELMDiffusionModel(nn.Module):
                 
         return x_t
     
-    # @torch.no_grad()
-
-    # 更快的采样方法
-    # def ddim_sample(
-    #     self,
-    #     shape: Tuple[int, int, int],
-    #     mask: Optional[torch.Tensor] = None,
-    #     # device: str = 'cuda',
-    #     device: str = 'cpu',
-    #     num_steps: int = 50,
-    #     eta: float = 0.0
-    # ) -> torch.Tensor:
-    #     batch_size, seq_len, embedding_dim = shape
-        
-    #     step_size = self.num_steps // num_steps
-    #     timesteps = list(range(0, self.num_steps, step_size))[:num_steps]
-    #     timesteps = timesteps[::-1]
-        
-    #     x_t = torch.randn(shape, device=device)
-        
-    #     for i, t in enumerate(timesteps):
-    #         t_tensor = torch.full((batch_size,), t, device=device, dtype=torch.long)
-            
-    #         predicted_noise = self.predict_noise(x_t, t_tensor, mask)
-            
-    #         alpha_cumprod_t = self.alphas_cumprod[t]
-            
-    #         if i < len(timesteps) - 1:
-    #             alpha_cumprod_t_prev = self.alphas_cumprod[timesteps[i+1]]
-    #         else:
-    #             alpha_cumprod_t_prev = torch.tensor(1.0, device=device)
-            
-    #         x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
-            
-    #         direction_to_x_t = torch.sqrt(1 - alpha_cumprod_t_prev - eta**2 * (1 - alpha_cumprod_t_prev)) * predicted_noise
-            
-    #         x_t = torch.sqrt(alpha_cumprod_t_prev) * x_0_pred + direction_to_x_t
-            
-    #         if eta > 0 and i < len(timesteps) - 1:
-    #             noise = torch.randn_like(x_t)
-    #             x_t += eta * torch.sqrt(1 - alpha_cumprod_t_prev) * noise
-                
-    #     return x_t
-    
 class HELMDiffusion(nn.Module):
     def __init__(self, transformer, vocab_size: int, T: int = 1000, beta_schedule: str = "linear", 
                  vocab: Optional[Dict[str, int]] = None, use_molformer: bool = True,
@@ -243,6 +208,7 @@ class HELMDiffusion(nn.Module):
         self.vocab_size = vocab_size
         self.T = T
         self.use_molformer = use_molformer
+        self.vocab = vocab  # 保存词汇表引用
         
         if use_molformer and vocab is not None:
             self.embedding = MolFormerEmbedding(
@@ -269,7 +235,8 @@ class HELMDiffusion(nn.Module):
             beta_end=beta_end
         )
         
-        self.output_projection = nn.Linear(embedding_dim, vocab_size)
+        # 不再需要输出投影层，直接使用embedding距离
+        # self.output_projection = nn.Linear(embedding_dim, vocab_size)
         
     def get_ground_truth_embeddings(self, x):
         if self.use_molformer:
@@ -279,20 +246,20 @@ class HELMDiffusion(nn.Module):
             ground_truth = self.embedding(x)
         return ground_truth
         
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, helm_sequences=None):
         target_embeddings = self.get_ground_truth_embeddings(x)
         
         if mask is None:
             mask = torch.ones(target_embeddings.shape[:2], device=target_embeddings.device)
         
-        result = self.diffusion_model(target_embeddings, mask)
+        result = self.diffusion_model(target_embeddings, mask, helm_sequences=helm_sequences)
         return result
     
-    def compute_loss(self, x, mask=None):
-        result = self.forward(x, mask)
+    def compute_loss(self, x, mask=None, helm_sequences=None):
+        result = self.forward(x, mask, helm_sequences=helm_sequences)
         return result['loss']
     
-    def sample(self, num_samples: int, max_seq_len: int, device=None):
+    def sample(self, num_samples: int, max_seq_len: int, device=None, predict_ring_bonds=True):
         if device is None:
             device = next(self.parameters()).device
             
@@ -301,30 +268,180 @@ class HELMDiffusion(nn.Module):
         samples = self.diffusion_model.sample(shape=shape, device=device)
         
         token_samples = self._embedding_to_tokens(samples)
-        return token_samples
-    
-    # def sample_ddim(self, num_samples: int, max_seq_len: int, ddim_steps: int = 50, eta: float = 0.0):
-    #     device = next(self.parameters()).device
-    #     shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
+
+        # 利用模型学到的结束位置：若某序列在某处预测为 <PAD>，则将其后的所有位置强制设为 <PAD>
+        try:
+            pad_id = self.vocab.get('<PAD>', 0) if isinstance(self.vocab, dict) else 0
+            if isinstance(token_samples, torch.Tensor):
+                # 对每个样本逐一处理（batch 通常不大，这里用简单循环保证清晰）
+                for i in range(token_samples.shape[0]):
+                    row = token_samples[i]
+                    pad_positions = (row == pad_id).nonzero(as_tuple=False)
+                    if pad_positions.numel() > 0:
+                        first_pad = pad_positions[0].item()
+                        if first_pad + 1 < row.shape[0]:
+                            row[first_pad + 1:] = pad_id
+        except Exception:
+            # 若 vocab 或张量设备/形状异常，不影响后续流程
+            pass
         
-    #     samples = self.diffusion_model.ddim_sample(
-    #         shape=shape, 
-    #         num_steps=ddim_steps,
-    #         device=device
-    #     )
-        
-    #     token_samples = self._embedding_to_tokens(samples)
-    #     return token_samples
+        if predict_ring_bonds:
+            # 预测环键连接
+            return self._predict_ring_bonds_for_samples(token_samples, samples, device)
+        else:
+            return token_samples
     
     def _embedding_to_tokens(self, embeddings):
-        logits = self.output_projection(embeddings)
-        tokens = torch.argmax(logits, dim=-1)
-        return tokens
+        """通过计算与MolFormer embedding的距离来选择最近的token"""
+        if self.use_molformer and hasattr(self.embedding, 'embedding_matrix'):
+            # 获取MolFormer embedding矩阵，包括特殊token
+            reference_embeddings = self.embedding.embedding_matrix.to(embeddings.device)
+            num_regular = reference_embeddings.shape[0]
+            if hasattr(self.embedding, 'special_embeddings'):
+                reference_embeddings = torch.cat([
+                    reference_embeddings,
+                    self.embedding.special_embeddings.to(embeddings.device)
+                ], dim=0)
+                num_total = reference_embeddings.shape[0]
+            else:
+                num_total = num_regular
+            
+            # 计算距离: embeddings [batch, seq, 768], reference [vocab, 768]
+            batch_size, seq_len, embed_dim = embeddings.shape
+            embeddings_flat = embeddings.view(-1, embed_dim)  # [batch*seq, 768]
+            
+            # 计算距离矩阵 [batch*seq, vocab]
+            distances = torch.cdist(embeddings_flat, reference_embeddings)
+            
+            # 选择最近的候选索引（在 reference_embeddings 上的行号）
+            nn_indices = torch.argmin(distances, dim=1)  # [batch*seq]
+
+            # 将 reference 索引映射回 vocab id（优先使用已有的 vocab_to_embedding 映射）
+            if hasattr(self.embedding, 'vocab_to_embedding') and isinstance(self.vocab, dict):
+                # 构建 embedding_idx -> vocab_id 的反向映射
+                vocab_to_emb = self.embedding.vocab_to_embedding
+                # 放到 CPU 便于遍历，最终再转回设备
+                emb_to_vocab = torch.full((num_total,), -1, dtype=torch.long)
+                # 先根据已有映射填充（第一次出现即记录）
+                for vocab_id in range(vocab_to_emb.shape[0]):
+                    emb_id = int(vocab_to_emb[vocab_id].item())
+                    if 0 <= emb_id < num_total and emb_to_vocab[emb_id].item() == -1:
+                        emb_to_vocab[emb_id] = vocab_id
+                # 覆盖特殊token，确保特殊候选能映射到正确的 vocab id
+                special_tokens = ['<PAD>', '<UNK>', '<START>', '<END>']
+                for s_idx, s_tok in enumerate(special_tokens):
+                    emb_id = num_regular + s_idx
+                    if emb_id < num_total and s_tok in self.vocab:
+                        emb_to_vocab[emb_id] = self.vocab[s_tok]
+                # 回到正确设备
+                emb_to_vocab = emb_to_vocab.to(embeddings.device)
+                # 映射最近邻结果到 vocab id
+                tokens = emb_to_vocab[nn_indices]
+                # 对于仍未映射成功的位置，回退为最近邻索引（尽量维持旧行为）
+                fallback_mask = tokens.lt(0)
+                if fallback_mask.any():
+                    # 简单回退：裁剪到 vocab 范围（可能与真实 vocab 不完全一致，但保持旧行为的鲁棒性）
+                    tokens[fallback_mask] = torch.remainder(nn_indices[fallback_mask], self.vocab_size)
+            else:
+                tokens = nn_indices
+
+            tokens = tokens.view(batch_size, seq_len)  # [batch, seq]
+            return tokens
+        else:
+            # 简化的随机采样方法（如果没有MolFormer）
+            batch_size, seq_len = embeddings.shape[:2]
+            tokens = torch.randint(0, self.vocab_size, (batch_size, seq_len), device=embeddings.device)
+            return tokens
+    
+    def _predict_ring_bonds_for_samples(self, token_samples, embeddings, device):
+        """为生成的样本预测环键连接"""
+        results = []
+        
+        with torch.no_grad():
+            # 使用低噪声时间步来获取环键预测
+            batch_size = token_samples.shape[0]
+            t = torch.zeros(batch_size, device=device)  # 使用t=0（无噪声）
+            
+            # 直接使用已去噪的embeddings获取环键预测
+            t_normalized = t.float() / self.diffusion_model.num_steps
+            with torch.no_grad():
+                # 只获取环键预测，不进行去噪计算
+                _, ring_bond_predictions = self.diffusion_model.denoising_network(
+                    embeddings, t_normalized, helm_sequences=None
+                )
+            
+            for i in range(batch_size):
+                tokens = token_samples[i]
+                
+                # 找到实际序列长度（到PAD为止）
+                pad_id = self.vocab.get('<PAD>', 0)
+                actual_len = (tokens != pad_id).sum().item()
+                
+                # 线性肽或无环键预测
+                if actual_len <= 1 or ring_bond_predictions is None:
+                    results.append({
+                        'tokens': tokens,
+                        'ring_connections': []
+                    })
+                    continue
+                
+                # 解析环键预测
+                ring_connections = self._parse_ring_bond_predictions(
+                    ring_bond_predictions[i], actual_len
+                )
+                
+                results.append({
+                    'tokens': tokens,
+                    'ring_connections': ring_connections
+                })
+        
+        return results
+    
+    def _parse_ring_bond_predictions(self, ring_predictions, seq_len):
+        """解析环键预测结果为连接列表"""
+        connections = []
+        
+        if ring_predictions is None:
+            return connections
+            
+        try:
+            # ring_predictions的形状为[num_pairs, 5]
+            if ring_predictions.dim() == 2 and ring_predictions.shape[1] == 5:
+                bond_probs = torch.softmax(ring_predictions, dim=1)
+                
+                # 找到所有pairs中概率最大的那个键
+                max_probs, max_indices = torch.max(bond_probs.flatten(), dim=0)
+                max_prob = max_probs.item()
+                max_idx = max_indices.item()
+                # 只有当最大概率 > 0.25 且不是无键类别(0)时才生成环肽
+                if max_prob > 0.25:
+                    pair_idx = max_idx // 5  # 哪个pair
+                    bond_type_idx = max_idx % 5  # 键类型
+                    
+                    if bond_type_idx > 0:  # 不是无键
+                        # 重构pair位置
+                        count = 0
+                        for i in range(seq_len):
+                            for j in range(i + 1, seq_len):
+                                if count == pair_idx:
+                                    bond_types = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
+                                    connections.append({
+                                        'res1': i + 1,
+                                        'res2': j + 1,
+                                        'bond_type': bond_types[bond_type_idx - 1]
+                                    })
+                                    return connections
+                                count += 1
+        
+        except Exception as e:
+            print(f"环键预测解析错误: {e}")
+        
+        return connections
 
 
 class HELMSequenceDataset(torch.utils.data.Dataset):
 
-    def __init__(self, data_file: str, max_seq_len: int = 128, vocab_file: str = "./data/helm_vocab.json"):
+    def __init__(self, data_file: str, max_seq_len: int = 45, vocab_file: str = "./data/helm_vocab.json"):
         self.data_file = data_file
         self.max_seq_len = max_seq_len
         self.topology_analyzer = HELMTopologyAnalyzer()
@@ -350,17 +467,36 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
         helm_seq = self.sequences[idx]
         
         tokens = self._parse_helm_sequence(helm_seq)
+
+        # 去掉tokens中单体的[]
+        tokens = [token[1:-1] if token.startswith('[') and token.endswith(']') else token for token in tokens]
         
         token_ids = self._tokens_to_ids(tokens)
         
+        # 记录真实序列长度
+        actual_len = len(token_ids)
+        
         if len(token_ids) > self.max_seq_len:
             token_ids = token_ids[:self.max_seq_len]
+            actual_len = self.max_seq_len
         else:
             pad_id = self.vocab.get('<PAD>', 0)
             token_ids.extend([pad_id] * (self.max_seq_len - len(token_ids)))
         
-        return torch.tensor(token_ids, dtype=torch.long)
-    
+        # 创建mask: 真实token + 第一个PAD(作为END) = 1，后续PAD = 0
+        mask = torch.zeros(self.max_seq_len, dtype=torch.float)
+        if actual_len < self.max_seq_len:
+            mask[:actual_len + 1] = 1.0
+        else:
+            # 序列已满，全部为真实token（没有结束符）
+            mask[:actual_len] = 1.0
+        
+        return {
+            'token_ids': torch.tensor(token_ids, dtype=torch.long),
+            'mask': mask,  # 修正的mask
+            'helm_sequence': helm_seq
+        }
+
     def _parse_helm_sequence(self, helm_seq: str):
         parsed_result = self.topology_analyzer.parse_helm_sequence(helm_seq)
         sequence = parsed_result['sequence']
@@ -370,7 +506,11 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
         unk_id = self.vocab.get('<UNK>', 1)
         return [self.vocab.get(token, unk_id) for token in tokens]
     
-    def decode_sequence(self, token_ids):
+    def decode_sequence(self, token_ids, ring_connections=None):
+        """解码token序列为HELM字符串
+        遇到PAD就停止解码
+        如果提供ring_connections，则生成包含环键的HELM序列
+        """
         tokens = []
         for token_id in token_ids:
             if isinstance(token_id, torch.Tensor):
@@ -383,7 +523,36 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
                 elif token not in ['<UNK>', '<START>', '<END>']:
                     tokens.append(token)
         
-        if tokens:
-            return f"PEPTIDE1{{{'.'.join(tokens)}}}$$$$"
-        else:
+        if not tokens:
             return "PEPTIDE1{}$$$$"
+        
+        # 构建基本序列部分
+        sequence_part = f"PEPTIDE1{{{'.'.join(tokens)}}}"
+        
+        # 如果有环键连接，添加连接信息
+        if ring_connections and len(ring_connections) > 0:
+            connection_parts = []
+            for conn in ring_connections:
+                res1, res2 = conn['res1'], conn['res2']
+                bond_type = conn['bond_type']
+                
+                # 构建连接字符串格式: PEPTIDE1,PEPTIDE1,res1:bond1-res2:bond2
+                if bond_type == 'R3R3':
+                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R3-{res2}:R3"
+                elif bond_type == 'R1R2':
+                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R1-{res2}:R2"
+                elif bond_type == 'R1R3':
+                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R1-{res2}:R3"
+                elif bond_type == 'R3R2':
+                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R3-{res2}:R2"
+                else:
+                    continue
+                    
+                connection_parts.append(conn_str)
+            
+            if connection_parts:
+                connection_str = '|'.join(connection_parts)
+                return f"{sequence_part}${connection_str}$$$"
+        
+        # 无环键的情况
+        return f"{sequence_part}$$$$"

@@ -9,11 +9,11 @@ class HELMTopologyAnalyzer:
         """解析HELM序列，提取拓扑信息"""
         if '$' in helm_sequence:
             parts = helm_sequence.split('$')
-            sequence_part = parts[0]
+            sequence_part = parts[0] #eg:sequence_part = PEPTIDE1{C.G.C.R.K}
             connection_part = ""
             for part in parts[1:]:
                 if part and 'PEPTIDE' in part and ':R' in part:
-                    connection_part = part
+                    connection_part = part #eg:connection_part = PEPTIDE1,PEPTIDE1,6:R3-1:R3
                     break
         else:
             sequence_part = helm_sequence
@@ -38,8 +38,8 @@ class HELMTopologyAnalyzer:
         
         return {
             'peptide_type': peptide_type,
-            'sequence': sequence,
-            'connections': connections,
+            'sequence': sequence, # eg: [X2].[Nle].G.W.[Nle].D.F.[am]
+            'connections': connections, # eg:[{'pos1': 8, 'r1': 3, 'pos2': 3, 'r2': 3}]
             'raw_helm': helm_sequence
         }
     
@@ -153,11 +153,11 @@ def test_analyzer():
     # 测试用例
     test_cases = [
         # 线性肽
-        "PEPTIDE1{A.G.C.R.K}$$",
+        "PEPTIDE1{[X2].[Nle].G.W.[Nle].D.F.[am]}$$$$",
         # 环形肽 (头尾连接)
-        "PEPTIDE1{C.G.C.R.K}$PEPTIDE1,PEPTIDE1,1:R3-5:R3$",
+        "PEPTIDE1{[X2159].[dF].C.F.W.[Lys(Boc)].[dalloT].[dC].T}$PEPTIDE1,PEPTIDE1,8:R3-3:R3$$$",
         # Q型肽 (侧链连接)
-        "PEPTIDE1{A.C.G.C.K}$PEPTIDE1,PEPTIDE1,2:R3-4:R3$",
+        "PEPTIDE1{A.C.G.C.K}$PEPTIDE1,PEPTIDE1,2:R1-4:R2$$$",
     ]
     
     for helm_seq in test_cases:
