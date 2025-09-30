@@ -38,12 +38,8 @@ class ChEMBL32Trainer:
         print(f" 初始化完成")
         print(f" 设备: {self.device}")
         print(f" 检查点目录: {self.checkpoint_dir}")
-    
-    def _print_section(self, title: str, items: dict):
-        print(f"   {title}:")
-        for key, value in items.items():
-            print(f"   {key}: {value}")
-        print()
+
+
     
     def setup_logging(self):
         """设置日志"""
@@ -70,15 +66,11 @@ class ChEMBL32Trainer:
             vocab_file=self.config.vocab_file
         )
         
-        print(f"   数据集加载完成:")
-        dataset_info = {
-            "训练序列数": f"{len(self.dataset):,}",
-            "最大序列长度": self.config.max_seq_len,
-            "词汇表大小": len(self.dataset.vocab)
-        }
-        for key, value in dataset_info.items():
-            print(f"   {key}: {value}")
-        
+        print(f"数据集加载完成:")
+        print("训练序列数:", f"{len(self.dataset):,}")
+        print("最大序列长度:", f"{self.config.max_seq_len}")
+        print("词汇表大小:", f"{len(self.dataset.vocab)}")
+
         self.dataloader = DataLoader(
             self.dataset,
             batch_size=self.config.batch_size,
@@ -87,15 +79,11 @@ class ChEMBL32Trainer:
             pin_memory=True if self.device.type == 'cuda' else False,
             drop_last=True
         )
-        
-        dataloader_info = {
-            "批次大小": self.config.batch_size,
-            "每轮批次数": len(self.dataloader)
-        }
-        print(f"   数据加载器创建完成:")
-        for key, value in dataloader_info.items():
-            print(f"   {key}: {value}")
-    
+
+        print(f"数据加载器创建完成:")
+        print(f"批次大小:", f"{self.config.batch_size}")
+        print(f"每轮批次数:", f"{len(self.dataloader)}")
+
     def build_model(self):
         """构建模型"""
         print("   构建HELM扩散模型...")
@@ -121,9 +109,9 @@ class ChEMBL32Trainer:
             d_ff=self.config.dim_feedforward
         ).to(self.device)
         
+        # 计算模型参数数量
         total_params = sum(p.numel() for p in self.model.parameters())
         trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        
         model_info = {
             "总参数数": f"{total_params:,}",
             "可训练参数": f"{trainable_params:,}",
@@ -144,8 +132,7 @@ class ChEMBL32Trainer:
             betas=(0.9, 0.95)
         )
         
-        # 学习率调度器
-        total_steps = len(self.dataloader) * self.config.train_epochs
+        total_steps = len(self.dataloader) * self.config.train_epochs # 一共有多少个训练步，即多少个batch
         
         self.scheduler = optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer,

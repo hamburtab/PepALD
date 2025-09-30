@@ -4,16 +4,10 @@ from pathlib import Path
 
 class ChEMBL32Config:
     def __init__(self):
-        # 项目信息
-        self.project_name = "HELM_Diffusion_ChEMBL32"
-        self.version = "2.0.0"
-        self.description = "基于ChEMBL32生物治疗药物数据的HELM扩散模型"
-        
+
         # 数据配置
-        self.chembl32_raw_file = "./data/chembl32/biotherapeutics_dict_prot_flt.csv"
-        self.chembl32_processed_file = "./data/helm_sequences_chembl32.txt"
         self.chembl32_data_file = "./data/helm_sequences_chembl32.txt"  # 实际使用的数据文件
-        self.max_seq_len = 46  # chembl32中的最长数据集
+        self.max_seq_len = 46  # 选取了chembl32中最长的序列长度
         self.vocab_file = "./data/helm_vocab.json"
 
         # 模型架构

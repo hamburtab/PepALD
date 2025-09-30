@@ -235,9 +235,6 @@ class HELMDiffusion(nn.Module):
             beta_end=beta_end
         )
         
-        # 不再需要输出投影层，直接使用embedding距离
-        # self.output_projection = nn.Linear(embedding_dim, vocab_size)
-        
     def get_ground_truth_embeddings(self, x):
         if self.use_molformer:
             with torch.no_grad():
@@ -455,18 +452,19 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
         with open(data_file, 'r') as f:
             for line in f:
                 helm_seq = line.strip()
-                if helm_seq:
-                    self.sequences.append(helm_seq)
+                self.sequences.append(helm_seq)
         
-        print(f"加载 {len(self.sequences)} 个HELM序列")
+        print(f"加载了 {len(self.sequences)} 个HELM序列")
     
     def __len__(self):
         return len(self.sequences)
     
     def __getitem__(self, idx):
+        """获取第idx个HELM序列的token ids及mask
+        """
         helm_seq = self.sequences[idx]
         
-        tokens = self._parse_helm_sequence(helm_seq)
+        tokens = self._parse_helm_sequence(helm_seq) # 是一个列表。eg: ['[X2]', '[Nle]', 'G', 'W', '[Nle]', 'D', 'F', '[am]']
 
         # 去掉tokens中单体的[]
         tokens = [token[1:-1] if token.startswith('[') and token.endswith(']') else token for token in tokens]
@@ -497,7 +495,7 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
             'helm_sequence': helm_seq
         }
 
-    def _parse_helm_sequence(self, helm_seq: str):
+    def _parse_helm_sequence(self, helm_seq: str): # 解析HELM字符串为token列表
         parsed_result = self.topology_analyzer.parse_helm_sequence(helm_seq)
         sequence = parsed_result['sequence']
         return sequence.split('.') if sequence else []
@@ -524,6 +522,7 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
                     tokens.append(token)
         
         if not tokens:
+            print("错误: 解码后序列为空")
             return "PEPTIDE1{}$$$$"
         
         # 构建基本序列部分
@@ -546,6 +545,7 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
                 elif bond_type == 'R3R2':
                     conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R3-{res2}:R2"
                 else:
+                    print(f"存在未知的环键类型: {bond_type}")
                     continue
                     
                 connection_parts.append(conn_str)
