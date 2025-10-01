@@ -32,7 +32,7 @@ class MolFormerEmbedding(nn.Module):
             self.metadata = json.load(f)
         
         # 加载embeddings矩阵
-        embeddings_matrix = np.load(self.embeddings_dir / "complete_embeddings_matrix.npy")
+        embeddings_matrix = np.load(self.embeddings_dir / "complete_embeddings_matrix.npy", allow_pickle=True)
         self.embedding_dim = embeddings_matrix.shape[1]
         self.num_monomers = embeddings_matrix.shape[0]
         
