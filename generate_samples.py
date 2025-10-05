@@ -90,7 +90,7 @@ def generate_samples(checkpoint_path: str, num_samples: int, max_seq_len: int):
 
     # 5. 解码并打印样本
     print("\n--- 生成的HELM序列 ---")
-    with open('../chembl32_samples/helm_chembl32only.txt', 'w') as f:
+    with open('chembl32_samples/helm_chembl32only_samples.txt', 'w') as f:
         for i, sample in enumerate(generated_samples):
             if isinstance(sample, dict) and 'tokens' in sample:
                 ring_connections = sample.get('ring_connections', [])
@@ -111,8 +111,8 @@ if __name__ == "__main__":
     best_model_path = "chembl32_checkpoints/chembl32_best_model.pth"
     
     # 定义生成参数
-    num_to_generate = 10  # 生成10个样本
-    sequence_length = 46  # 与训练时保持一致的最大长度
+    num_to_generate = 30  # 生成30个样本
+    sequence_length = 20  # 与训练时保持一致的最大长度
 
     generate_samples(
         checkpoint_path=best_model_path,

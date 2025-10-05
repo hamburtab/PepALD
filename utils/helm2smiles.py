@@ -278,7 +278,7 @@ def restore_unused_rgroup(monomer_smis, monomer_r_groups, monomer_links):
     return monomer_smis
 
 
-df_monomers = pd.read_csv('data/monomer_library.csv')
+df_monomers = pd.read_csv('../data/monomer_library.csv')
 
 monomers2smi_dict = {}
 monomers2r_groups_dict = {}
