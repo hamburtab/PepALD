@@ -59,7 +59,13 @@ class HELMDiffusionModel(nn.Module):
         alphas = 1.0 - betas
         alphas_cumprod = torch.cumprod(alphas, dim=0)
         alphas_cumprod_prev = F.pad(alphas_cumprod[:-1], (1, 0), value=1.0)
-        
+
+        sigmas = torch.zeros_like(betas)
+        for i in range(1, len(betas)):
+            sigmas[i] = ((1 - alphas_cumprod_prev[i]) / (1 - alphas_cumprod[i])) * betas[i]
+        sigmas = torch.sqrt(sigmas)
+
+        self.register_buffer('sigmas', sigmas) 
         self.register_buffer('betas', betas)
         self.register_buffer('alphas', alphas)
         self.register_buffer('alphas_cumprod', alphas_cumprod)
@@ -76,8 +82,8 @@ class HELMDiffusionModel(nn.Module):
         if noise is None:
             noise = torch.randn_like(x_0) # [batch_size, seq_len, embedding_dim]
             
-        sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t] # [batch_size]
-        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t]
+        sqrt_alphas_cumprod_t = self.sqrt_alphas_cumprod[t - 1] # [batch_size] (t从1开始，索引从0开始)
+        sqrt_one_minus_alphas_cumprod_t = self.sqrt_one_minus_alphas_cumprod[t - 1]
         
         sqrt_alphas_cumprod_t = sqrt_alphas_cumprod_t.view(-1, 1, 1) # [batch_size, 1, 1]
         sqrt_one_minus_alphas_cumprod_t = sqrt_one_minus_alphas_cumprod_t.view(-1, 1, 1)
@@ -119,7 +125,7 @@ class HELMDiffusionModel(nn.Module):
         batch_size = x_0.shape[0]
         device = x_0.device
         
-        t = torch.randint(0, self.num_steps, (batch_size,), device=device)
+        t = torch.randint(1, self.num_steps + 1, (batch_size,), device=device)  # t ∈ [1, num_steps]
         x_t, noise = self.add_noise(x_0, t)
         predicted_noise, ring_bond_loss = self.predict_noise(x_t, t, mask, 
                                            peptide_type=peptide_type, 
@@ -153,7 +159,7 @@ class HELMDiffusionModel(nn.Module):
         mask: Optional[torch.Tensor] = None,
         device: str = 'cuda',
         guidance_scale: float = 1.0,
-        eta: float = 0.0,
+        eta: float = 1.0,
         peptide_type: Optional[list] = None,
         connection_info: Optional[list] = None
     ) -> torch.Tensor:
@@ -161,7 +167,7 @@ class HELMDiffusionModel(nn.Module):
         
         x_t = torch.randn(shape, device=device)
         
-        for i in reversed(range(self.num_steps)):
+        for i in reversed(range(1, self.num_steps + 1)):  # t ∈ [num_steps, ..., 1]
             t = torch.full((batch_size,), i, device=device, dtype=torch.long)
             
             result = self.predict_noise(x_t, t, mask, 
@@ -172,30 +178,25 @@ class HELMDiffusionModel(nn.Module):
                 predicted_noise, _ = result
             else:
                 predicted_noise = result
+
+            # 1. 获取参数 (标量)
+            alpha_t = self.alphas[i - 1]           # α_t
+            alpha_bar_t = self.alphas_cumprod[i - 1]  # ᾱ_t
             
-            if i > 0:
-                alpha_t = self.alphas[i]
-                alpha_cumprod_t = self.alphas_cumprod[i]
-                alpha_cumprod_t_prev = self.alphas_cumprod[i-1]
-                beta_t = self.betas[i]
-                
-                # 预测x_0
-                x_0_pred = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
-                
-                # 计算均值
-                mean = (torch.sqrt(alpha_cumprod_t_prev) * beta_t) / (1 - alpha_cumprod_t) * x_0_pred + \
-                       (torch.sqrt(alpha_t) * (1 - alpha_cumprod_t_prev)) / (1 - alpha_cumprod_t) * x_t
-                
-                # 添加噪声
-                if eta > 0:
-                    variance = eta * beta_t
-                    noise = torch.randn_like(x_t)
-                    x_t = mean + torch.sqrt(variance) * noise
-                else:
-                    x_t = mean
-            else:
-                alpha_cumprod_t = self.alphas_cumprod[i]
-                x_t = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
+            # 2. 计算系数
+            c0 = 1.0 / torch.sqrt(alpha_t + 1e-8)     # c0 = 1/√α_t
+            c1 = (1 - alpha_t) / torch.sqrt(1 - alpha_bar_t + 1e-8)  # c1 = (1-α_t)/√(1-ᾱ_t)
+
+            # 3. 生成噪声
+            if i > 1:  # t > 1 时添加噪声
+                z = torch.randn_like(x_t)
+                sigma = self.sigmas[i - 1]
+            else:  # t = 1 时不添加噪声
+                z = torch.zeros_like(x_t)
+                sigma = 0.0
+            
+            # 4. DDPM去噪公式
+            x_t = c0 * (x_t - c1 * predicted_noise) + sigma * z
                 
         return x_t
     
