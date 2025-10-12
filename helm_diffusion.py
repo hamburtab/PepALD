@@ -215,7 +215,7 @@ class HELMDiffusion(nn.Module):
             self.embedding = MolFormerEmbedding(
                 embeddings_dir="./molformer_embeddings",
                 vocab=vocab,
-                freeze_embeddings=False
+                freeze_embeddings=True
             )
             embedding_dim = self.embedding.embedding_dim
         else:

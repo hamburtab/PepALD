@@ -52,7 +52,7 @@ class MolFormerEmbedding(nn.Module):
         
         # 创建特殊token的embedding
         special_embeddings = torch.randn(4, self.embedding_dim) * 0.1  # 小的随机初始化
-        self.special_embeddings = nn.Parameter(special_embeddings, requires_grad=not self.freeze_embeddings)
+        self.special_embeddings = nn.Parameter(special_embeddings, requires_grad=False)  # 冻结特殊token
         
         print(f"   加载的嵌入统计:")
         print(f"   模型: {self.metadata['model_name']}")
