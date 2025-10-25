@@ -211,10 +211,14 @@ class HELMDiffusion(nn.Module):
         self.use_molformer = use_molformer
         self.vocab = vocab  # 保存词汇表引用
         
+        # 记录每个单体转换时的最短50个距离值
+        self.monomer_min_distances = {}
+        # 记录所有单体的全局最小50个距离值
+        self.global_min_distances = []
+        
         if use_molformer and vocab is not None:
             self.embedding = MolFormerEmbedding(
                 embeddings_dir="./molformer_embeddings",
-                vocab=vocab,
                 freeze_embeddings=True
             )
             embedding_dim = self.embedding.embedding_dim
@@ -239,8 +243,9 @@ class HELMDiffusion(nn.Module):
     def get_ground_truth_embeddings(self, x):
         if self.use_molformer:
             with torch.no_grad():
-                ground_truth = self.embedding(x)
+                ground_truth = self.embedding(x) #[batch_size, seq_len, embedding_dim]
         else:
+            print("Using standard nn.Embedding for ground truth embeddings.")
             ground_truth = self.embedding(x)
         return ground_truth
         
@@ -263,7 +268,7 @@ class HELMDiffusion(nn.Module):
             
         shape = (num_samples, max_seq_len, self.diffusion_model.embedding_dim)
         
-        samples = self.diffusion_model.sample(shape=shape, device=device)
+        samples = self.diffusion_model.sample(shape=shape, device=device) # [num_samples, max_seq_len, embedding_dim]
         
         token_samples = self._embedding_to_tokens(samples)
 
@@ -290,66 +295,82 @@ class HELMDiffusion(nn.Module):
             return token_samples
     
     def _embedding_to_tokens(self, embeddings):
-        """通过计算与MolFormer embedding的距离来选择最近的token"""
-        if self.use_molformer and hasattr(self.embedding, 'embedding_matrix'):
-            # 获取MolFormer embedding矩阵，包括特殊token
-            reference_embeddings = self.embedding.embedding_matrix.to(embeddings.device)
-            num_regular = reference_embeddings.shape[0]
-            if hasattr(self.embedding, 'special_embeddings'):
-                reference_embeddings = torch.cat([
-                    reference_embeddings,
-                    self.embedding.special_embeddings.to(embeddings.device)
-                ], dim=0)
-                num_total = reference_embeddings.shape[0]
-            else:
-                num_total = num_regular
+        """
+        通过计算与embedding矩阵的距离来选择最近的token
+        """
+        if self.use_molformer and hasattr(self.embedding, 'embeddings'):
+            # 获取完整的embedding矩阵 [vocab_size, embedding_dim]
+            # 包括 3104 个单体 + 1 个 PAD
+            reference_embeddings = self.embedding.embeddings.weight.to(embeddings.device)
             
-            # 计算距离: embeddings [batch, seq, 768], reference [vocab, 768]
+            # 计算距离: embeddings [batch, seq, 768], reference [vocab_size, 768]
             batch_size, seq_len, embed_dim = embeddings.shape
             embeddings_flat = embeddings.view(-1, embed_dim)  # [batch*seq, 768]
             
-            # 计算距离矩阵 [batch*seq, vocab]
-            distances = torch.cdist(embeddings_flat, reference_embeddings)
+            # 计算距离矩阵并选择最近的token
+            distances = torch.cdist(embeddings_flat, reference_embeddings)  # [batch*seq, vocab_size]
             
-            # 选择最近的候选索引（在 reference_embeddings 上的行号）
-            nn_indices = torch.argmin(distances, dim=1)  # [batch*seq]
-
-            # 将 reference 索引映射回 vocab id（优先使用已有的 vocab_to_embedding 映射）
-            if hasattr(self.embedding, 'vocab_to_embedding') and isinstance(self.vocab, dict):
-                # 构建 embedding_idx -> vocab_id 的反向映射
-                vocab_to_emb = self.embedding.vocab_to_embedding
-                # 放到 CPU 便于遍历，最终再转回设备
-                emb_to_vocab = torch.full((num_total,), -1, dtype=torch.long)
-                # 先根据已有映射填充（第一次出现即记录）
-                for vocab_id in range(vocab_to_emb.shape[0]):
-                    emb_id = int(vocab_to_emb[vocab_id].item())
-                    if 0 <= emb_id < num_total and emb_to_vocab[emb_id].item() == -1:
-                        emb_to_vocab[emb_id] = vocab_id
-                # 覆盖特殊token，确保特殊候选能映射到正确的 vocab id
-                special_tokens = ['<PAD>', '<UNK>', '<START>', '<END>']
-                for s_idx, s_tok in enumerate(special_tokens):
-                    emb_id = num_regular + s_idx
-                    if emb_id < num_total and s_tok in self.vocab:
-                        emb_to_vocab[emb_id] = self.vocab[s_tok]
-                # 回到正确设备
-                emb_to_vocab = emb_to_vocab.to(embeddings.device)
-                # 映射最近邻结果到 vocab id
-                tokens = emb_to_vocab[nn_indices]
-                # 对于仍未映射成功的位置，回退为最近邻索引（尽量维持旧行为）
-                fallback_mask = tokens.lt(0)
-                if fallback_mask.any():
-                    # 简单回退：裁剪到 vocab 范围（可能与真实 vocab 不完全一致，但保持旧行为的鲁棒性）
-                    tokens[fallback_mask] = torch.remainder(nn_indices[fallback_mask], self.vocab_size)
-            else:
-                tokens = nn_indices
-
+            # 记录距离统计（推理阶段）
+            if not self.training:
+                min_dists = distances.min(dim=0).values.cpu().tolist()  # [vocab_size]
+                for token_id, dist in enumerate(min_dists):
+                    if token_id not in self.monomer_min_distances:
+                        self.monomer_min_distances[token_id] = []
+                    self.monomer_min_distances[token_id].append(dist)
+                    self.monomer_min_distances[token_id] = sorted(self.monomer_min_distances[token_id])[:50]
+                # 更新全局最小距离
+                self.global_min_distances.extend(min_dists)
+                self.global_min_distances = sorted(self.global_min_distances)[:50]
+            
+            tokens = torch.argmin(distances, dim=1)  # [batch*seq]
+            
+            # 由于vocab索引与embedding索引一致，argmin结果直接就是token ID
             tokens = tokens.view(batch_size, seq_len)  # [batch, seq]
             return tokens
         else:
-            # 简化的随机采样方法（如果没有MolFormer）
-            batch_size, seq_len = embeddings.shape[:2]
-            tokens = torch.randint(0, self.vocab_size, (batch_size, seq_len), device=embeddings.device)
+            # 回退方案：使用标准embedding
+            print("Warning: MolFormer embeddings not available, using fallback method.")
+            batch_size, seq_len, embed_dim = embeddings.shape
+            # 简单的最近邻查找
+            reference_embeddings = self.embedding.weight.to(embeddings.device)
+            embeddings_flat = embeddings.view(-1, embed_dim)
+            distances = torch.cdist(embeddings_flat, reference_embeddings)
+            tokens = torch.argmin(distances, dim=1).view(batch_size, seq_len)
             return tokens
+    
+    def get_monomer_distance_stats(self):
+        """获取单体距离统计信息"""
+        stats = {
+            'global_min_distances': {
+                'count': len(self.global_min_distances),
+                'min': min(self.global_min_distances) if self.global_min_distances else None,
+                'max': max(self.global_min_distances) if self.global_min_distances else None,
+                'avg': sum(self.global_min_distances) / len(self.global_min_distances) if self.global_min_distances else None,
+                'distances': self.global_min_distances
+            },
+            'per_monomer': {}
+        }
+        for token_id, dists in self.monomer_min_distances.items():
+            if self.vocab:
+                token_name = list(self.vocab.keys())[list(self.vocab.values()).index(token_id)] if token_id in self.vocab.values() else f"Token_{token_id}"
+            else:
+                token_name = f"Token_{token_id}"
+            stats['per_monomer'][token_name] = {
+                'count': len(dists),
+                'min': min(dists) if dists else None,
+                'max': max(dists) if dists else None,
+                'avg': sum(dists) / len(dists) if dists else None,
+                'distances': dists
+            }
+        return stats
+    
+    def save_distance_stats(self, filepath='monomer_distance_stats.json'):
+        """保存单体距离统计到文件"""
+        import json
+        stats = self.get_monomer_distance_stats()
+        with open(filepath, 'w') as f:
+            json.dump(stats, f, indent=2)
+        print(f"距离统计已保存到: {filepath}")
     
     def _predict_ring_bonds_for_samples(self, token_samples, embeddings, device):
         """为生成的样本预测环键连接"""
@@ -502,8 +523,9 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
         return sequence.split('.') if sequence else []
     
     def _tokens_to_ids(self, tokens):
-        unk_id = self.vocab.get('<UNK>', 1)
-        return [self.vocab.get(token, unk_id) for token in tokens]
+        # 如果词汇表中不存在某个token，将其映射到PAD（id=0）
+        pad_id = self.vocab.get('<PAD>', 0)
+        return [self.vocab.get(token, pad_id) for token in tokens]
     
     def decode_sequence(self, token_ids, ring_connections=None):
         """解码token序列为HELM字符串
@@ -519,7 +541,7 @@ class HELMSequenceDataset(torch.utils.data.Dataset):
                 token = self.idx_to_token[token_id]
                 if token == '<PAD>':
                     break
-                elif token not in ['<UNK>', '<START>', '<END>']:
+                else:
                     tokens.append(token)
         
         if not tokens:

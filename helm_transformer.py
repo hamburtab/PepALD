@@ -96,7 +96,7 @@ class TransformerEncoderLayer(nn.Module):
         x = self.norm1(x + self.dropout(attn_output))
         
         ff_output = self.feed_forward(x)
-        x = self.norm2(x + self.dropout(ff_output))
+        x = self.norm2(x + self.dropout(ff_output)) # [batch_size, seq_len, d_model]
         
         return x, attn_weights
 
