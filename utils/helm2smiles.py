@@ -4,6 +4,8 @@ import copy
 import pandas as pd
 from loguru import logger
 from rdkit import RDLogger
+from pathlib import Path
+import os
 
 
 RDLogger.DisableLog('rdApp.*')
@@ -278,7 +280,10 @@ def restore_unused_rgroup(monomer_smis, monomer_r_groups, monomer_links):
     return monomer_smis
 
 
-df_monomers = pd.read_csv('../data/monomer_library.csv')
+# Get the path to monomer_library.csv using Path
+current_dir = Path(__file__).parent
+monomer_library_path = current_dir.parent / 'data' / 'monomer_library.csv'
+df_monomers = pd.read_csv(monomer_library_path)
 
 monomers2smi_dict = {}
 monomers2r_groups_dict = {}

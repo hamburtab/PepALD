@@ -216,6 +216,9 @@ class HELMDiffusion(nn.Module):
         # 记录所有单体的全局最小50个距离值
         self.global_min_distances = []
         
+        # 根据R1/R2分三类单体
+        self._classify_monomers()
+        
         if use_molformer and vocab is not None:
             self.embedding = MolFormerEmbedding(
                 embeddings_dir="./molformer_embeddings",
@@ -239,6 +242,53 @@ class HELMDiffusion(nn.Module):
             beta_start=beta_start,
             beta_end=beta_end
         )
+    
+    def _classify_monomers(self):
+        """根据R1/R2分类单体到三个类别"""
+        import pandas as pd
+        
+        # 读取单体库
+        monomer_df = pd.read_csv('./data/monomer_library.csv')
+        
+        self.class1_tokens = set()  # 必须含有R2（第一个位置用）
+        self.class2_tokens = set()  # 必须含有R1和R2（中间位置用）
+        self.class3_tokens = set()  # 必须含有R1（最后位置用）
+        
+        if self.vocab is None:
+            return
+        
+        # 遍历单体库分类
+        for _, row in monomer_df.iterrows():
+            symbol = row['Symbol']
+            r1 = str(row['R1']).strip()
+            r2 = str(row['R2']).strip()
+            
+            if symbol not in self.vocab:
+                continue
+            
+            token_id = self.vocab[symbol]
+            has_r1 = (r1 != '-' and r1 != 'nan')
+            has_r2 = (r2 != '-' and r2 != 'nan')
+            
+            # 类别1: 必须含有R2
+            if has_r2:
+                self.class1_tokens.add(token_id)
+            
+            # 类别2: 必须同时含有R1和R2
+            if has_r1 and has_r2:
+                self.class2_tokens.add(token_id)
+            
+            # 类别3: 必须含有R1
+            if has_r1:
+                self.class3_tokens.add(token_id)
+        
+        # 转换为排序的列表以便快速查找
+        self.class1_tokens = sorted(list(self.class1_tokens))
+        self.class2_tokens = sorted(list(self.class2_tokens))
+        self.class3_tokens = sorted(list(self.class3_tokens))
+        
+        print(f"单体分类完成: 类别1({len(self.class1_tokens)}) 类别2({len(self.class2_tokens)}) 类别3({len(self.class3_tokens)})")
+
         
     def get_ground_truth_embeddings(self, x):
         if self.use_molformer:
@@ -262,7 +312,7 @@ class HELMDiffusion(nn.Module):
         result = self.forward(x, mask, helm_sequences=helm_sequences)
         return result['loss']
     
-    def sample(self, num_samples: int, max_seq_len: int, device=None, predict_ring_bonds=True):
+    def sample(self, num_samples: int, max_seq_len: int, device=None, predict_ring_bonds=True, min_seq_len: int = None):
         if device is None:
             device = next(self.parameters()).device
             
@@ -270,7 +320,12 @@ class HELMDiffusion(nn.Module):
         
         samples = self.diffusion_model.sample(shape=shape, device=device) # [num_samples, max_seq_len, embedding_dim]
         
-        token_samples = self._embedding_to_tokens(samples)
+        # 如果指定了最小长度，则生成随机长度
+        lengths = None
+        if min_seq_len is not None:
+            lengths = torch.randint(min_seq_len, max_seq_len + 1, (num_samples,), device=device)
+            
+        token_samples = self._embedding_to_tokens(samples, lengths=lengths) # [num_samples, max_seq_len]
 
         # 利用模型学到的结束位置：若某序列在某处预测为 <PAD>，则将其后的所有位置强制设为 <PAD>
         try:
@@ -294,20 +349,19 @@ class HELMDiffusion(nn.Module):
         else:
             return token_samples
     
-    def _embedding_to_tokens(self, embeddings):
+    def _embedding_to_tokens(self, embeddings, lengths=None):
         """
         通过计算与embedding矩阵的距离来选择最近的token
+        第一个位置用类别1, 最后位置用类别3, 中间位置用类别2
         """
         if self.use_molformer and hasattr(self.embedding, 'embeddings'):
             # 获取完整的embedding矩阵 [vocab_size, embedding_dim]
-            # 包括 3104 个单体 + 1 个 PAD
             reference_embeddings = self.embedding.embeddings.weight.to(embeddings.device)
             
-            # 计算距离: embeddings [batch, seq, 768], reference [vocab_size, 768]
             batch_size, seq_len, embed_dim = embeddings.shape
             embeddings_flat = embeddings.view(-1, embed_dim)  # [batch*seq, 768]
             
-            # 计算距离矩阵并选择最近的token
+            # 计算距离矩阵
             distances = torch.cdist(embeddings_flat, reference_embeddings)  # [batch*seq, vocab_size]
             
             # 记录距离统计（推理阶段）
@@ -318,20 +372,50 @@ class HELMDiffusion(nn.Module):
                         self.monomer_min_distances[token_id] = []
                     self.monomer_min_distances[token_id].append(dist)
                     self.monomer_min_distances[token_id] = sorted(self.monomer_min_distances[token_id])[:50]
-                # 更新全局最小距离
                 self.global_min_distances.extend(min_dists)
                 self.global_min_distances = sorted(self.global_min_distances)[:50]
             
-            tokens = torch.argmin(distances, dim=1)  # [batch*seq]
+            # 应用位置约束选择token
+            distances_reshaped = distances.view(batch_size, seq_len, -1)  # [batch, seq, vocab_size]
+            tokens = torch.zeros(batch_size, seq_len, dtype=torch.long, device=embeddings.device)
             
-            # 由于vocab索引与embedding索引一致，argmin结果直接就是token ID
-            tokens = tokens.view(batch_size, seq_len)  # [batch, seq]
+            pad_id = self.vocab.get('<PAD>', 0) if self.vocab else 0
+            
+            for b in range(batch_size):
+                # 获取当前样本的目标长度
+                current_len = lengths[b].item() if lengths is not None else seq_len
+                
+                for s in range(seq_len):
+                    # 超过目标长度的部分填充PAD
+                    if s >= current_len:
+                        tokens[b, s] = pad_id
+                        continue
+
+                    # 确定当前位置允许的token集合
+                    if s == 0:
+                        # 第一个位置: 只能用类别1 (含R2)
+                        allowed_tokens = self.class1_tokens
+                    elif s == current_len - 1:
+                        # 最后位置: 只能用类别3 (含R1)
+                        allowed_tokens = self.class3_tokens
+                    else:
+                        # 中间位置: 只能用类别2 (含R1和R2)
+                        allowed_tokens = self.class2_tokens
+                    
+                    # 在允许的token中找距离最小的
+                    if allowed_tokens:
+                        allowed_distances = distances_reshaped[b, s, allowed_tokens]
+                        min_idx = torch.argmin(allowed_distances)
+                        tokens[b, s] = allowed_tokens[min_idx]
+                    else:
+                        # 如果没有允许的token（理论上不应该发生），使用PAD
+                        tokens[b, s] = pad_id
+            
             return tokens
         else:
             # 回退方案：使用标准embedding
             print("Warning: MolFormer embeddings not available, using fallback method.")
             batch_size, seq_len, embed_dim = embeddings.shape
-            # 简单的最近邻查找
             reference_embeddings = self.embedding.weight.to(embeddings.device)
             embeddings_flat = embeddings.view(-1, embed_dim)
             distances = torch.cdist(embeddings_flat, reference_embeddings)

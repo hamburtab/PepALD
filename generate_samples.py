@@ -85,7 +85,8 @@ def generate_samples(checkpoint_path: str, num_samples: int, max_seq_len: int):
             num_samples=num_samples,
             max_seq_len=max_seq_len,
             device=device,
-            predict_ring_bonds=True  # 启用环键预测
+            predict_ring_bonds=True,  # 启用环键预测
+            min_seq_len=5  # 新增随机长度生成功能，当前设置为：5-max_seq_len
         )
 
     # 5. 解码并打印样本
@@ -96,23 +97,31 @@ def generate_samples(checkpoint_path: str, num_samples: int, max_seq_len: int):
                 ring_connections = sample.get('ring_connections', [])
                 # 使用dataset的解码方法
                 helm_seq = dataset.decode_sequence(sample['tokens'], ring_connections)
+                
+                # 计算序列长度（排除PAD）
+                pad_id = vocab.get('<PAD>', 0)
+                seq_len = (sample['tokens'] != pad_id).sum().item()
+                
                 ring_info = f"[环键数: {len(ring_connections)}]" if ring_connections else "[线性]"
                 f.write(f"{helm_seq}\n")
-                print(f"样本 {i+1} {ring_info}: {helm_seq}")
+                print(f"样本 {i+1} {ring_info}（长度：{seq_len}）: {helm_seq}")
             else:
                 # 不返回字典的情况
                 helm_seq = dataset.decode_sequence(sample)
-                print(f"样本 {i+1}: {helm_seq}")
+                # 计算序列长度
+                pad_id = vocab.get('<PAD>', 0)
+                seq_len = (sample != pad_id).sum().item()
+                print(f"样本 {i+1}（长度：{seq_len}）: {helm_seq}")
     print("--- 生成并写入完毕 ---\n")
 
 
 if __name__ == "__main__":
     # 使用训练好的最佳模型
-    best_model_path = "chembl32_checkpoints/chembl32_best_model.pth"
+    best_model_path = "chembl32_checkpoints/chembl32_latest_model.pth"
     
     # 定义生成参数
-    num_to_generate = 30  # 生成30个样本
-    sequence_length = 20  # 与训练时保持一致的最大长度
+    num_to_generate = 100  
+    sequence_length = 20
 
     generate_samples(
         checkpoint_path=best_model_path,
