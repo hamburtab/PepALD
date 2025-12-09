@@ -1,0 +1,706 @@
+{
+  "blacklist": [
+    "X2580",
+    "X1692",
+    "X2132",
+    "X2056",
+    "X2409",
+    "X2498",
+    "X984",
+    "X645",
+    "X2475",
+    "Me_meY",
+    "X3034",
+    "X2404",
+    "X2290",
+    "X2091",
+    "X3014",
+    "X893",
+    "X2789",
+    "X322",
+    "Me_meA",
+    "X2546",
+    "X2593",
+    "X2503",
+    "X2127",
+    "dHpr_OMe",
+    "X2288",
+    "X2073",
+    "X2304",
+    "X3005",
+    "X3016",
+    "X2759",
+    "X2140",
+    "X1882",
+    "X2592",
+    "X3029",
+    "X1982",
+    "X1097",
+    "X3024",
+    "X2267",
+    "X2574",
+    "X1538",
+    "X2150",
+    "X2770",
+    "-NH2",
+    "X2284",
+    "X2713",
+    "X2626",
+    "X3033",
+    "X1551",
+    "X2536",
+    "X2719",
+    "dPhe(3-OMe)",
+    "X2378",
+    "Me_meT",
+    "X1537",
+    "X2401",
+    "X3030",
+    "X2455",
+    "X2844",
+    "X2809",
+    "X2440",
+    "Me_meNle",
+    "X1585",
+    "X2728",
+    "X2410",
+    "Lys(Ac)2",
+    "X2572",
+    "X1915",
+    "X3028",
+    "X2718",
+    "X1658",
+    "D_3Abu",
+    "Me_Tic",
+    "X2397",
+    "X2738",
+    "X2701",
+    "Me_meS",
+    "X2263",
+    "X1377",
+    "X1931",
+    "X2766",
+    "X2745",
+    "X3018",
+    "X2594",
+    "Me_meR",
+    "Lys(BrAc)2",
+    "X2398",
+    "Me_meI",
+    "X2166",
+    "X2573",
+    "X2587",
+    "X3035",
+    "X2179",
+    "X2214",
+    "X2731",
+    "X2408",
+    "X2332",
+    "X2507",
+    "X2493"
+  ],
+  "zero_freq_monomers": [
+    "X2263",
+    "X2766",
+    "X1551",
+    "X2267",
+    "X1537",
+    "X2455",
+    "X2507",
+    "X1585",
+    "X2759",
+    "X2127",
+    "X2719",
+    "X2574",
+    "X2546",
+    "X2284",
+    "X1097",
+    "X1882",
+    "X2580",
+    "X2701",
+    "X2587",
+    "X2718",
+    "X2731",
+    "X2475",
+    "X2378",
+    "X2398",
+    "X2493",
+    "X2789",
+    "X2770",
+    "X2179",
+    "X2404",
+    "X2592",
+    "X2594",
+    "X2401",
+    "X3024",
+    "X3029",
+    "X2498",
+    "X2809",
+    "X2140",
+    "X2132",
+    "dHpr_OMe",
+    "X2410",
+    "X2150",
+    "Me_meY",
+    "X1377",
+    "X322",
+    "X2440",
+    "X2288",
+    "X3018",
+    "X3028",
+    "X2073",
+    "Lys(BrAc)2",
+    "X2572",
+    "X2573",
+    "X2745",
+    "X2626",
+    "X3035",
+    "X1692",
+    "X1982",
+    "Lys(Ac)2",
+    "X2408",
+    "Me_meA",
+    "X1538",
+    "Me_meNle",
+    "X2593",
+    "X645",
+    "Me_meS",
+    "X2713",
+    "X2332",
+    "X3033",
+    "dPhe(3-OMe)",
+    "Me_meT",
+    "X2214",
+    "Me_Tic",
+    "X2536",
+    "X2304",
+    "X2290",
+    "X3014",
+    "X3034",
+    "X2503",
+    "Me_meI",
+    "X984",
+    "X2738",
+    "X2166",
+    "X1658",
+    "X2409",
+    "X3030",
+    "X2844",
+    "X2056",
+    "X2091",
+    "Me_meR",
+    "X2728",
+    "X2397",
+    "-NH2",
+    "D_3Abu"
+  ],
+  "chemical_issue_monomers": [
+    "X1915",
+    "X1931",
+    "X893",
+    "X3016",
+    "X3005"
+  ],
+  "details": {
+    "X2580": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "ClCCN(CCCl)c1cccc(C[C@H](N[*])C([*])=O)c1 |$;;;;;;;;;;;;;;;_R1;;_R2;;$|"
+    },
+    "X1692": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@@H](CCCCCCC(=O)[C@@H]1CO1)C([*])=O |$_R1;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2132": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "Oc1ccc2c(C[C@H](N[*])C([*])=O)cc(=O)oc2c1 |$;;;;;;;;;_R1;;_R2;;;;;;;$|"
+    },
+    "X2056": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@H](O)[C@H](N[*])C=O |$;;;;;_R1;;$|"
+    },
+    "X2409": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCS[*] |$;;;_R3$|"
+    },
+    "X2498": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NCCCC[C@H](NC(O)=O)C([*])=O |$;;;;;;;;;;;_R2;$|"
+    },
+    "X984": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "FN([*])[C@@H](Cc1ccc2ccccc2c1)C([*])=O |$;;_R1;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X645": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC(=O)NC(=O)[C@@H](CS[*])N[*] |$;;;;;;;;;_R3;;_R1$|"
+    },
+    "X2475": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@@H](CCC=O)C([*])=O |$_R1;;;;;;;;_R2;$|"
+    },
+    "Me_meY": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CN(C)[C@@H](Cc1ccc(O)cc1)C([*])=O |$;;;;;;;;;;;;;_R2;$|"
+    },
+    "X3034": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NCC[C@@H](NC(=O)OCC1c2ccccc2-c2ccccc12)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2404": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1cc(C)c([C@H](C)[C@H](N[*])C([*])=O)c(C)c1 |$;;;;;;;;;;;_R1;;_R2;;;;$|"
+    },
+    "X2290": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC(=N)C[C@H](N[*])C([*])=O |$;;;;;;_R1;;_R2;$|"
+    },
+    "X2091": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC[C@H](C)[C@H](N)C1=N[C@@H](CS1)C([*])=O |$;;;;;;;;;;;;_R2;$,t:6|"
+    },
+    "X3014": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@@H](CCCCNC(=S)Nc1ccccc1)C([*])=O |$_R1;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X893": {
+      "issues": [
+        "selenium_cap"
+      ],
+      "train_freq": 1,
+      "cxsmiles_preview": "CC(=[Se])NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2789": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCN([*])[C@H](Cc1ccc(O)cc1)C([*])=O |$;;;_R1;;;;;;;;;;;_R2;$|"
+    },
+    "X322": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COC1=CC(=O)N([C@@H]1Cc1ccccc1)C(=O)[C@@H](OC(=O)[C@@H]1CCCN1[*])C(C)C |$;;;;;;;;;;;;;;;;;;;;;;;;;;_R"
+    },
+    "Me_meA": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@H](N(C)C)C([*])=O |$;;;;;;_R2;$|"
+    },
+    "X2546": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCCC[C@H](N[*])C(=O)CN[C@@H](CCC(O)=O)C([*])=O |$;;;;;;_R1;;;;;;;;;;;;_R2;$|"
+    },
+    "X2593": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@@H](CCNCc1ccccc1)C([*])=O |$_R1;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2503": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC(=N)N[C@H]1C[C@@H](N([*])C1)C([*])=O |$;;;;;;;;_R1;;;_R2;$|"
+    },
+    "X2127": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCCCCCCCCCCCCCCCS(=O)(=O)N[C@@H](Cc1c[nH]c2ccccc12)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "dHpr_OMe": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COC(=O)[C@@H]1CCCCN1[*] |$;;;;;;;;;;_R1$|"
+    },
+    "X2288": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@@H](O)[C@@H](NC(=O)OCC1c2ccccc2-c2ccccc12)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2073": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC(C)NCC[C@H](N[*])C([*])=O |$;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2304": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC[C@H](C)[C@@H](N)C1=N[C@H](CS1)C([*])=O |$;;;;;;;;;;;;_R2;$,t:6|"
+    },
+    "X3005": {
+      "issues": [
+        "silicon"
+      ],
+      "train_freq": 7,
+      "cxsmiles_preview": "C[Si](C)(C)C[C@H](N[*])C([*])=O |$;;;;;;;_R1;;_R2;$|"
+    },
+    "X3016": {
+      "issues": [
+        "silicon"
+      ],
+      "train_freq": 2,
+      "cxsmiles_preview": "C[Si]1(C)C[C@H](N([*])C1)C([*])=O |$;;;;;;_R1;;;_R2;$|"
+    },
+    "X2759": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCCCCCCCCCCCNCC([*])=O |$;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2140": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "Cc1cn(CC([*])=O)c(=O)[nH]c1=O |$;;;;;;_R2;;;;;;$|"
+    },
+    "X1882": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CN(C)CCS[C@H](N(C)[*])C([*])=O |$;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2592": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1cc(C)c([C@@H](C)[C@@H](N[*])C([*])=O)c(C)c1 |$;;;;;;;;;;;_R1;;_R2;;;;$|"
+    },
+    "X3029": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OC(=O)CCNC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X1982": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC(=O)N[C@H](Cc1ccc(O)cc1)C([*])=O |$;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X1097": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COC1=CC(=O)N([C@H]1Cc1ccccc1)C(=O)[C@@H](OC(=O)[C@H]1CCCN1[*])C(C)C |$;;;;;;;;;;;;;;;;;;;;;;;;;;_R1;"
+    },
+    "X3024": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CNC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2267": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OC(=O)CC[C@H](NC(O)=O)C([*])=O |$;;;;;;;;;;;_R2;$|"
+    },
+    "X2574": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@@]12C[C@@H](N([*])[C@]1(C)CCCC2)C([*])=O |$;;;;;_R1;;;;;;;;_R2;$|"
+    },
+    "X1538": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COC(=O)[C@H](C)N(C)[*] |$;;;;;;;;_R1$|"
+    },
+    "X2150": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NCC[C@H](NC(O)=O)C([*])=O |$;;;;;;;;;_R2;$|"
+    },
+    "X2770": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@]1(CCc2ccccc12)C([*])=O |$_R1;;;;;;;;;;;;_R2;$|"
+    },
+    "-NH2": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N |$_R1;$|"
+    },
+    "X2284": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCCCCCCCCCCCCCNC(=O)N[C@@H](Cc1ccccc1)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2713": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1ccc(S[*])cc1 |$;;;;;;;_R3;;$|"
+    },
+    "X2626": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NCC[C@H](NS(=O)(=O)c1cccc(c1)-c1ccccc1)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X3033": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OC(=O)CNC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X1551": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "Cn1c[nH+]c(C[C@H](N[*])C([*])=O)c1 |$;;;;;;;;_R1;;_R2;;$|"
+    },
+    "X2536": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NCC[C@H](NC(=O)OCC1c2ccccc2-c2ccccc12)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2719": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "Nn1cnc(C[C@H](N[*])C([*])=O)c1 |$;;;;;;;;_R1;;_R2;;$|"
+    },
+    "dPhe(3-OMe)": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1cccc(C[C@@H](N[*])C([*])=O)c1 |$;;;;;;;;;;_R1;;_R2;;$|"
+    },
+    "X2378": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCCCCCCCCCCCCCCCS(=O)(=O)N[C@@H](Cc1ccccc1)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "Me_meT": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@@H](O)[C@H](N(C)C)C([*])=O |$;;;;;;;;_R2;$|"
+    },
+    "X1537": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COC(=O)[C@@H](C)N(C)[*] |$;;;;;;;;_R1$|"
+    },
+    "X2401": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X3030": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OC(=O)CCCNC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2455": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC[C@H](C)[C@H](N[*])C(=O)C(C)=O |$;;;;;;_R1;;;;;$|"
+    },
+    "X2844": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCC(C)(C)OC(=O)N[C@@H](Cc1c[nH]c2ccccc12)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2809": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC[C@@H](C)[C@@H](N)C1=N[C@@H](CS1)C([*])=O |$;;;;;;;;;;;;_R2;$,t:6|"
+    },
+    "X2440": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N1CCSC[C@@H]1C([*])=O |$_R1;;;;;;;;_R2;$|"
+    },
+    "Me_meNle": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCCC[C@H](N(C)C)C([*])=O |$;;;;;;;;;_R2;$|"
+    },
+    "X1585": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCOC(=O)[C@H](CCSC)N[*] |$;;;;;;;;;;;_R1$|"
+    },
+    "X2728": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OC[C@H](NC(O)=O)C([*])=O |$;;;;;;;;_R2;$|"
+    },
+    "X2410": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC[C@@]1(OC(=O)OCCS[*])C(=O)OCc2c1cc1-c3nc4ccccc4cc3Cn1c2=O |$;;;;;;;;;;_R3;;;;;;;;;;;;;;;;;;;;;;$|"
+    },
+    "Lys(Ac)2": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC(=O)N(CCC[C@@H](N[*])C([*])=O)C(C)=O |$;;;;;;;;;_R1;;_R2;;;;$|"
+    },
+    "X2572": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1cc2CC[C@H](N(C(C)=O)C(=O)[C@@H](CS)N[*])c3cc(=O)c(OC)ccc3-c2c(OC)c1OC |$;;;;;;;;;;;;;;;;;;_R1;;;"
+    },
+    "X1915": {
+      "issues": [
+        "silicon"
+      ],
+      "train_freq": 2,
+      "cxsmiles_preview": "CC(C)(C)[Si](C)(C)OCC(=C)COC[C@@H](N[*])C([*])=O |$;;;;;;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X3028": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCNC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2718": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@H](NC(O)=O)C([*])=O |$;;;;;;;_R2;$|"
+    },
+    "X1658": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC(=N)N[CH+]CC[C@H](N[*])C(O)=O |$;;;;;;;;;_R1;;;$|"
+    },
+    "D_3Abu": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "C[C@@H](N[*])CC([*])=O |$;;;_R1;;;_R2;$|"
+    },
+    "Me_Tic": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CN1Cc2ccccc2C[C@H]1C([*])=O |$;;;;;;;;;;;;_R2;$|"
+    },
+    "X2397": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC(=N)NCCC[C@H](NC(O)=O)C([*])=O |$;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2738": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CN(C)[C@@H](CC1CCCCC1)C([*])=O |$;;;;;;;;;;;;_R2;$|"
+    },
+    "X2701": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCN([*])[C@H](Cc1cc2ccccc2s1)C([*])=O |$;;;_R1;;;;;;;;;;;;;_R2;$|"
+    },
+    "Me_meS": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CN(C)[C@@H](CO)C([*])=O |$;;;;;;;_R2;$|"
+    },
+    "X2263": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OS(=O)(=O)Oc1ccc(C[C@H](NC(=O)OCc2ccccc2)C([*])=O)cc1 |$;;;;;;;;;;;;;;;;;;;;;;;_R2;;;$|"
+    },
+    "X1377": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "OS(=O)(=O)CCSC[C@H](N[*])C([*])=O |$;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X1931": {
+      "issues": [
+        "silicon"
+      ],
+      "train_freq": 1,
+      "cxsmiles_preview": "C[C@H](C[C@H]1OC11CC1)[C@@H](O[Si](C)(C)C(C)(C)C)[C@H](N(C)[*])C([*])=O |$;;;;;;;;;;;;;;;;;;;;_R1;;_"
+    },
+    "X2766": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1cc(C)c([C@@H](C)[C@H](N[*])C([*])=O)c(C)c1 |$;;;;;;;;;;;_R1;;_R2;;;;$|"
+    },
+    "X2745": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N1CCS[C@@H]1C([*])=O |$_R1;;;;;;;_R2;$|"
+    },
+    "X3018": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "Fc1ccc(C[C@H](N[*])C([*])=O)c(F)c1 |$;;;;;;;;_R1;;_R2;;;;$|"
+    },
+    "X2594": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CCN(CC)[C@@H](CC(C)(C)C)C([*])=O |$;;;;;;;;;;;;_R2;$|"
+    },
+    "Me_meR": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CN(C)[C@@H](CCCNC(N)=N)C([*])=O |$;;;;;;;;;;;;_R2;$|"
+    },
+    "Lys(BrAc)2": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "BrCC(=O)N(CCCC[C@@H](N[*])C([*])=O)C(=O)CBr |$;;;;;;;;;;;_R1;;_R2;;;;;$|"
+    },
+    "X2398": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]Sc1ccccn1 |$_R3;;;;;;;$|"
+    },
+    "Me_meI": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC[C@H](C)[C@H](N(C)C)C([*])=O |$;;;;;;;;;_R2;$|"
+    },
+    "X2166": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N1CCSC[C@H]1C([*])=O |$_R1;;;;;;;;_R2;$|"
+    },
+    "X2573": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NC[C@H](NC(O)=O)C([*])=O |$;;;;;;;;_R2;$|"
+    },
+    "X2587": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "COc1cc(C)c([C@H](C)[C@@H](N[*])C([*])=O)c(C)c1 |$;;;;;;;;;;;_R1;;_R2;;;;$|"
+    },
+    "X3035": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC(C)NC(=S)NCCCC[C@H](N[*])C([*])=O |$;;;;;;;;;;;;;_R1;;_R2;$|"
+    },
+    "X2179": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "NCC[C@H](NC(=O)Nc1cccc(c1)-c1ccccc1)C([*])=O |$;;;;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2214": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "O[C@H](N[*])C([*])=O |$;;;_R1;;_R2;$|"
+    },
+    "X2731": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@@]1(CCc2ccccc12)C([*])=O |$_R1;;;;;;;;;;;;_R2;$|"
+    },
+    "X2408": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]Sc1ncccc1N(=O)=O |$_R3;;;;;;;;;;$|"
+    },
+    "X2332": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC(C)C[C@H](NC(O)=O)C([*])=O |$;;;;;;;;;;_R2;$|"
+    },
+    "X2507": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "[*]N[C@H](Cc1c[n+](OCc2ccccc2)c[nH]1)C([*])=O |$_R1;;;;;;;;;;;;;;;;;;_R2;$|"
+    },
+    "X2493": {
+      "issues": [],
+      "train_freq": 0,
+      "cxsmiles_preview": "CC(C)N([*])[C@@H](CCCCN)C([*])=O |$;;;;_R1;;;;;;;;_R2;$|"
+    }
+  }
+}

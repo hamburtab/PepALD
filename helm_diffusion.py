@@ -3,9 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Dict, Tuple
 import json
+import numpy as np
 
 from helm_transformer import HELMTransformer
-from molformer_embedding import MolFormerEmbedding
+from unimol_embedding import UniMolEmbedding
 from helm_topology_analyzer import HELMTopologyAnalyzer
 
 
@@ -202,26 +203,93 @@ class HELMDiffusionModel(nn.Module):
     
 class HELMDiffusion(nn.Module):
     def __init__(self, transformer, vocab_size: int, T: int = 1000, beta_schedule: str = "linear", 
-                 vocab: Optional[Dict[str, int]] = None, use_molformer: bool = True,
-                 beta_start: float = 1e-4, beta_end: float = 0.02, d_ff: int = 2048):
+                 vocab: Optional[Dict[str, int]] = None, use_unimol: bool = True,
+                 beta_start: float = 1e-4, beta_end: float = 0.02, d_ff: int = 2048,
+                 token_sampling_temperature: float = 0.0, freq_weight_scale: float = 0.1,
+                 use_blacklist: bool = True,
+                 use_embedding_norm: bool = True,
+                 use_freq_weight: bool = True,
+                 use_temperature_sampling: bool = False):
         super().__init__()
         
         self.vocab_size = vocab_size
         self.T = T
-        self.use_molformer = use_molformer
+        self.use_unimol = use_unimol
         self.vocab = vocab  # 保存词汇表引用
+        self.use_blacklist = use_blacklist  # 是否启用黑名单过滤
+        # 开关：是否对embedding做L2归一化并用余弦相似度进行匹配
+        self.use_embedding_norm = bool(use_embedding_norm)
+        # 开关：是否对低频单体施加频率惩罚
+        self.use_freq_weight = bool(use_freq_weight)
+        # 开关：是否启用温度采样（需同时 token_sampling_temperature>0）
+        self.use_temperature_sampling = bool(use_temperature_sampling)
+        # 反向索引用于从索引回到token字符串
+        self.idx_to_token = {v: k for k, v in vocab.items()} if isinstance(vocab, dict) else None
+
+        # 采样温度 (temperature>0 表示按概率采样而不是 argmin)
+        self.token_sampling_temperature = float(token_sampling_temperature)
+        # 训练频率权重缩放系数，用于在距离上做惩罚/加权
+        self.freq_weight_scale = float(freq_weight_scale)
+
+        # 读取并缓存单体频率（若存在）以便在解码时使用
+        self._freq_score_array = None
+        try:
+            import os
+            freq_path = os.path.join(os.path.dirname(__file__), 'data', 'monomer_frequency.json')
+            if not os.path.exists(freq_path):
+                freq_path = './data/monomer_frequency.json'
+            if os.path.exists(freq_path) and self.idx_to_token is not None:
+                with open(freq_path, 'r') as f:
+                    freq = json.load(f)
+                # freq 应为 {token: count}
+                total = sum(freq.values()) if len(freq) > 0 else 1
+                # 构造概率数组（与vocab索引对齐），并归一化到 [0,1]
+                arr = []
+                vocab_len = self.vocab_size if hasattr(self, 'vocab_size') else (len(self.idx_to_token) if self.idx_to_token else 0)
+                for i in range(vocab_len):
+                    token = self.idx_to_token.get(i, None) if self.idx_to_token else None
+                    if token is None:
+                        arr.append(0.0)
+                    else:
+                        c = float(freq.get(token, 0))
+                        arr.append(c / total)
+                probs = np.array(arr, dtype=float)
+                # 归一化（防止全0）
+                if probs.sum() > 0:
+                    probs = probs / probs.max()
+                self._freq_score_array = probs
+        except Exception:
+            self._freq_score_array = None
         
         # 记录每个单体转换时的最短50个距离值
         self.monomer_min_distances = {}
         # 记录所有单体的全局最小50个距离值
         self.global_min_distances = []
         
+        # 加载单体黑名单（包含化学问题或零频率的单体）
+        self._monomer_blacklist_ids = set()
+        try:
+            import os
+            blacklist_path = os.path.join(os.path.dirname(__file__), 'data', 'monomer_blacklist.json')
+            if not os.path.exists(blacklist_path):
+                blacklist_path = './data/monomer_blacklist.json'
+            if os.path.exists(blacklist_path) and self.vocab is not None:
+                with open(blacklist_path, 'r') as f:
+                    blacklist_data = json.load(f)
+                blacklist_symbols = blacklist_data.get('blacklist', [])
+                for symbol in blacklist_symbols:
+                    if symbol in self.vocab:
+                        self._monomer_blacklist_ids.add(self.vocab[symbol])
+                print(f"加载了 {len(self._monomer_blacklist_ids)} 个黑名单单体")
+        except Exception as e:
+            print(f"Warning: Could not load monomer blacklist: {e}")
+        
         # 根据R1/R2分三类单体
         self._classify_monomers()
         
-        if use_molformer and vocab is not None:
-            self.embedding = MolFormerEmbedding(
-                embeddings_dir="./molformer_embeddings",
+        if use_unimol and vocab is not None:
+            self.embedding = UniMolEmbedding(
+                embeddings_dir="./unimol_embeddings",
                 freeze_embeddings=True
             )
             embedding_dim = self.embedding.embedding_dim
@@ -291,7 +359,7 @@ class HELMDiffusion(nn.Module):
 
         
     def get_ground_truth_embeddings(self, x):
-        if self.use_molformer:
+        if self.use_unimol:
             with torch.no_grad():
                 ground_truth = self.embedding(x) #[batch_size, seq_len, embedding_dim]
         else:
@@ -352,17 +420,34 @@ class HELMDiffusion(nn.Module):
     def _embedding_to_tokens(self, embeddings, lengths=None):
         """
         通过计算与embedding矩阵的距离来选择最近的token
+        可选L2归一化使用余弦相似度，或直接使用欧氏距离
         第一个位置用类别1, 最后位置用类别3, 中间位置用类别2
         """
-        if self.use_molformer and hasattr(self.embedding, 'embeddings'):
+        if self.use_unimol and hasattr(self.embedding, 'embeddings'):
             # 获取完整的embedding矩阵 [vocab_size, embedding_dim]
             reference_embeddings = self.embedding.embeddings.weight.to(embeddings.device)
             
             batch_size, seq_len, embed_dim = embeddings.shape
             embeddings_flat = embeddings.view(-1, embed_dim)  # [batch*seq, 768]
             
-            # 计算距离矩阵
-            distances = torch.cdist(embeddings_flat, reference_embeddings)  # [batch*seq, vocab_size]
+            if self.use_embedding_norm:
+                # ===== L2归一化，使用余弦相似度 =====
+                # 对参考embedding进行归一化（排除PAD，PAD是全0向量）
+                reference_norms = reference_embeddings.norm(dim=1, keepdim=True).clamp(min=1e-8)
+                reference_normalized = reference_embeddings / reference_norms
+                
+                # 对生成的embedding进行归一化
+                embeddings_norms = embeddings_flat.norm(dim=1, keepdim=True).clamp(min=1e-8)
+                embeddings_normalized = embeddings_flat / embeddings_norms
+                
+                # 计算余弦相似度 (范围 -1 到 1，越大越相似)
+                cosine_similarity = torch.mm(embeddings_normalized, reference_normalized.t())  # [batch*seq, vocab_size]
+                
+                # 转换为距离（1 - 相似度，范围 0 到 2，越小越近）
+                distances = 1.0 - cosine_similarity
+            else:
+                # ===== 不归一化，使用欧氏距离 =====
+                distances = torch.cdist(embeddings_flat, reference_embeddings)  # [batch*seq, vocab_size]
             
             # 记录距离统计（推理阶段）
             if not self.training:
@@ -380,6 +465,18 @@ class HELMDiffusion(nn.Module):
             tokens = torch.zeros(batch_size, seq_len, dtype=torch.long, device=embeddings.device)
             
             pad_id = self.vocab.get('<PAD>', 0) if self.vocab else 0
+            
+            # prepare freq tensor if available
+            if self._freq_score_array is not None:
+                try:
+                    freq_tensor = torch.from_numpy(self._freq_score_array).to(embeddings.device).float()
+                except Exception:
+                    freq_tensor = None
+            else:
+                freq_tensor = None
+
+            # 使用预加载的黑名单进行排除（根据 use_blacklist 开关决定）
+            blacklist_ids = self._monomer_blacklist_ids if self.use_blacklist else set()
             
             for b in range(batch_size):
                 # 获取当前样本的目标长度
@@ -402,11 +499,43 @@ class HELMDiffusion(nn.Module):
                         # 中间位置: 只能用类别2 (含R1和R2)
                         allowed_tokens = self.class2_tokens
                     
-                    # 在允许的token中找距离最小的
+                    # 在允许的token中找距离最小的或按概率采样
                     if allowed_tokens:
-                        allowed_distances = distances_reshaped[b, s, allowed_tokens]
-                        min_idx = torch.argmin(allowed_distances)
-                        tokens[b, s] = allowed_tokens[min_idx]
+                        # 使用黑名单排除问题单体
+                        filtered_tokens = [tid for tid in allowed_tokens if tid not in blacklist_ids]
+
+                        # 如果所有候选都被排除，则回退到原始allowed_tokens
+                        if len(filtered_tokens) == 0:
+                            filtered_tokens = allowed_tokens
+
+                        allowed_distances = distances_reshaped[b, s, filtered_tokens]
+
+                        # 应用频率加权: 惩罚低频token，使其距离增大（受开关控制）
+                        if self.use_freq_weight and freq_tensor is not None:
+                            try:
+                                freq_vals = freq_tensor[filtered_tokens]
+                                # freq_vals 归一化到 [0,1], 1 表示最高频。我们希望低频得到惩罚 => distance += scale * (1 - freq)
+                                penalties = float(self.freq_weight_scale) * (1.0 - freq_vals)
+                                allowed_distances = allowed_distances + penalties
+                            except Exception:
+                                pass
+
+                        # 根据温度决定采样还是取最小距离（受开关控制）
+                        if self.use_temperature_sampling and self.token_sampling_temperature and float(self.token_sampling_temperature) > 0.0:
+                            temp = float(self.token_sampling_temperature)
+                            # 距离越小越好, 构建概率: p ∝ exp(-distance / temp)
+                            scores = (-allowed_distances / temp)
+                            # 为数值稳定性做shift
+                            scores = scores - scores.max()
+                            probs = torch.softmax(scores, dim=0)
+                            try:
+                                choice_idx = torch.multinomial(probs, num_samples=1).item()
+                            except Exception:
+                                choice_idx = int(torch.argmin(allowed_distances).item())
+                            tokens[b, s] = filtered_tokens[choice_idx]
+                        else:
+                            min_idx = torch.argmin(allowed_distances)
+                            tokens[b, s] = filtered_tokens[min_idx]
                     else:
                         # 如果没有允许的token（理论上不应该发生），使用PAD
                         tokens[b, s] = pad_id
@@ -414,7 +543,7 @@ class HELMDiffusion(nn.Module):
             return tokens
         else:
             # 回退方案：使用标准embedding
-            print("Warning: MolFormer embeddings not available, using fallback method.")
+            print("Warning: Uni-Mol embeddings not available, using fallback method.")
             batch_size, seq_len, embed_dim = embeddings.shape
             reference_embeddings = self.embedding.weight.to(embeddings.device)
             embeddings_flat = embeddings.view(-1, embed_dim)

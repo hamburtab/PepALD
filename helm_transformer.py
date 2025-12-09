@@ -104,7 +104,7 @@ class TransformerEncoderLayer(nn.Module):
 class HELMTransformer(nn.Module):
     def __init__(
         self,
-        embedding_dim: int = 768,  # MolFormer embedding维度
+        embedding_dim: int = 512,  # Uni-Mol embedding维度
         d_model: int = 512,
         n_heads: int = 8,
         n_layers: int = 6,
@@ -346,7 +346,7 @@ def create_helm_transformer_for_chembl32(vocab_size, d_model=512, nhead=8, num_l
                                         max_seq_len=150, dropout=0.15):
     """为ChEMBL32创建兼容的HELMTransformer"""
     return HELMTransformer(
-        embedding_dim=768,  # 保持MolFormer embedding维度
+        embedding_dim=512,  # 保持Uni-Mol embedding维度
         d_model=d_model,
         n_heads=nhead,
         n_layers=num_layers,

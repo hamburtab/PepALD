@@ -103,7 +103,7 @@ class ChEMBL32Trainer:
             T=self.config.T,
             beta_schedule=self.config.beta_schedule,
             vocab=self.dataset.vocab,  
-            use_molformer=True,
+            use_unimol=True,
             beta_start=self.config.beta_start,
             beta_end=self.config.beta_end,
             d_ff=self.config.dim_feedforward
