@@ -13,6 +13,7 @@ import pickle
 import json
 import os
 import re
+import traceback
 from typing import List, Dict, Optional
 import logging
 from tqdm import tqdm
@@ -123,19 +124,39 @@ class UniMolEmbeddingGenerator:
             # Uni-Mol接受SMILES列表作为输入
             reprs = self.model.get_repr([smiles])
             
-            # reprs是一个字典，包含'cls_repr'等键
-            # cls_repr的shape是 (n_samples, hidden_dim)
             embedding = None
-            if 'cls_repr' in reprs and reprs['cls_repr'] is not None:
-                cls_repr = reprs['cls_repr']
-                if isinstance(cls_repr, np.ndarray) and cls_repr.size > 0:
-                    embedding = cls_repr[0]  # 取第一个样本
             
-            if embedding is None and 'atomic_reprs' in reprs and reprs['atomic_reprs'] is not None:
-                # 如果没有cls_repr，使用atomic_reprs的均值
-                atomic_repr = reprs['atomic_reprs'][0]  # (n_atoms, hidden_dim)
-                if isinstance(atomic_repr, np.ndarray) and atomic_repr.size > 0:
-                    embedding = np.mean(atomic_repr, axis=0)
+            # Case 1: reprs is a dictionary (e.g. {'cls_repr': ..., 'atomic_reprs': ...})
+            if isinstance(reprs, dict):
+                if 'cls_repr' in reprs:
+                    cls_repr = reprs['cls_repr']
+                    if isinstance(cls_repr, list) and len(cls_repr) > 0:
+                        embedding = cls_repr[0]
+                    elif isinstance(cls_repr, np.ndarray):
+                        if len(cls_repr.shape) == 2:
+                            embedding = cls_repr[0]
+                        else:
+                            embedding = cls_repr
+                elif 'atomic_reprs' in reprs:
+                    atomic_reprs = reprs['atomic_reprs']
+                    if isinstance(atomic_reprs, list) and len(atomic_reprs) > 0:
+                        embedding = np.mean(atomic_reprs[0], axis=0)
+                    elif isinstance(atomic_reprs, np.ndarray):
+                        embedding = np.mean(atomic_reprs, axis=0)
+
+            # Case 2: reprs is a list (batch output)
+            elif isinstance(reprs, list):
+                if len(reprs) > 0:
+                    item = reprs[0]
+                    # Subcase 2a: List of numpy arrays (embeddings directly)
+                    if isinstance(item, np.ndarray):
+                        embedding = item
+                    # Subcase 2b: List of dictionaries
+                    elif isinstance(item, dict):
+                        if 'cls_repr' in item:
+                            embedding = item['cls_repr']
+                        elif 'atomic_reprs' in item:
+                            embedding = np.mean(item['atomic_reprs'], axis=0)
             
             if embedding is None:
                 logger.warning(f"无法获取embedding: {smiles}")
@@ -145,6 +166,7 @@ class UniMolEmbeddingGenerator:
             
         except Exception as e:
             logger.error(f"生成embedding失败 for SMILES '{smiles}': {e}")
+            traceback.print_exc()
             return None
     
     def generate_embeddings_batch(self, smiles_list: List[str]) -> Dict[str, np.ndarray]:
