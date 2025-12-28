@@ -2,6 +2,11 @@
 import torch
 from pathlib import Path
 import argparse
+import sys
+
+# 将项目根目录加入 path
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 from helm_transformer import create_helm_transformer_for_chembl32
 from helm_diffusion import HELMDiffusion, HELMSequenceDataset
@@ -14,8 +19,8 @@ from helm_diffusion import HELMDiffusion, HELMSequenceDataset
 NUM_SAMPLES = 100                # 生成样本数量
 MAX_SEQ_LEN = 20                 # 最大序列长度
 MIN_SEQ_LEN = 5                  # 最小序列长度（随机长度生成）
-CHECKPOINT_PATH = "chembl32_checkpoints/chembl32_latest_model.pth"  # 模型检查点路径
-OUTPUT_FILE = "chembl32_samples/helm_chembl32only_samples.txt"      # 输出文件路径
+CHECKPOINT_PATH = str(project_root / "chembl32_checkpoints/chembl32_latest_model.pth")  # 模型检查点路径
+OUTPUT_FILE = str(project_root / "chembl32_samples/helm_chembl32only_samples.txt")      # 输出文件路径
 
 # 功能开关
 USE_EMBEDDING_NORM = True        # 是否对embedding做L2归一化（使用余弦相似度匹配）
