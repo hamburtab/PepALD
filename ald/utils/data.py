@@ -98,8 +98,9 @@ class HELMDataset(Dataset):
         token_ids = token_ids + [self.pad_id] * padding_length
         
         # Create mask (1 for valid tokens, 0 for padding)
-        # Include one extra position after sequence for potential end token learning
-        mask = [1.0] * min(actual_len + 1, self.max_seq_len)
+        # Mask should ONLY cover actual tokens, NOT padding positions
+        # This ensures the model only learns to predict real tokens
+        mask = [1.0] * actual_len
         mask = mask + [0.0] * (self.max_seq_len - len(mask))
         
         result = {

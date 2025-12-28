@@ -48,11 +48,11 @@ class TokenMapper(nn.Module):
         embeddings_dir: str = "./unimol_embeddings",
         data_dir: str = "./data",
         use_embedding_norm: bool = True,
-        use_freq_weight: bool = True,
+        use_freq_weight: bool = False,
         use_temperature_sampling: bool = False,
         temperature: float = 0.0,
         freq_weight_scale: float = 0.1,
-        use_blacklist: bool = True
+        use_blacklist: bool = False
     ):
         super().__init__()
         

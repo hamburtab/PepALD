@@ -128,8 +128,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
             embeddings_dir=embeddings_dir,
             data_dir=data_dir,
             use_embedding_norm=True,
-            use_freq_weight=True,
-            use_temperature_sampling=False
+            use_freq_weight=False,
+            use_temperature_sampling=False,
+            use_blacklist=False
         )
         
         # 4. Ring Bond Predictor
