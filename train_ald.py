@@ -51,7 +51,7 @@ def parse_args():
                         help='Number of denoiser layers')
     parser.add_argument('--diffusion_steps', type=int, default=100,
                         help='Number of diffusion steps')
-    parser.add_argument('--max_seq_len', type=int, default=150,
+    parser.add_argument('--max_seq_len', type=int, default=45,
                         help='Maximum sequence length')
     
     # Training arguments
@@ -65,8 +65,8 @@ def parse_args():
                         help='Number of warmup steps')
     parser.add_argument('--grad_clip', type=float, default=1.0,
                         help='Gradient clipping value')
-    parser.add_argument('--sample_positions', type=int, default=5,
-                        help='Number of positions to sample per sequence')
+    parser.add_argument('--sample_positions', type=int, default=45,
+                        help='Number of positions to sample per sequence (set to max_seq_len for full training)')
     
     # System arguments
     parser.add_argument('--device', type=str, default='cuda',

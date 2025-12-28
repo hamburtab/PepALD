@@ -84,8 +84,8 @@ class ALDGenerationConfig:
     
     # Generation parameters
     num_samples: int = 100
-    max_length: int = 45
-    min_length: Optional[int] = 5
+    max_length: int = 20
+    min_length: Optional[int] = 4
     
     # Diffusion sampling
     use_ddim: bool = True  # Use DDIM for faster sampling
