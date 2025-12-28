@@ -160,16 +160,15 @@ class AutoregressiveLatentDiffusion(nn.Module):
         mask: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
         """
-        Training forward pass.
+        Parallel training forward pass using Teacher Forcing.
         
-        For training, we have ground truth tokens. We:
-            1. Get embeddings for all tokens
-            2. For each position t, compute context from [0, t-1]
-            3. Train diffusion to denoise the embedding at position t
+        Key insight: Causal masking in the Context Encoder ensures that
+        context[t] only depends on tokens [0, ..., t-1], so we can compute
+        all contexts in parallel and still maintain autoregressive semantics.
         
         Args:
             token_ids: Ground truth token IDs [batch_size, seq_len]
-            mask: Sequence mask [batch_size, seq_len]
+            mask: Sequence mask [batch_size, seq_len] (1 = valid, 0 = pad)
             
         Returns:
             Dictionary with 'loss', 'diffusion_loss', 'ring_bond_loss'
@@ -177,58 +176,59 @@ class AutoregressiveLatentDiffusion(nn.Module):
         batch_size, seq_len = token_ids.shape
         device = token_ids.device
         
-        # Get ground truth embeddings
+        if seq_len <= 1:
+            return {
+                'loss': torch.tensor(0.0, device=device, requires_grad=True),
+                'diffusion_loss': torch.tensor(0.0, device=device),
+                'ring_bond_loss': torch.tensor(0.0, device=device)
+            }
+        
+        # 1. Get ground truth embeddings for all tokens
         gt_embeddings = self.context_encoder.get_token_embedding(token_ids)
         # [batch_size, seq_len, embedding_dim]
         
-        total_diffusion_loss = 0.0
-        num_positions = 0
+        # 2. Compute all contexts in parallel (causal masking is built-in)
+        # contexts[t] is conditioned on [0, ..., t] due to causal attention
+        all_contexts = self.context_encoder(token_ids, mask)
+        # [batch_size, seq_len, d_model]
         
-        # For each position, train diffusion conditioned on context
-        for t in range(seq_len):
-            # Skip PAD positions
-            if mask is not None:
-                valid_mask = mask[:, t] > 0
-                if not valid_mask.any():
-                    continue
-            else:
-                valid_mask = torch.ones(batch_size, dtype=torch.bool, device=device)
-            
-            # Get context from previous positions
-            if t == 0:
-                # No history - use start token context
-                context = self.context_encoder.get_context_for_next_token(
-                    gt_embeddings[:, :0, :]  # Empty history
-                )
-            else:
-                # History: [0, t-1]
-                history_emb = gt_embeddings[:, :t, :]
-                history_mask = mask[:, :t] if mask is not None else None
-                context = self.context_encoder.get_context_for_next_token(
-                    history_emb, history_mask
-                )
-            
-            # Context: [batch_size, d_model] -> [batch_size, 1, d_model]
-            context = context.unsqueeze(1)
-            
-            # Target embedding at position t
-            target_emb = gt_embeddings[valid_mask, t, :]  # [valid_batch, embedding_dim]
-            context_valid = context[valid_mask]  # [valid_batch, 1, d_model]
-            
-            # Train diffusion
-            diff_result = self.diffusion_engine.training_step(
-                target_emb, context_valid
-            )
-            
-            total_diffusion_loss += diff_result['loss'] * valid_mask.sum()
-            num_positions += valid_mask.sum().item()
+        # 3. Prepare for parallel diffusion training:
+        # - Context at position t-1 is used to predict token at position t
+        # - So we use contexts[:, :-1, :] to predict embeddings[:, 1:, :]
+        # Note: For position 0, we need the start token context
         
-        # Average diffusion loss
-        diffusion_loss = total_diffusion_loss / max(num_positions, 1)
+        # Get start token context for position 0
+        start_context = self.context_encoder.get_context_for_next_token(
+            gt_embeddings[:, :0, :]  # Empty history
+        )  # [batch_size, d_model]
         
-        # Ring bond prediction loss
-        # Get full context vectors
-        contexts = self.context_encoder(token_ids, mask)  # [batch_size, seq_len, d_model]
+        # Shift contexts: prepend start_context, remove last context
+        # contexts_for_pred[t] will be used to predict position t
+        contexts_for_pred = torch.cat([
+            start_context.unsqueeze(1),  # [batch_size, 1, d_model]
+            all_contexts[:, :-1, :]       # [batch_size, seq_len-1, d_model]
+        ], dim=1)  # [batch_size, seq_len, d_model]
+        
+        # 4. Flatten for batch diffusion training
+        # Target: embeddings at all positions
+        target_embeddings = gt_embeddings  # [batch_size, seq_len, embedding_dim]
+        
+        # Create mask for valid positions
+        if mask is not None:
+            valid_mask = mask.bool()  # [batch_size, seq_len]
+        else:
+            valid_mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
+        
+        # Flatten and select valid positions
+        target_flat = target_embeddings[valid_mask]  # [num_valid, embedding_dim]
+        context_flat = contexts_for_pred[valid_mask]  # [num_valid, d_model]
+        
+        # Add context dimension for diffusion engine
+        context_flat = context_flat.unsqueeze(1)  # [num_valid, 1, d_model]
+        
+        # 5. Compute diffusion loss in one batch
+        diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
+        diffusion_loss = diff_result['loss']
         
         # TODO: Add ring bond supervision from HELM sequences
         ring_bond_loss = torch.tensor(0.0, device=device)
@@ -246,7 +246,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
         sample_positions: int = 5
     ) -> Dict[str, torch.Tensor]:
         """
-        Efficient training by sampling random positions instead of all.
+        Efficient parallel training by sampling random positions.
+        
+        Instead of training on all positions, randomly samples a subset of
+        positions per sequence. Still fully parallelized across batch and
+        sampled positions.
         
         Args:
             token_ids: [batch_size, seq_len]
@@ -256,53 +260,76 @@ class AutoregressiveLatentDiffusion(nn.Module):
         batch_size, seq_len = token_ids.shape
         device = token_ids.device
         
-        # Get ground truth embeddings
+        if seq_len <= 1:
+            return {
+                'loss': torch.tensor(0.0, device=device, requires_grad=True),
+                'diffusion_loss': torch.tensor(0.0, device=device),
+                'ring_bond_loss': torch.tensor(0.0, device=device)
+            }
+        
+        # 1. Get ground truth embeddings
         gt_embeddings = self.context_encoder.get_token_embedding(token_ids)
+        # [batch_size, seq_len, embedding_dim]
         
-        # Get full contexts (computed once)
+        # 2. Get full contexts (computed once, in parallel with causal masking)
         full_contexts = self.context_encoder(token_ids, mask)
+        # [batch_size, seq_len, d_model]
         
-        # Sample random positions for each batch
+        # Get start token context for position 0
+        start_context = self.context_encoder.get_context_for_next_token(
+            gt_embeddings[:, :0, :]  # Empty history
+        )  # [batch_size, d_model]
+        
+        # Prepare shifted contexts (context[t] predicts position t)
+        contexts_for_pred = torch.cat([
+            start_context.unsqueeze(1),  # [batch_size, 1, d_model]
+            full_contexts[:, :-1, :]      # [batch_size, seq_len-1, d_model]
+        ], dim=1)  # [batch_size, seq_len, d_model]
+        
+        # 3. Sample random positions for each sequence in the batch
         if mask is not None:
-            lengths = mask.sum(dim=1).long()
+            lengths = mask.sum(dim=1).long()  # [batch_size]
         else:
-            lengths = torch.full((batch_size,), seq_len, device=device)
+            lengths = torch.full((batch_size,), seq_len, dtype=torch.long, device=device)
         
-        total_loss = 0.0
-        count = 0
+        # Collect sampled positions and corresponding data
+        sampled_targets = []
+        sampled_contexts = []
         
         for b in range(batch_size):
             seq_length = lengths[b].item()
-            if seq_length <= 1:
+            if seq_length <= 0:
                 continue
             
-            # Sample positions
+            # Number of positions to sample from this sequence
             num_samples = min(sample_positions, seq_length)
+            
+            # Random sample positions (without replacement)
             positions = torch.randperm(seq_length, device=device)[:num_samples]
             
-            for pos in positions:
-                pos = pos.item()
-                
-                # Get context for this position (use previous position's output)
-                if pos == 0:
-                    # For first position, use zero context or learnable start
-                    context = torch.zeros(1, 1, self.d_model, device=device)
-                else:
-                    context = full_contexts[b:b+1, pos-1:pos, :]
-                
-                # Target embedding
-                target = gt_embeddings[b:b+1, pos, :]
-                
-                # Diffusion loss
-                diff_result = self.diffusion_engine.training_step(target, context)
-                total_loss += diff_result['loss']
-                count += 1
+            # Gather targets and contexts for sampled positions
+            sampled_targets.append(gt_embeddings[b, positions, :])  # [num_samples, embedding_dim]
+            sampled_contexts.append(contexts_for_pred[b, positions, :])  # [num_samples, d_model]
         
-        avg_loss = total_loss / max(count, 1)
+        if len(sampled_targets) == 0:
+            return {
+                'loss': torch.tensor(0.0, device=device, requires_grad=True),
+                'diffusion_loss': torch.tensor(0.0, device=device),
+                'ring_bond_loss': torch.tensor(0.0, device=device)
+            }
+        
+        # 4. Concatenate all sampled data into batches
+        target_flat = torch.cat(sampled_targets, dim=0)  # [total_samples, embedding_dim]
+        context_flat = torch.cat(sampled_contexts, dim=0)  # [total_samples, d_model]
+        context_flat = context_flat.unsqueeze(1)  # [total_samples, 1, d_model]
+        
+        # 5. Single batched diffusion training step
+        diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
+        diffusion_loss = diff_result['loss']
         
         return {
-            'loss': avg_loss,
-            'diffusion_loss': avg_loss,
+            'loss': diffusion_loss,
+            'diffusion_loss': diffusion_loss,
             'ring_bond_loss': torch.tensor(0.0, device=device)
         }
     
