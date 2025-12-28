@@ -16,16 +16,16 @@ from helm_diffusion import HELMDiffusion, HELMSequenceDataset
 # 在这里统一控制所有生成相关的功能开关
 
 # 基础生成参数
-NUM_SAMPLES = 100                # 生成样本数量
+NUM_SAMPLES = 1000                # 生成样本数量
 MAX_SEQ_LEN = 20                 # 最大序列长度
 MIN_SEQ_LEN = 5                  # 最小序列长度（随机长度生成）
-CHECKPOINT_PATH = str(project_root / "chembl32_checkpoints/chembl32_latest_model.pth")  # 模型检查点路径
+CHECKPOINT_PATH = "/root/autodl-tmp/chembl32_checkpoints/chembl32_latest_model.pth"  # 模型检查点路径
 OUTPUT_FILE = str(project_root / "chembl32_samples/helm_chembl32only_samples.txt")      # 输出文件路径
 
 # 功能开关
-USE_EMBEDDING_NORM = True        # 是否对embedding做L2归一化（使用余弦相似度匹配）
-USE_FREQ_WEIGHT = True           # 是否启用频率加权（惩罚低频单体）
-USE_BLACKLIST = True             # 是否启用黑名单过滤（排除问题单体）
+USE_EMBEDDING_NORM = False        # 是否对embedding做L2归一化（使用余弦相似度匹配）
+USE_FREQ_WEIGHT = False           # 是否启用频率加权（惩罚低频单体）
+USE_BLACKLIST = False             # 是否启用黑名单过滤（排除问题单体）
 USE_TEMPERATURE_SAMPLING = False # 是否启用温度采样（概率性选择token）
 
 # 参数值
@@ -97,7 +97,7 @@ def generate_samples(
     dataset = HELMSequenceDataset(
         data_file=str(dummy_data_file),
         max_seq_len=config.max_seq_len,
-        vocab_file=config.vocab_file
+        vocab_file=str(project_root / "data/helm_vocab.json")
     )
     # 确保dataset的词汇表与模型训练时一致
     dataset.vocab = vocab

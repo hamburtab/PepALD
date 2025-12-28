@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from typing import Optional, Dict, Tuple
 import json
 import numpy as np
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).parent
 
 from helm_transformer import HELMTransformer
 from unimol_embedding import UniMolEmbedding
@@ -289,7 +292,7 @@ class HELMDiffusion(nn.Module):
         
         if use_unimol and vocab is not None:
             self.embedding = UniMolEmbedding(
-                embeddings_dir="./unimol_embeddings",
+                embeddings_dir=str(PROJECT_ROOT / "unimol_embeddings"),
                 freeze_embeddings=True
             )
             embedding_dim = self.embedding.embedding_dim
@@ -316,7 +319,7 @@ class HELMDiffusion(nn.Module):
         import pandas as pd
         
         # 读取单体库
-        monomer_df = pd.read_csv('./data/monomer_library.csv')
+        monomer_df = pd.read_csv(str(PROJECT_ROOT / 'data/monomer_library.csv'))
         
         self.class1_tokens = set()  # 必须含有R2（第一个位置用）
         self.class2_tokens = set()  # 必须含有R1和R2（中间位置用）

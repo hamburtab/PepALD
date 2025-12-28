@@ -30,7 +30,7 @@ class ChEMBL32Config:
         self.weight_decay = 0.01
         
         # 日志
-        self.checkpoint_dir = "./chembl32_checkpoints"
+        self.checkpoint_dir = "/root/autodl-tmp/chembl32_checkpoints"
         self.log_interval = 100
         self.val_interval = 500
         self.save_every_n_steps = 1000

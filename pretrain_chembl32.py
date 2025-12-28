@@ -20,7 +20,7 @@ class ChEMBL32Trainer:
         self.config = config
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        self.checkpoint_dir = Path(config.checkpoint_dir)
+        self.checkpoint_dir = Path(config.checkpoint_dir
         self.checkpoint_dir.mkdir(exist_ok=True)
         
         self.setup_logging()
