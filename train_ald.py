@@ -93,15 +93,15 @@ class Trainer:
         
         # Move batch to device
         token_ids = batch['token_ids'].to(self.device)
-        lengths = batch['lengths'].to(self.device)
+        mask = batch['mask'].to(self.device)
         
         # Forward pass
         if self.use_amp:
             with autocast():
-                loss_dict = self.model(token_ids, lengths)
+                loss_dict = self.model(token_ids, mask)
                 loss = loss_dict['loss']
         else:
-            loss_dict = self.model(token_ids, lengths)
+            loss_dict = self.model(token_ids, mask)
             loss = loss_dict['loss']
         
         # Backward pass
@@ -243,7 +243,7 @@ def main():
     # Create dataset
     dataset = HELMDataset(
         data_file=config.training.train_data_file,
-        vocab=vocab,
+        vocab_file=config.training.vocab_file,
         max_seq_len=config.model.max_seq_len
     )
     print(f"📊 Loaded {len(dataset)} training sequences")

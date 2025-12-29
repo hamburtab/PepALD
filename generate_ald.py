@@ -35,10 +35,10 @@ def load_model(config: ALDConfig, device: torch.device):
     """Load model from checkpoint."""
     
     checkpoint_path = config.generation.checkpoint_path
-    print(f"🔄 Loading checkpoint from: {checkpoint_path}")
+    print(f" Loading checkpoint from: {checkpoint_path}")
     
     if not Path(checkpoint_path).exists():
-        print(f"❌ Checkpoint not found: {checkpoint_path}")
+        print(f" Checkpoint not found: {checkpoint_path}")
         print("   Please update 'generation.checkpoint_path' in config file")
         sys.exit(1)
     
@@ -71,7 +71,7 @@ def load_model(config: ALDConfig, device: torch.device):
     
     # Print model info
     total_params = sum(p.numel() for p in model.parameters())
-    print(f"✅ Model loaded successfully ({total_params/1e6:.1f}M parameters)")
+    print(f" Model loaded successfully ({total_params/1e6:.1f}M parameters)")
     
     return model, vocab
 
@@ -126,13 +126,10 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
             print(f"  ddim_steps:               {gen_cfg.ddim_steps}")
         print(f"  predict_ring_bonds:       {gen_cfg.predict_ring_bonds}")
         print(f"  use_embedding_norm:       {gen_cfg.use_embedding_norm}")
-        print(f"  use_temperature_sampling: {gen_cfg.use_temperature_sampling}")
-        if gen_cfg.use_temperature_sampling:
-            print(f"  temperature:              {gen_cfg.temperature}")
         print("="*60)
     
     # Generate samples
-    print(f"\n🎲 Generating {gen_cfg.num_samples} samples...")
+    print(f"\n Generating {gen_cfg.num_samples} samples...")
     start_time = time.time()
     
     with torch.no_grad():
@@ -143,8 +140,7 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
             device=device,
             use_ddim=gen_cfg.use_ddim,
             ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
-            predict_ring_bonds=gen_cfg.predict_ring_bonds,
-            temperature=gen_cfg.temperature if gen_cfg.use_temperature_sampling else 1.0
+            predict_ring_bonds=gen_cfg.predict_ring_bonds
         )
     
     elapsed_time = time.time() - start_time
@@ -188,7 +184,7 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
         print("--- 生成完毕 ---\n")
     
     # Print statistics
-    print("\n📊 Generation Statistics:")
+    print("\n Generation Statistics:")
     print(f"   Total samples:     {len(helm_sequences)}")
     print(f"   Avg sequence len:  {np.mean(sequence_lengths):.1f}")
     print(f"   Min sequence len:  {np.min(sequence_lengths)}")
@@ -209,16 +205,16 @@ def save_samples(helm_sequences: list, output_file: str):
         for seq in helm_sequences:
             f.write(f"{seq}\n")
     
-    print(f"\n💾 Saved {len(helm_sequences)} sequences to {output_path}")
+    print(f"\n Saved {len(helm_sequences)} sequences to {output_path}")
 
 
 def main():
     """Main function."""
     
     # Load config from file
-    print(f"📄 Loading config from: {CONFIG_FILE}")
+    print(f" Loading config from: {CONFIG_FILE}")
     if not CONFIG_FILE.exists():
-        print(f"❌ Config file not found: {CONFIG_FILE}")
+        print(f" Config file not found: {CONFIG_FILE}")
         print("   Please create it or copy from configs/default.json")
         sys.exit(1)
     
@@ -231,11 +227,11 @@ def main():
         np.random.seed(gen_cfg.seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(gen_cfg.seed)
-        print(f"🎯 Random seed set to {gen_cfg.seed}")
+        print(f" Random seed set to {gen_cfg.seed}")
     
     # Device
     device = torch.device(config.training.device if torch.cuda.is_available() else 'cpu')
-    print(f"🖥️  Using device: {device}")
+    print(f"  Using device: {device}")
     
     # Load model
     model, vocab = load_model(config, device)
@@ -249,9 +245,9 @@ def main():
     if gen_cfg.output_file:
         save_samples(helm_sequences, gen_cfg.output_file)
     else:
-        print("\n💡 Tip: Set 'generation.output_file' in config to save sequences")
+        print("\n Tip: Set 'generation.output_file' in config to save sequences")
     
-    print("\n✅ Generation complete!")
+    print("\n Generation complete!")
 
 
 if __name__ == "__main__":
