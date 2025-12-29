@@ -1,12 +1,13 @@
 """
 Configuration for Autoregressive Latent Diffusion (ALD) model.
 
-Defines hyperparameters and settings for training and generation.
+This is the SINGLE SOURCE OF TRUTH for all model and training parameters.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, Literal, List
+from dataclasses import dataclass, field, asdict
+from typing import Optional, Literal
 from pathlib import Path
+import json
 
 
 @dataclass
@@ -14,21 +15,21 @@ class ALDModelConfig:
     """Model architecture configuration."""
     
     # Embedding dimensions
-    embedding_dim: int = 512  # Will be updated from Uni-Mol embeddings
+    embedding_dim: int = 512  # Will be auto-updated from Uni-Mol embeddings
     d_model: int = 512
     
     # Attention configuration
     n_heads: int = 8
     
     # Layer configuration
-    context_layers: int = 6  # Layers in context encoder
-    denoiser_layers: int = 4  # Layers in diffusion denoiser
+    context_layers: int = 6
+    denoiser_layers: int = 4
     
     # Feed-forward dimension
     d_ff: int = 2048
     
     # Sequence configuration
-    max_seq_len: int = 150
+    max_seq_len: int = 45
     
     # Regularization
     dropout: float = 0.1
@@ -44,7 +45,7 @@ class ALDModelConfig:
 class ALDTrainingConfig:
     """Training configuration."""
     
-    # Data
+    # Data paths
     train_data_file: str = "./data/helm_sequences_chembl32.txt"
     vocab_file: str = "./data/helm_vocab.json"
     embeddings_dir: str = "./unimol_embeddings"
@@ -60,8 +61,9 @@ class ALDTrainingConfig:
     # Gradient clipping
     max_grad_norm: float = 1.0
     
-    # Efficient training
-    sample_positions_per_seq: int = 5  # Number of positions to sample per sequence
+    # Efficient training: sample positions per sequence
+    # Set to max_seq_len for full training
+    sample_positions: int = 45
     
     # Logging and checkpointing
     log_interval: int = 100
@@ -72,7 +74,7 @@ class ALDTrainingConfig:
     device: str = "cuda"
     
     # Mixed precision
-    use_amp: bool = True
+    use_amp: bool = False
     
     # Data loading
     num_workers: int = 4
@@ -82,33 +84,51 @@ class ALDTrainingConfig:
 class ALDGenerationConfig:
     """Generation configuration."""
     
+    # Checkpoint path for inference
+    checkpoint_path: str = "./checkpoints/ald/latest.pt"
+    
     # Generation parameters
     num_samples: int = 100
     max_length: int = 20
     min_length: Optional[int] = 4
     
     # Diffusion sampling
-    use_ddim: bool = True  # Use DDIM for faster sampling
-    ddim_steps: int = 50  # Number of DDIM steps (if use_ddim=True)
+    use_ddim: bool = True
+    ddim_steps: int = 50
     
     # Ring bond prediction
     predict_ring_bonds: bool = True
     ring_bond_threshold: float = 0.5
     
     # Token mapping
-    use_temperature_sampling: bool = False
-    temperature: float = 0.0
-    use_freq_weight: bool = True
-    freq_weight_scale: float = 0.1
+    use_embedding_norm: bool = True  # Use cosine distance
     
     # Output
     output_file: Optional[str] = None
     verbose: bool = True
+    
+    # Random seed (None for random)
+    seed: Optional[int] = None
 
 
 @dataclass
 class ALDConfig:
-    """Complete ALD configuration."""
+    """
+    Complete ALD configuration.
+    
+    This is the SINGLE SOURCE OF TRUTH for all parameters.
+    
+    Usage:
+        # Load default config
+        config = ALDConfig()
+        
+        # Load from JSON file
+        config = ALDConfig.load('config.json')
+        
+        # Modify and save
+        config.model.d_model = 768
+        config.save('new_config.json')
+    """
     
     model: ALDModelConfig = field(default_factory=ALDModelConfig)
     training: ALDTrainingConfig = field(default_factory=ALDTrainingConfig)
@@ -116,9 +136,6 @@ class ALDConfig:
     
     def save(self, path: str) -> None:
         """Save configuration to JSON file."""
-        import json
-        from dataclasses import asdict
-        
         config_dict = {
             'model': asdict(self.model),
             'training': asdict(self.training),
@@ -127,12 +144,11 @@ class ALDConfig:
         
         with open(path, 'w') as f:
             json.dump(config_dict, f, indent=2)
+        print(f"Configuration saved to {path}")
     
     @classmethod
     def load(cls, path: str) -> 'ALDConfig':
         """Load configuration from JSON file."""
-        import json
-        
         with open(path, 'r') as f:
             config_dict = json.load(f)
         
@@ -141,22 +157,59 @@ class ALDConfig:
             training=ALDTrainingConfig(**config_dict.get('training', {})),
             generation=ALDGenerationConfig(**config_dict.get('generation', {}))
         )
+    
+    def print_summary(self) -> None:
+        """Print configuration summary."""
+        print("\n" + "="*60)
+        print("ALD Configuration Summary")
+        print("="*60)
+        
+        print("\n[Model]")
+        print(f"  d_model:            {self.model.d_model}")
+        print(f"  n_heads:            {self.model.n_heads}")
+        print(f"  context_layers:     {self.model.context_layers}")
+        print(f"  denoiser_layers:    {self.model.denoiser_layers}")
+        print(f"  d_ff:               {self.model.d_ff}")
+        print(f"  max_seq_len:        {self.model.max_seq_len}")
+        print(f"  dropout:            {self.model.dropout}")
+        print(f"  diffusion_steps:    {self.model.num_diffusion_steps}")
+        print(f"  variance_schedule:  {self.model.variance_schedule}")
+        
+        print("\n[Training]")
+        print(f"  batch_size:         {self.training.batch_size}")
+        print(f"  learning_rate:      {self.training.learning_rate}")
+        print(f"  num_epochs:         {self.training.num_epochs}")
+        print(f"  warmup_steps:       {self.training.warmup_steps}")
+        print(f"  sample_positions:   {self.training.sample_positions}")
+        print(f"  device:             {self.training.device}")
+        print(f"  use_amp:            {self.training.use_amp}")
+        
+        print("\n[Generation]")
+        print(f"  use_ddim:           {self.generation.use_ddim}")
+        print(f"  ddim_steps:         {self.generation.ddim_steps}")
+        print(f"  use_embedding_norm: {self.generation.use_embedding_norm}")
+        print("="*60 + "\n")
 
 
-# Default configurations for different scenarios
+# ============================================================
+# Preset Configurations
+# ============================================================
+
 def get_default_config() -> ALDConfig:
-    """Get default configuration."""
+    """Get default configuration for ChEMBL32 training."""
     return ALDConfig()
 
 
-def get_fast_training_config() -> ALDConfig:
-    """Configuration for fast training (debugging)."""
+def get_debug_config() -> ALDConfig:
+    """Configuration for quick debugging."""
     config = ALDConfig()
     config.model.context_layers = 2
     config.model.denoiser_layers = 2
-    config.model.num_diffusion_steps = 50
-    config.training.batch_size = 16
-    config.training.num_epochs = 10
+    config.model.num_diffusion_steps = 20
+    config.training.batch_size = 8
+    config.training.num_epochs = 2
+    config.training.log_interval = 10
+    config.training.save_interval = 50
     return config
 
 
@@ -173,7 +226,7 @@ def get_large_model_config() -> ALDConfig:
 
 
 def get_fast_generation_config() -> ALDConfig:
-    """Configuration for fast generation."""
+    """Configuration for fast generation with DDIM."""
     config = ALDConfig()
     config.generation.use_ddim = True
     config.generation.ddim_steps = 25

@@ -1,227 +1,258 @@
 """
 Generation script for Autoregressive Latent Diffusion (ALD) model.
 
+All parameters are loaded from configs/default.json.
+Modify that file to change generation settings.
+
 Usage:
-    python generate_ald.py --checkpoint ./checkpoints/ald/final_model.pt --num_samples 100
-    python generate_ald.py --checkpoint ./checkpoints/ald/final_model.pt --output samples.txt --ddim
+    python generate_ald.py
 """
 
 import os
 import sys
-import argparse
 import json
 import time
 from pathlib import Path
 
 import torch
+import numpy as np
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from ald import AutoregressiveLatentDiffusion
+from ald.config import ALDConfig
+
+# ============================================================
+# Configuration File Path (the ONLY place to modify settings)
+# ============================================================
+CONFIG_FILE = PROJECT_ROOT / "configs" / "default.json"
+# ============================================================
 
 
-def parse_args():
-    parser = argparse.ArgumentParser(description='Generate peptides using ALD model')
-    
-    # Model arguments
-    parser.add_argument('--checkpoint', type=str, required=True,
-                        help='Path to model checkpoint')
-    parser.add_argument('--vocab', type=str, default='./data/helm_vocab.json',
-                        help='Path to vocabulary file')
-    parser.add_argument('--embeddings', type=str, default='./unimol_embeddings',
-                        help='Path to Uni-Mol embeddings directory')
-    
-    # Generation arguments
-    parser.add_argument('--num_samples', type=int, default=100,
-                        help='Number of sequences to generate')
-    parser.add_argument('--max_length', type=int, default=45,
-                        help='Maximum sequence length')
-    parser.add_argument('--min_length', type=int, default=5,
-                        help='Minimum sequence length')
-    
-    # Sampling method
-    parser.add_argument('--ddim', action='store_true',
-                        help='Use DDIM sampling (faster)')
-    parser.add_argument('--ddim_steps', type=int, default=50,
-                        help='Number of DDIM steps')
-    
-    # Ring bond prediction
-    parser.add_argument('--no_ring_bonds', action='store_true',
-                        help='Disable ring bond prediction')
-    
-    # Output
-    parser.add_argument('--output', type=str, default=None,
-                        help='Output file path')
-    
-    # System
-    parser.add_argument('--device', type=str, default='cuda',
-                        help='Device to use')
-    parser.add_argument('--seed', type=int, default=None,
-                        help='Random seed')
-    parser.add_argument('--batch_size', type=int, default=1,
-                        help='Batch size for generation (currently only 1 supported)')
-    
-    # Verbosity
-    parser.add_argument('--verbose', action='store_true',
-                        help='Print progress')
-    
-    return parser.parse_args()
-
-
-def load_model(args):
+def load_model(config: ALDConfig, device: torch.device):
     """Load model from checkpoint."""
     
-    # Load vocabulary
-    with open(args.vocab, 'r') as f:
-        vocab = json.load(f)
-    print(f"Loaded vocabulary with {len(vocab)} tokens")
+    checkpoint_path = config.generation.checkpoint_path
+    print(f"🔄 Loading checkpoint from: {checkpoint_path}")
     
-    # Load checkpoint to get model config
-    checkpoint = torch.load(args.checkpoint, map_location='cpu')
-    config = checkpoint.get('config', {})
+    if not Path(checkpoint_path).exists():
+        print(f"❌ Checkpoint not found: {checkpoint_path}")
+        print("   Please update 'generation.checkpoint_path' in config file")
+        sys.exit(1)
     
-    # Create model with config from checkpoint
-    model = AutoregressiveLatentDiffusion(
-        vocab=vocab,
-        d_model=config.get('d_model', 512),
-        n_heads=config.get('n_heads', 8),
-        context_layers=config.get('context_layers', 6),
-        denoiser_layers=config.get('denoiser_layers', 4),
-        d_ff=config.get('d_model', 512) * 4,
-        max_seq_len=config.get('max_seq_len', 150),
-        dropout=0.0,  # No dropout during inference
-        num_diffusion_steps=config.get('diffusion_steps', 100),
-        variance_schedule='cosine',
-        embeddings_dir=args.embeddings,
-        data_dir='./data'
-    )
+    checkpoint = torch.load(checkpoint_path, map_location=device)
     
-    # Load weights
-    model.load_state_dict(checkpoint['model_state_dict'])
-    print(f"Loaded model from {args.checkpoint}")
+    # Get vocab from checkpoint
+    if 'vocab' in checkpoint:
+        vocab = checkpoint['vocab']
+        print(f"   Loaded vocab from checkpoint ({len(vocab)} tokens)")
+    else:
+        # Load from file
+        vocab_path = config.training.vocab_file
+        print(f"   Loading vocab from: {vocab_path}")
+        with open(vocab_path, 'r') as f:
+            vocab = json.load(f)
     
-    return model
-
-
-def generate(model, args):
-    """Generate peptide sequences."""
+    # Create model
+    model = AutoregressiveLatentDiffusion(vocab=vocab, config=config)
     
-    device = torch.device(args.device if torch.cuda.is_available() else 'cpu')
+    # Load state dict
+    if 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    elif 'state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
+    
     model = model.to(device)
     model.eval()
     
-    print(f"\nGenerating {args.num_samples} sequences...")
-    print(f"  Length range: {args.min_length} - {args.max_length}")
-    print(f"  Sampling: {'DDIM' if args.ddim else 'DDPM'}")
-    if args.ddim:
-        print(f"  DDIM steps: {args.ddim_steps}")
-    print(f"  Ring bonds: {'disabled' if args.no_ring_bonds else 'enabled'}")
+    # Print model info
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"✅ Model loaded successfully ({total_params/1e6:.1f}M parameters)")
     
+    return model, vocab
+
+
+def decode_sequence(token_ids: torch.Tensor, vocab: dict, idx_to_token: dict = None) -> str:
+    """Decode token IDs to HELM sequence string."""
+    
+    if idx_to_token is None:
+        idx_to_token = {v: k for k, v in vocab.items()}
+    
+    tokens = []
+    pad_id = vocab.get('<PAD>', 0)
+    eos_id = vocab.get('<EOS>', 2)
+    bos_id = vocab.get('<BOS>', 1)
+    
+    for idx in token_ids:
+        idx = idx.item() if hasattr(idx, 'item') else idx
+        if idx == pad_id:
+            continue
+        if idx == eos_id:
+            break
+        if idx == bos_id:
+            continue
+        
+        token = idx_to_token.get(idx, f'<UNK:{idx}>')
+        tokens.append(token)
+    
+    # Build HELM sequence
+    if not tokens:
+        return "PEPTIDE1{}"
+    
+    return "PEPTIDE1{" + ".".join(tokens) + "}$$$$"
+
+
+def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device):
+    """Generate samples using the model."""
+    
+    gen_cfg = config.generation
+    idx_to_token = {v: k for k, v in vocab.items()}
+    
+    verbose = gen_cfg.verbose
+    
+    if verbose:
+        print("\n" + "="*60)
+        print("Generation Configuration")
+        print("="*60)
+        print(f"  num_samples:              {gen_cfg.num_samples}")
+        print(f"  max_length:               {gen_cfg.max_length}")
+        print(f"  min_length:               {gen_cfg.min_length}")
+        print(f"  use_ddim:                 {gen_cfg.use_ddim}")
+        if gen_cfg.use_ddim:
+            print(f"  ddim_steps:               {gen_cfg.ddim_steps}")
+        print(f"  predict_ring_bonds:       {gen_cfg.predict_ring_bonds}")
+        print(f"  use_embedding_norm:       {gen_cfg.use_embedding_norm}")
+        print(f"  use_temperature_sampling: {gen_cfg.use_temperature_sampling}")
+        if gen_cfg.use_temperature_sampling:
+            print(f"  temperature:              {gen_cfg.temperature}")
+        print("="*60)
+    
+    # Generate samples
+    print(f"\n🎲 Generating {gen_cfg.num_samples} samples...")
     start_time = time.time()
     
-    # Generate sequences
-    helm_sequences = []
-    
-    for i in range(args.num_samples):
-        if args.verbose:
-            print(f"\nGenerating sequence {i+1}/{args.num_samples}...")
-        
-        results = model.sample(
-            num_samples=1,
-            max_length=args.max_length,
-            min_length=args.min_length,
+    with torch.no_grad():
+        samples = model.sample(
+            num_samples=gen_cfg.num_samples,
+            max_seq_len=gen_cfg.max_length,
+            min_seq_len=gen_cfg.min_length,
             device=device,
-            use_ddim=args.ddim,
-            ddim_steps=args.ddim_steps,
-            predict_ring_bonds=not args.no_ring_bonds,
-            verbose=args.verbose
+            use_ddim=gen_cfg.use_ddim,
+            ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
+            predict_ring_bonds=gen_cfg.predict_ring_bonds,
+            temperature=gen_cfg.temperature if gen_cfg.use_temperature_sampling else 1.0
         )
+    
+    elapsed_time = time.time() - start_time
+    
+    print(f"   Generated {len(samples)} samples in {elapsed_time:.2f}s")
+    print(f"   ({elapsed_time/len(samples)*1000:.1f}ms per sample)")
+    
+    # Decode samples
+    helm_sequences = []
+    ring_bond_counts = []
+    sequence_lengths = []
+    
+    for sample in samples:
+        if isinstance(sample, dict) and 'tokens' in sample:
+            tokens = sample['tokens']
+            ring_connections = sample.get('ring_connections', [])
+        else:
+            tokens = sample
+            ring_connections = []
         
         # Decode to HELM
-        result = results[0]
-        helm = model.decode_to_helm(
-            result['tokens'],
-            result.get('ring_connections', [])
-        )
-        helm_sequences.append(helm)
+        helm_seq = decode_sequence(tokens, vocab, idx_to_token)
+        helm_sequences.append(helm_seq)
         
-        if not args.verbose and (i + 1) % 10 == 0:
-            print(f"  Generated {i+1}/{args.num_samples}")
+        # Statistics
+        pad_id = vocab.get('<PAD>', 0)
+        if hasattr(tokens, 'cpu'):
+            tokens_np = tokens.cpu().numpy()
+        else:
+            tokens_np = np.array(tokens)
+        seq_len = np.sum(tokens_np != pad_id)
+        sequence_lengths.append(seq_len)
+        ring_bond_counts.append(len(ring_connections))
     
-    elapsed = time.time() - start_time
-    print(f"\nGeneration completed in {elapsed:.1f}s ({elapsed/args.num_samples:.2f}s per sequence)")
+    # Print samples if verbose
+    if verbose:
+        print("\n--- Generated HELM Sequences ---")
+        for i, (helm_seq, ring_count, seq_len) in enumerate(zip(helm_sequences, ring_bond_counts, sequence_lengths)):
+            ring_info = f"[环键数: {ring_count}]" if ring_count > 0 else "[线性]"
+            print(f"样本 {i+1:3d} {ring_info} (长度: {seq_len:2d}): {helm_seq}")
+        print("--- 生成完毕 ---\n")
     
-    return helm_sequences
+    # Print statistics
+    print("\n📊 Generation Statistics:")
+    print(f"   Total samples:     {len(helm_sequences)}")
+    print(f"   Avg sequence len:  {np.mean(sequence_lengths):.1f}")
+    print(f"   Min sequence len:  {np.min(sequence_lengths)}")
+    print(f"   Max sequence len:  {np.max(sequence_lengths)}")
+    print(f"   Cyclic sequences:  {sum(1 for c in ring_bond_counts if c > 0)}")
+    print(f"   Linear sequences:  {sum(1 for c in ring_bond_counts if c == 0)}")
+    
+    return helm_sequences, ring_bond_counts, sequence_lengths
 
 
-def analyze_sequences(sequences):
-    """Analyze generated sequences."""
+def save_samples(helm_sequences: list, output_file: str):
+    """Save generated samples to file."""
     
-    from ald.utils.topology import HELMTopologyAnalyzer
+    output_path = Path(output_file)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    analyzer = HELMTopologyAnalyzer()
+    with open(output_path, 'w') as f:
+        for seq in helm_sequences:
+            f.write(f"{seq}\n")
     
-    lengths = []
-    types = {'linear': 0, 'cyclic': 0, 'q_type': 0}
-    
-    for helm in sequences:
-        parsed = analyzer.parse_helm_sequence(helm)
-        lengths.append(len(parsed['monomers']))
-        types[parsed['peptide_type']] = types.get(parsed['peptide_type'], 0) + 1
-    
-    print("\n" + "="*60)
-    print("Generated Sequences Analysis")
-    print("="*60)
-    print(f"Total sequences: {len(sequences)}")
-    print(f"Length: min={min(lengths)}, max={max(lengths)}, avg={sum(lengths)/len(lengths):.1f}")
-    print(f"Types: {types}")
-    
-    # Show some examples
-    print("\nExample sequences:")
-    for i, helm in enumerate(sequences[:5]):
-        print(f"  {i+1}. {helm}")
+    print(f"\n💾 Saved {len(helm_sequences)} sequences to {output_path}")
 
 
 def main():
-    args = parse_args()
+    """Main function."""
+    
+    # Load config from file
+    print(f"📄 Loading config from: {CONFIG_FILE}")
+    if not CONFIG_FILE.exists():
+        print(f"❌ Config file not found: {CONFIG_FILE}")
+        print("   Please create it or copy from configs/default.json")
+        sys.exit(1)
+    
+    config = ALDConfig.load(str(CONFIG_FILE))
+    gen_cfg = config.generation
     
     # Set seed
-    if args.seed is not None:
-        torch.manual_seed(args.seed)
+    if gen_cfg.seed is not None:
+        torch.manual_seed(gen_cfg.seed)
+        np.random.seed(gen_cfg.seed)
         if torch.cuda.is_available():
-            torch.cuda.manual_seed(args.seed)
+            torch.cuda.manual_seed_all(gen_cfg.seed)
+        print(f"🎯 Random seed set to {gen_cfg.seed}")
     
-    # Set device
-    if args.device == 'cuda' and not torch.cuda.is_available():
-        print("CUDA not available, using CPU")
-        args.device = 'cpu'
+    # Device
+    device = torch.device(config.training.device if torch.cuda.is_available() else 'cpu')
+    print(f"🖥️  Using device: {device}")
     
     # Load model
-    model = load_model(args)
+    model, vocab = load_model(config, device)
     
-    # Generate
-    sequences = generate(model, args)
+    # Generate samples
+    helm_sequences, ring_bond_counts, sequence_lengths = generate_samples(
+        model, config, vocab, device
+    )
     
-    # Analyze
-    analyze_sequences(sequences)
-    
-    # Save output
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_path, 'w') as f:
-            for helm in sequences:
-                f.write(helm + '\n')
-        
-        print(f"\nSaved {len(sequences)} sequences to {output_path}")
+    # Save if output file specified
+    if gen_cfg.output_file:
+        save_samples(helm_sequences, gen_cfg.output_file)
     else:
-        print("\nGenerated sequences (use --output to save):")
-        for i, helm in enumerate(sequences):
-            print(f"{i+1}. {helm}")
+        print("\n💡 Tip: Set 'generation.output_file' in config to save sequences")
+    
+    print("\n✅ Generation complete!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

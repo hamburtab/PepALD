@@ -286,13 +286,3 @@ config = ALDConfig.load('my_config.json')
 | Length | Fixed during generation | Variable (dynamic stopping) |
 | Ring bonds | Post-hoc prediction | Step-by-step prediction |
 | Complexity | $O(T \cdot L^2)$ | $O(L \cdot T)$ where $L$ = length, $T$ = diffusion steps |
-
-## Requirements
-
-- PyTorch >= 1.12
-- NumPy
-- Pandas (for monomer classification)
-
-## Citation
-
-If you use this code, please cite the relevant works on diffusion models and peptide generation.

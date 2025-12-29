@@ -3,7 +3,7 @@ Transformer layer implementations for the ALD architecture.
 
 Contains:
     - FeedForward: Position-wise feed-forward network
-    - TransformerEncoderLayer: Standard transformer encoder layer
+
     - CausalTransformerLayer: Transformer layer with causal masking
     - DenoiserBlock: Transformer block for the diffusion denoiser
 """
@@ -62,74 +62,6 @@ class FeedForward(nn.Module):
             Output tensor [batch_size, seq_len, d_model]
         """
         return self.linear2(self.dropout(self.activation(self.linear1(x))))
-
-
-class TransformerEncoderLayer(nn.Module):
-    """
-    Standard Transformer Encoder Layer.
-    
-    Consists of:
-        1. Multi-head self-attention
-        2. Feed-forward network
-        
-    Both with residual connections and layer normalization (Pre-LN variant).
-    
-    Args:
-        d_model: Model dimension
-        n_heads: Number of attention heads
-        d_ff: Feed-forward hidden dimension
-        dropout: Dropout probability
-        activation: Activation function for FFN
-    """
-    
-    def __init__(
-        self,
-        d_model: int,
-        n_heads: int,
-        d_ff: int,
-        dropout: float = 0.1,
-        activation: str = 'relu'
-    ):
-        super().__init__()
-        
-        self.self_attn = MultiHeadAttention(d_model, n_heads, dropout)
-        self.feed_forward = FeedForward(d_model, d_ff, dropout, activation)
-        
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        
-        self.dropout1 = nn.Dropout(dropout)
-        self.dropout2 = nn.Dropout(dropout)
-        
-    def forward(
-        self,
-        x: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-        return_attention: bool = False
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
-        """
-        Forward pass through encoder layer.
-        
-        Args:
-            x: Input tensor [batch_size, seq_len, d_model]
-            mask: Optional attention mask
-            return_attention: Whether to return attention weights
-            
-        Returns:
-            output: Transformed tensor [batch_size, seq_len, d_model]
-            attn_weights: Optional attention weights
-        """
-        # Self-attention with residual connection
-        attn_output, attn_weights = self.self_attn(x, x, x, mask, return_attention=True)
-        x = self.norm1(x + self.dropout1(attn_output))
-        
-        # Feed-forward with residual connection
-        ff_output = self.feed_forward(x)
-        x = self.norm2(x + self.dropout2(ff_output))
-        
-        if return_attention:
-            return x, attn_weights
-        return x, None
 
 
 class CausalTransformerLayer(nn.Module):

@@ -145,53 +145,16 @@ class CosineSchedule(VarianceSchedule):
         return torch.clip(betas, 0.0001, 0.9999)
 
 
-class SigmoidSchedule(VarianceSchedule):
-    """
-    Sigmoid variance schedule.
-    
-    An alternative schedule that provides smooth transitions.
-    
-    Args:
-        beta_start: Starting value
-        beta_end: Ending value
-    """
-    
-    def __init__(self, beta_start: float = 1e-4, beta_end: float = 0.02):
-        self.beta_start = beta_start
-        self.beta_end = beta_end
-        
-    def get_betas(self, num_steps: int) -> torch.Tensor:
-        """Generate sigmoid beta schedule."""
-        x = torch.linspace(-6, 6, num_steps)
-        betas = torch.sigmoid(x)
-        betas = betas * (self.beta_end - self.beta_start) + self.beta_start
-        return betas
-
-
 def create_variance_schedule(
-    schedule_type: Literal['linear', 'cosine', 'sigmoid'] = 'cosine',
+    schedule_type: Literal['linear', 'cosine'] = 'cosine',
     beta_start: float = 1e-4,
     beta_end: float = 0.02,
     **kwargs
 ) -> VarianceSchedule:
-    """
-    Factory function to create a variance schedule.
-    
-    Args:
-        schedule_type: Type of schedule ('linear', 'cosine', 'sigmoid')
-        beta_start: Starting beta value (for linear/sigmoid)
-        beta_end: Ending beta value (for linear/sigmoid)
-        **kwargs: Additional arguments for specific schedules
-        
-    Returns:
-        VarianceSchedule instance
-    """
+    """Factory function to create a variance schedule."""
     if schedule_type == 'linear':
         return LinearSchedule(beta_start, beta_end)
     elif schedule_type == 'cosine':
-        s = kwargs.get('s', 0.008)
-        return CosineSchedule(s)
-    elif schedule_type == 'sigmoid':
-        return SigmoidSchedule(beta_start, beta_end)
+        return CosineSchedule(kwargs.get('s', 0.008))
     else:
         raise ValueError(f"Unknown schedule type: {schedule_type}")

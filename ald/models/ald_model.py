@@ -1,125 +1,89 @@
 """
-Autoregressive Latent Diffusion (ALD) Model.
-
-The main model that combines:
-    1. Causal Context Encoder - processes history
-    2. Diffusion Engine - generates each token via diffusion
-    3. Token Mapper - maps embeddings to discrete monomers
-    4. Ring Bond Predictor - predicts cyclic connections
-
-This is the complete system for token-by-token peptide generation.
+Autoregressive Latent Diffusion (ALD) Model for HELM Peptide Generation.
 """
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional, Dict, List, Tuple, Literal
-from pathlib import Path
+from typing import Optional, Dict, List
 
 from .context_encoder import CausalContextEncoder
 from .token_mapper import TokenMapper
 from .ring_predictor import RingBondPredictor, AutoregressiveRingPredictor
 from ..diffusion.engine import DiffusionEngine
-from ..core.embeddings import UniMolEmbeddingLoader
+from ..config import ALDConfig
 
 
 class AutoregressiveLatentDiffusion(nn.Module):
     """
-    Autoregressive Latent Diffusion Model for HELM Peptide Generation.
+    Token-by-token peptide generation via diffusion in latent space.
     
-    Architecture Overview:
-        
-        For each position t in the sequence:
-            1. Context Encoding: h_t = ContextEncoder([x_0, ..., x_{t-1}])
-            2. Diffusion Sampling: z_t = DiffusionEngine.sample(context=h_t)
-            3. Token Mapping: x_t = TokenMapper(z_t, position=t)
-            4. Ring Prediction: bonds_t = RingPredictor(h_t, x_t)
-    
-    The diffusion process at each step generates a single token embedding
-    by denoising from Gaussian noise, conditioned on the context.
-    
-    Args:
-        vocab: Dictionary mapping monomer symbols to indices
-        embedding_dim: Dimension of Uni-Mol embeddings
-        d_model: Model dimension for transformer
-        n_heads: Number of attention heads
-        context_layers: Number of layers in context encoder
-        denoiser_layers: Number of layers in diffusion denoiser
-        d_ff: Feed-forward dimension
-        max_seq_len: Maximum sequence length
-        dropout: Dropout probability
-        num_diffusion_steps: Number of diffusion steps (K)
-        variance_schedule: Type of variance schedule
-        beta_start: Starting beta value
-        beta_end: Ending beta value
-        embeddings_dir: Directory for Uni-Mol embeddings
-        data_dir: Directory for vocab and data files
+    For each position t:
+        1. h_t = ContextEncoder([x_0, ..., x_{t-1}])
+        2. z_t = DiffusionEngine.sample(context=h_t)
+        3. x_t = TokenMapper(z_t)
     """
     
     def __init__(
         self,
         vocab: Dict[str, int],
-        embedding_dim: int = 512,
-        d_model: int = 512,
-        n_heads: int = 8,
-        context_layers: int = 6,
-        denoiser_layers: int = 4,
-        d_ff: int = 2048,
-        max_seq_len: int = 256,
-        dropout: float = 0.1,
-        num_diffusion_steps: int = 100,
-        variance_schedule: Literal['linear', 'cosine'] = 'cosine',
-        beta_start: float = 1e-4,
-        beta_end: float = 0.02,
-        embeddings_dir: str = "./unimol_embeddings",
-        data_dir: str = "./data"
+        config: Optional[ALDConfig] = None,
+        embeddings_dir: Optional[str] = None,
+        data_dir: Optional[str] = None,
+        verbose: bool = True
     ):
         super().__init__()
         
+        if config is None:
+            config = ALDConfig()
+        
+        self.config = config
+        model_cfg = config.model
+        gen_cfg = config.generation
+        train_cfg = config.training
+        
+        embeddings_dir = embeddings_dir or train_cfg.embeddings_dir
+        data_dir = data_dir or train_cfg.data_dir
+        
         self.vocab = vocab
         self.vocab_size = len(vocab)
-        self.embedding_dim = embedding_dim
-        self.d_model = d_model
-        self.max_seq_len = max_seq_len
-        self.num_diffusion_steps = num_diffusion_steps
+        self.embedding_dim = model_cfg.embedding_dim
+        self.d_model = model_cfg.d_model
+        self.max_seq_len = model_cfg.max_seq_len
+        self.num_diffusion_steps = model_cfg.num_diffusion_steps
         
-        # Reverse vocab for decoding
         self.idx_to_token = {v: k for k, v in vocab.items()}
-        
-        # PAD token ID
         self.pad_id = vocab.get('<PAD>', self.vocab_size - 1)
         
-        # 1. Context Encoder (The "Brain")
+        # 1. Context Encoder
         self.context_encoder = CausalContextEncoder(
-            embedding_dim=embedding_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            n_layers=context_layers,
-            d_ff=d_ff,
-            max_seq_len=max_seq_len,
-            dropout=dropout,
+            embedding_dim=model_cfg.embedding_dim,
+            d_model=model_cfg.d_model,
+            n_heads=model_cfg.n_heads,
+            n_layers=model_cfg.context_layers,
+            d_ff=model_cfg.d_ff,
+            max_seq_len=model_cfg.max_seq_len,
+            dropout=model_cfg.dropout,
             embeddings_dir=embeddings_dir,
             freeze_embeddings=True
         )
         
         # Update embedding_dim from actual loaded embeddings
         actual_embed_dim = self.context_encoder.embedding.embedding_dim
-        if actual_embed_dim != embedding_dim:
+        if actual_embed_dim != model_cfg.embedding_dim:
             self.embedding_dim = actual_embed_dim
-            print(f"[ALD] Updated embedding_dim to {actual_embed_dim}")
         
-        # 2. Diffusion Engine (The "Brush")
+        # 2. Diffusion Engine
         self.diffusion_engine = DiffusionEngine(
             embedding_dim=self.embedding_dim,
-            d_model=d_model,
-            n_heads=n_heads,
-            n_layers=denoiser_layers,
-            d_ff=d_ff,
-            dropout=dropout,
-            num_diffusion_steps=num_diffusion_steps,
-            variance_schedule=variance_schedule,
-            beta_start=beta_start,
-            beta_end=beta_end
+            d_model=model_cfg.d_model,
+            n_heads=model_cfg.n_heads,
+            n_layers=model_cfg.denoiser_layers,
+            d_ff=model_cfg.d_ff,
+            dropout=model_cfg.dropout,
+            num_diffusion_steps=model_cfg.num_diffusion_steps,
+            variance_schedule=model_cfg.variance_schedule,
+            beta_start=model_cfg.beta_start,
+            beta_end=model_cfg.beta_end
         )
         
         # 3. Token Mapper
@@ -127,111 +91,93 @@ class AutoregressiveLatentDiffusion(nn.Module):
             vocab=vocab,
             embeddings_dir=embeddings_dir,
             data_dir=data_dir,
-            use_embedding_norm=True,
-            use_freq_weight=False,
-            use_temperature_sampling=False,
-            use_blacklist=False
+            use_embedding_norm=gen_cfg.use_embedding_norm
         )
         
-        # 4. Ring Bond Predictor
+        # 4. Ring Bond Predictors
         self.ring_predictor = RingBondPredictor(
-            d_model=d_model,
-            hidden_dim=d_model // 2,
+            d_model=model_cfg.d_model,
+            hidden_dim=model_cfg.d_model // 2,
             num_bond_types=5
         )
-        
-        # 5. Autoregressive Ring Predictor (for step-by-step prediction)
         self.ar_ring_predictor = AutoregressiveRingPredictor(
-            d_model=d_model,
-            hidden_dim=d_model // 2,
+            d_model=model_cfg.d_model,
+            hidden_dim=model_cfg.d_model // 2,
             num_bond_types=5
         )
         
-        print(f"[ALD] Model initialized:")
-        print(f"  - Embedding dim: {self.embedding_dim}")
-        print(f"  - Model dim: {d_model}")
-        print(f"  - Context layers: {context_layers}")
-        print(f"  - Denoiser layers: {denoiser_layers}")
-        print(f"  - Diffusion steps: {num_diffusion_steps}")
-        print(f"  - Variance schedule: {variance_schedule}")
+        if verbose:
+            self._print_model_info(model_cfg)
+    
+    def _print_model_info(self, model_cfg):
+        """Print model configuration summary."""
+        print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
+    
+    def _empty_loss(self, device: torch.device) -> Dict[str, torch.Tensor]:
+        """Return zero loss dictionary for edge cases."""
+        return {
+            'loss': torch.tensor(0.0, device=device, requires_grad=True),
+            'diffusion_loss': torch.tensor(0.0, device=device),
+            'ring_bond_loss': torch.tensor(0.0, device=device)
+        }
+    
+    def _prepare_contexts(
+        self,
+        token_ids: torch.Tensor,
+        mask: Optional[torch.Tensor] = None
+    ) -> tuple:
+        """
+        Prepare ground truth embeddings and shifted contexts for training.
+        
+        Returns:
+            gt_embeddings: [batch_size, seq_len, embedding_dim]
+            contexts_for_pred: [batch_size, seq_len, d_model] (shifted)
+        """
+        gt_embeddings = self.context_encoder.get_token_embedding(token_ids)
+        full_contexts = self.context_encoder(token_ids, mask)
+        
+        # Start context for position 0
+        start_context = self.context_encoder.get_context_for_next_token(
+            gt_embeddings[:, :0, :]
+        )
+        
+        # Shift contexts: context[t] predicts position t
+        contexts_for_pred = torch.cat([
+            start_context.unsqueeze(1),
+            full_contexts[:, :-1, :]
+        ], dim=1)
+        
+        return gt_embeddings, contexts_for_pred
         
     def forward(
         self,
         token_ids: torch.Tensor,
         mask: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
-        """
-        Parallel training forward pass using Teacher Forcing.
-        
-        Key insight: Causal masking in the Context Encoder ensures that
-        context[t] only depends on tokens [0, ..., t-1], so we can compute
-        all contexts in parallel and still maintain autoregressive semantics.
-        
-        Args:
-            token_ids: Ground truth token IDs [batch_size, seq_len]
-            mask: Sequence mask [batch_size, seq_len] (1 = valid, 0 = pad)
-            
-        Returns:
-            Dictionary with 'loss', 'diffusion_loss', 'ring_bond_loss'
-        """
+        """Training forward pass with teacher forcing (all positions)."""
         batch_size, seq_len = token_ids.shape
         device = token_ids.device
         
         if seq_len <= 1:
-            return {
-                'loss': torch.tensor(0.0, device=device, requires_grad=True),
-                'diffusion_loss': torch.tensor(0.0, device=device),
-                'ring_bond_loss': torch.tensor(0.0, device=device)
-            }
+            return self._empty_loss(device)
         
-        # 1. Get ground truth embeddings for all tokens
-        gt_embeddings = self.context_encoder.get_token_embedding(token_ids)
-        # [batch_size, seq_len, embedding_dim]
-        
-        # 2. Compute all contexts in parallel (causal masking is built-in)
-        # contexts[t] is conditioned on [0, ..., t] due to causal attention
-        all_contexts = self.context_encoder(token_ids, mask)
-        # [batch_size, seq_len, d_model]
-        
-        # 3. Prepare for parallel diffusion training:
-        # - Context at position t-1 is used to predict token at position t
-        # - So we use contexts[:, :-1, :] to predict embeddings[:, 1:, :]
-        # Note: For position 0, we need the start token context
-        
-        # Get start token context for position 0
-        start_context = self.context_encoder.get_context_for_next_token(
-            gt_embeddings[:, :0, :]  # Empty history
-        )  # [batch_size, d_model]
-        
-        # Shift contexts: prepend start_context, remove last context
-        # contexts_for_pred[t] will be used to predict position t
-        contexts_for_pred = torch.cat([
-            start_context.unsqueeze(1),  # [batch_size, 1, d_model]
-            all_contexts[:, :-1, :]       # [batch_size, seq_len-1, d_model]
-        ], dim=1)  # [batch_size, seq_len, d_model]
-        
-        # 4. Flatten for batch diffusion training
-        # Target: embeddings at all positions
-        target_embeddings = gt_embeddings  # [batch_size, seq_len, embedding_dim]
+        gt_embeddings, contexts_for_pred = self._prepare_contexts(token_ids, mask)
         
         # Create mask for valid positions
         if mask is not None:
-            valid_mask = mask.bool()  # [batch_size, seq_len]
+            valid_mask = mask.bool()
         else:
             valid_mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
         
-        # Flatten and select valid positions
-        target_flat = target_embeddings[valid_mask]  # [num_valid, embedding_dim]
-        context_flat = contexts_for_pred[valid_mask]  # [num_valid, d_model]
+        # Flatten valid positions
+        target_flat = gt_embeddings[valid_mask]
+        context_flat = contexts_for_pred[valid_mask].unsqueeze(1)
         
-        # Add context dimension for diffusion engine
-        context_flat = context_flat.unsqueeze(1)  # [num_valid, 1, d_model]
-        
-        # 5. Compute diffusion loss in one batch
+        # Diffusion loss
         diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
         diffusion_loss = diff_result['loss']
         
-        # TODO: Add ring bond supervision from HELM sequences
+        # TODO: Add ring bond supervision
         ring_bond_loss = torch.tensor(0.0, device=device)
         
         return {
@@ -246,54 +192,22 @@ class AutoregressiveLatentDiffusion(nn.Module):
         mask: Optional[torch.Tensor] = None,
         sample_positions: int = 5
     ) -> Dict[str, torch.Tensor]:
-        """
-        Efficient parallel training by sampling random positions.
-        
-        Instead of training on all positions, randomly samples a subset of
-        positions per sequence. Still fully parallelized across batch and
-        sampled positions.
-        
-        Args:
-            token_ids: [batch_size, seq_len]
-            mask: [batch_size, seq_len]
-            sample_positions: Number of positions to sample per sequence
-        """
+        """Efficient training by sampling random positions per sequence."""
         batch_size, seq_len = token_ids.shape
         device = token_ids.device
         
         if seq_len <= 1:
-            return {
-                'loss': torch.tensor(0.0, device=device, requires_grad=True),
-                'diffusion_loss': torch.tensor(0.0, device=device),
-                'ring_bond_loss': torch.tensor(0.0, device=device)
-            }
+            return self._empty_loss(device)
         
-        # 1. Get ground truth embeddings
-        gt_embeddings = self.context_encoder.get_token_embedding(token_ids)
-        # [batch_size, seq_len, embedding_dim]
+        gt_embeddings, contexts_for_pred = self._prepare_contexts(token_ids, mask)
         
-        # 2. Get full contexts (computed once, in parallel with causal masking)
-        full_contexts = self.context_encoder(token_ids, mask)
-        # [batch_size, seq_len, d_model]
-        
-        # Get start token context for position 0
-        start_context = self.context_encoder.get_context_for_next_token(
-            gt_embeddings[:, :0, :]  # Empty history
-        )  # [batch_size, d_model]
-        
-        # Prepare shifted contexts (context[t] predicts position t)
-        contexts_for_pred = torch.cat([
-            start_context.unsqueeze(1),  # [batch_size, 1, d_model]
-            full_contexts[:, :-1, :]      # [batch_size, seq_len-1, d_model]
-        ], dim=1)  # [batch_size, seq_len, d_model]
-        
-        # 3. Sample random positions for each sequence in the batch
+        # Get sequence lengths
         if mask is not None:
-            lengths = mask.sum(dim=1).long()  # [batch_size]
+            lengths = mask.sum(dim=1).long()
         else:
             lengths = torch.full((batch_size,), seq_len, dtype=torch.long, device=device)
         
-        # Collect sampled positions and corresponding data
+        # Sample random positions
         sampled_targets = []
         sampled_contexts = []
         
@@ -302,153 +216,123 @@ class AutoregressiveLatentDiffusion(nn.Module):
             if seq_length <= 0:
                 continue
             
-            # Number of positions to sample from this sequence
             num_samples = min(sample_positions, seq_length)
-            
-            # Random sample positions (without replacement)
             positions = torch.randperm(seq_length, device=device)[:num_samples]
             
-            # Gather targets and contexts for sampled positions
-            sampled_targets.append(gt_embeddings[b, positions, :])  # [num_samples, embedding_dim]
-            sampled_contexts.append(contexts_for_pred[b, positions, :])  # [num_samples, d_model]
+            sampled_targets.append(gt_embeddings[b, positions, :])
+            sampled_contexts.append(contexts_for_pred[b, positions, :])
         
         if len(sampled_targets) == 0:
-            return {
-                'loss': torch.tensor(0.0, device=device, requires_grad=True),
-                'diffusion_loss': torch.tensor(0.0, device=device),
-                'ring_bond_loss': torch.tensor(0.0, device=device)
-            }
+            return self._empty_loss(device)
         
-        # 4. Concatenate all sampled data into batches
-        target_flat = torch.cat(sampled_targets, dim=0)  # [total_samples, embedding_dim]
-        context_flat = torch.cat(sampled_contexts, dim=0)  # [total_samples, d_model]
-        context_flat = context_flat.unsqueeze(1)  # [total_samples, 1, d_model]
+        target_flat = torch.cat(sampled_targets, dim=0)
+        context_flat = torch.cat(sampled_contexts, dim=0).unsqueeze(1)
         
-        # 5. Single batched diffusion training step
         diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
-        diffusion_loss = diff_result['loss']
         
         return {
-            'loss': diffusion_loss,
-            'diffusion_loss': diffusion_loss,
+            'loss': diff_result['loss'],
+            'diffusion_loss': diff_result['loss'],
             'ring_bond_loss': torch.tensor(0.0, device=device)
         }
     
     @torch.no_grad()
     def sample(
         self,
-        num_samples: int,
-        max_length: int,
-        min_length: Optional[int] = None,
+        num_samples: Optional[int] = None,
+        max_seq_len: Optional[int] = None,
+        min_seq_len: Optional[int] = None,
         device: Optional[torch.device] = None,
-        use_ddim: bool = False,
-        ddim_steps: int = 50,
-        predict_ring_bonds: bool = True,
+        use_ddim: Optional[bool] = None,
+        ddim_steps: Optional[int] = None,
+        predict_ring_bonds: Optional[bool] = None,
+        temperature: float = 1.0,
         verbose: bool = False
     ) -> List[Dict]:
         """
-        Generate peptide sequences autoregressively.
-        
-        Args:
-            num_samples: Number of sequences to generate
-            max_length: Maximum sequence length
-            min_length: Minimum sequence length (for random length)
-            device: Device for generation
-            use_ddim: Use DDIM sampling (faster)
-            ddim_steps: Number of DDIM steps if use_ddim=True
-            predict_ring_bonds: Whether to predict ring bonds
-            verbose: Print progress
-            
-        Returns:
-            List of dictionaries with 'tokens', 'embeddings', 'ring_connections'
+        Batch-parallel autoregressive generation.
+        All samples are generated in parallel at each timestep.
         """
+        gen_cfg = self.config.generation
+        
+        # Use config defaults if not specified
+        num_samples = num_samples if num_samples is not None else gen_cfg.num_samples
+        max_seq_len = max_seq_len if max_seq_len is not None else gen_cfg.max_length
+        min_seq_len = min_seq_len if min_seq_len is not None else gen_cfg.min_length
+        use_ddim = use_ddim if use_ddim is not None else gen_cfg.use_ddim
+        ddim_steps = ddim_steps if ddim_steps is not None else gen_cfg.ddim_steps
+        predict_ring_bonds = predict_ring_bonds if predict_ring_bonds is not None else gen_cfg.predict_ring_bonds
+        
         if device is None:
             device = next(self.parameters()).device
         
         self.eval()
         
-        # Determine target lengths
-        if min_length is not None:
-            lengths = torch.randint(min_length, max_length + 1, (num_samples,))
+        # Determine target lengths for each sample
+        if min_seq_len is not None:
+            lengths = torch.randint(min_seq_len, max_seq_len + 1, (num_samples,), device=device)
         else:
-            lengths = torch.full((num_samples,), max_length)
+            lengths = torch.full((num_samples,), max_seq_len, device=device)
         
+        # Storage: [num_samples, max_seq_len, embedding_dim]
+        all_embeddings = torch.zeros(num_samples, max_seq_len, self.embedding_dim, device=device)
+        all_tokens = torch.full((num_samples, max_seq_len), self.pad_id, dtype=torch.long, device=device)
+        active_mask = torch.ones(num_samples, dtype=torch.bool, device=device)
+        
+        # Generate token by token (parallel across samples)
+        for t in range(max_seq_len):
+            # Check which samples are still active (not yet reached their target length)
+            active_mask = t < lengths
+            num_active = active_mask.sum().item()
+            if num_active == 0:
+                break
+            
+            # Get active indices
+            active_idx = active_mask.nonzero(as_tuple=True)[0]
+            
+            # 1. Get context for active samples
+            if t == 0:
+                history = torch.zeros(num_active, 0, self.embedding_dim, device=device)
+            else:
+                history = all_embeddings[active_idx, :t, :]  # [num_active, t, embedding_dim]
+            
+            context = self.context_encoder.get_context_for_next_token(history)  # [num_active, d_model]
+            context = context.unsqueeze(1)  # [num_active, 1, d_model]
+            
+            # 2. Batch diffusion sampling
+            if use_ddim:
+                embeddings = self.diffusion_engine.sample_ddim(
+                    batch_size=num_active, context=context, device=device,
+                    num_inference_steps=ddim_steps
+                )  # [num_active, 1, embedding_dim]
+            else:
+                embeddings = self.diffusion_engine.sample(
+                    batch_size=num_active, context=context, device=device
+                )  # [num_active, 1, embedding_dim]
+            
+            embeddings = embeddings.squeeze(1)  # [num_active, embedding_dim]
+            
+            # 3. Batch token mapping
+            token_ids = self.token_mapper.batch_map(
+                embeddings, positions=t, seq_lens=lengths[active_idx]
+            )  # [num_active]
+            
+            # Store results
+            all_embeddings[active_idx, t, :] = embeddings
+            all_tokens[active_idx, t] = token_ids
+            
+            if verbose and (t + 1) % 5 == 0:
+                print(f"  Step {t+1}/{max_seq_len}, active samples: {num_active}")
+        
+        # Build results (ring bond prediction simplified for batch mode)
         results = []
-        
-        for sample_idx in range(num_samples):
-            target_length = lengths[sample_idx].item()
-            
-            # Storage for generated sequence
-            generated_embeddings = []
-            generated_tokens = []
-            ring_connections = []
-            
-            if verbose:
-                print(f"Generating sample {sample_idx + 1}/{num_samples}, length={target_length}")
-            
-            for t in range(target_length):
-                # 1. Get context from history
-                if t == 0:
-                    # Empty history
-                    history = torch.zeros(1, 0, self.embedding_dim, device=device)
-                    context = self.context_encoder.get_context_for_next_token(history)
-                else:
-                    # Stack embeddings: each is [embedding_dim], stack to [t, embedding_dim], unsqueeze to [1, t, embedding_dim]
-                    history = torch.stack(generated_embeddings, dim=0).unsqueeze(0)  # [1, t, embedding_dim]
-                    context = self.context_encoder.get_context_for_next_token(history)
-                
-                # Context: [1, d_model] -> [1, 1, d_model]
-                context = context.unsqueeze(1)
-                
-                # 2. Generate token embedding via diffusion
-                if use_ddim:
-                    embedding = self.diffusion_engine.sample_ddim(
-                        batch_size=1,
-                        context=context,
-                        device=device,
-                        num_inference_steps=ddim_steps
-                    )
-                else:
-                    embedding = self.diffusion_engine.sample(
-                        batch_size=1,
-                        context=context,
-                        device=device
-                    )
-                
-                # 3. Map to token
-                token_id = self.token_mapper(
-                    embedding, position=t, seq_len=target_length
-                )
-                
-                generated_embeddings.append(embedding.squeeze(0).squeeze(0))  # Remove batch and seq dims -> [embedding_dim]
-                generated_tokens.append(token_id.item())
-                
-                # 4. Predict ring bonds (if at least 2 tokens generated)
-                if predict_ring_bonds and len(generated_embeddings) >= 2:
-                    # Stack history embeddings (all but current): each is [embedding_dim]
-                    # Stack to [t-1, embedding_dim], unsqueeze to [1, t-1, embedding_dim]
-                    history_stack = torch.stack(generated_embeddings[:-1], dim=0).unsqueeze(0)
-                    history_contexts = self.context_encoder.forward_with_embeddings(history_stack)
-                    
-                    bond = self.ar_ring_predictor.predict_connection(
-                        context.squeeze(1),  # Current context [1, d_model]
-                        history_contexts,     # [1, history_len, d_model]
-                        threshold=0.5
-                    )
-                    
-                    if bond is not None:
-                        bond['res2'] = t + 1  # Current position (1-indexed)
-                        ring_connections.append(bond)
-                
-                if verbose and (t + 1) % 10 == 0:
-                    print(f"  Generated {t + 1}/{target_length} tokens")
-            
-            # Compile result
+        for i in range(num_samples):
+            seq_len = lengths[i].item()
             results.append({
-                'tokens': torch.tensor(generated_tokens, device=device),
-                'embeddings': torch.stack(generated_embeddings, dim=0),
-                'ring_connections': ring_connections,
-                'length': target_length
+                'tokens': all_tokens[i, :seq_len],
+                'embeddings': all_embeddings[i, :seq_len, :],
+                'ring_connections': [],  # TODO: batch ring prediction
+                'length': seq_len
             })
         
         return results
@@ -458,49 +342,32 @@ class AutoregressiveLatentDiffusion(nn.Module):
         tokens: torch.Tensor,
         ring_connections: Optional[List[Dict]] = None
     ) -> str:
-        """
-        Decode token IDs to HELM string.
-        
-        Args:
-            tokens: Token IDs [seq_len]
-            ring_connections: List of ring bond dictionaries
-            
-        Returns:
-            HELM string
-        """
-        # Convert tokens to monomer symbols
+        """Decode token IDs to HELM string."""
         symbols = []
         for token_id in tokens.tolist():
             if token_id == self.pad_id:
                 break
-            symbol = self.idx_to_token.get(token_id, '?')
-            symbols.append(symbol)
+            symbols.append(self.idx_to_token.get(token_id, '?'))
         
         if not symbols:
             return "PEPTIDE1{}$$$$"
         
-        # Build sequence part
         sequence_part = f"PEPTIDE1{{{'.'.join(symbols)}}}"
         
-        # Build connection part
         if ring_connections:
             conn_strings = []
             for conn in ring_connections:
-                res1 = conn['res1']
-                res2 = conn['res2']
+                res1, res2 = conn['res1'], conn['res2']
                 bond_type = conn['bond_type']
                 
-                if bond_type == 'R3R3':
-                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R3-{res2}:R3"
-                elif bond_type == 'R1R2':
-                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R1-{res2}:R2"
-                elif bond_type == 'R1R3':
-                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R1-{res2}:R3"
-                elif bond_type == 'R3R2':
-                    conn_str = f"PEPTIDE1,PEPTIDE1,{res1}:R3-{res2}:R2"
-                else:
-                    continue
-                conn_strings.append(conn_str)
+                bond_map = {
+                    'R3R3': f"{res1}:R3-{res2}:R3",
+                    'R1R2': f"{res1}:R1-{res2}:R2",
+                    'R1R3': f"{res1}:R1-{res2}:R3",
+                    'R3R2': f"{res1}:R3-{res2}:R2"
+                }
+                if bond_type in bond_map:
+                    conn_strings.append(f"PEPTIDE1,PEPTIDE1,{bond_map[bond_type]}")
             
             if conn_strings:
                 return f"{sequence_part}${'|'.join(conn_strings)}$$$"
@@ -513,25 +380,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
         max_length: int,
         **kwargs
     ) -> List[str]:
-        """
-        Convenience method to generate HELM strings directly.
-        
-        Args:
-            num_samples: Number of sequences
-            max_length: Maximum length
-            **kwargs: Additional arguments for sample()
-            
-        Returns:
-            List of HELM strings
-        """
+        """Generate HELM strings directly."""
         results = self.sample(num_samples, max_length, **kwargs)
-        
-        helm_sequences = []
-        for result in results:
-            helm = self.decode_to_helm(
-                result['tokens'],
-                result.get('ring_connections', [])
-            )
-            helm_sequences.append(helm)
-        
-        return helm_sequences
+        return [
+            self.decode_to_helm(r['tokens'], r.get('ring_connections', []))
+            for r in results
+        ]

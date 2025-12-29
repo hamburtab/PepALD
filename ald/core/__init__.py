@@ -10,7 +10,7 @@ from .embeddings import (
     DiffusionTimeEmbedding,
     UniMolEmbeddingLoader,
 )
-from .layers import FeedForward, TransformerEncoderLayer, CausalTransformerLayer
+from .layers import FeedForward, CausalTransformerLayer
 
 __all__ = [
     "MultiHeadAttention",
@@ -20,6 +20,5 @@ __all__ = [
     "DiffusionTimeEmbedding",
     "UniMolEmbeddingLoader",
     "FeedForward",
-    "TransformerEncoderLayer",
     "CausalTransformerLayer",
 ]
