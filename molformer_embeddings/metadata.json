@@ -1,8 +1,0 @@
-{
-  "model_name": "ibm/MoLFormer-XL-both-10pct",
-  "total_monomers": 3104,
-  "processed_date": "2025-11-03T19:53:01.503243",
-  "embedding_dim": 768,
-  "successful_count": 3104,
-  "failed_count": 0
-}
