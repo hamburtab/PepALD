@@ -269,13 +269,12 @@ class AutoregressiveLatentDiffusion(nn.Module):
         device: Optional[torch.device] = None,
         use_ddim: Optional[bool] = None,
         ddim_steps: Optional[int] = None,
+        lambda_gpt: float = 0.8,
         predict_ring_bonds: Optional[bool] = None,
-        temperature: float = 1.0,
         verbose: bool = False
     ) -> List[Dict]:
         """
-        Batch-parallel autoregressive generation.
-        All samples are generated in parallel at each timestep.
+        Batch-parallel generation with optional Hybrid Sampling (Diffusion + GPT).
         """
         gen_cfg = self.config.generation
         
@@ -321,25 +320,48 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 history = all_embeddings[active_idx, :t, :]  # [num_active, t, embedding_dim]
             
             context = self.context_encoder.get_context_for_next_token(history)  # [num_active, d_model]
-            context = context.unsqueeze(1)  # [num_active, 1, d_model]
             
-            # 2. Batch diffusion sampling
+            # 2. Diffusion Generation
+            context_cond = context.unsqueeze(1)  # [num_active, 1, d_model]
             if use_ddim:
                 embeddings = self.diffusion_engine.sample_ddim(
-                    batch_size=num_active, context=context, device=device,
+                    batch_size=num_active, context=context_cond, device=device,
                     num_inference_steps=ddim_steps
-                )  # [num_active, 1, embedding_dim]
+                )
             else:
                 embeddings = self.diffusion_engine.sample(
-                    batch_size=num_active, context=context, device=device
-                )  # [num_active, 1, embedding_dim]
-            
+                    batch_size=num_active, context=context_cond, device=device
+                )
             embeddings = embeddings.squeeze(1)  # [num_active, embedding_dim]
             
-            # 3. Batch token mapping
-            token_ids = self.token_mapper.batch_map(
-                embeddings, positions=t, seq_lens=lengths[active_idx]
-            )  # [num_active]
+            # 3. Joint Decision (Hybrid Sampling)
+            if lambda_gpt > 0.0:
+                # A. Diffusion Distance Score (lower is better)
+                dists = self.token_mapper._compute_distances(embeddings)
+                
+                # B. GPT Probability Score (higher is better -> -log_prob lower is better)
+                gpt_logits = self.lm_head(context)
+                gpt_log_probs = F.log_softmax(gpt_logits, dim=-1)
+                
+                # C. Fused Score: Score = Dist - lambda * LogProb
+                final_scores = dists - lambda_gpt * gpt_log_probs
+                
+                # D. Apply Mask & Select (with chemical constraints)
+                token_ids = torch.zeros(num_active, dtype=torch.long, device=device)
+                for i in range(num_active):
+                    # Get allowed tokens for this specific sample based on position t and its total length
+                    current_seq_len = lengths[active_idx[i]].item()
+                    allowed = self.token_mapper._get_allowed_tokens(t, current_seq_len)
+                    
+                    # Select best token ONLY from allowed list
+                    # final_scores[i, allowed] extracts scores for allowed tokens
+                    best_idx_in_allowed = torch.argmin(final_scores[i, allowed]).item()
+                    token_ids[i] = allowed[best_idx_in_allowed]
+            else:
+                # Pure Diffusion
+                token_ids = self.token_mapper.batch_map(
+                    embeddings, positions=t, seq_lens=lengths[active_idx]
+                )
             
             # Store results
             all_embeddings[active_idx, t, :] = embeddings
@@ -348,14 +370,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
             if verbose and (t + 1) % 5 == 0:
                 print(f"  Step {t+1}/{max_seq_len}, active samples: {num_active}")
         
-        # Build results (ring bond prediction simplified for batch mode)
+        # Build results
         results = []
         for i in range(num_samples):
             seq_len = lengths[i].item()
             results.append({
                 'tokens': all_tokens[i, :seq_len],
                 'embeddings': all_embeddings[i, :seq_len, :],
-                'ring_connections': [],  # TODO: batch ring prediction
                 'length': seq_len
             })
         

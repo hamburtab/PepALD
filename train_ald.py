@@ -212,6 +212,11 @@ class Trainer:
             avg_epoch_loss = epoch_loss / num_batches
             print(f"\n📊 Epoch {epoch+1} completed. Average loss: {avg_epoch_loss:.4f}\n")
             
+            # Save loss to log file
+            log_path = self.checkpoint_dir / "training_log.txt"
+            with open(log_path, "a") as f:
+                f.write(f"Epoch {epoch+1}: Loss={avg_epoch_loss:.6f}, Time={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            
             # Save end-of-epoch checkpoint
             self.save_checkpoint(f"checkpoint_epoch_{epoch + 1}.pt")
         

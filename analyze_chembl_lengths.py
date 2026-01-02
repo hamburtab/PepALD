@@ -13,14 +13,38 @@ def get_monomer_count(helm_string):
 
 def analyze_lengths(file_path):
     lengths = []
+    x_monomer_seq_count = 0
+    cyclic_peptide_count = 0
+
     with open(file_path, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            length = get_monomer_count(line)
-            if length > 0:
-                lengths.append(length)
+            
+            # Check for cyclic peptides (ending with $$$)
+            if line.endswith('$$$') and not line.endswith('$$$$'):
+                cyclic_peptide_count += 1
+            
+            # Parse monomers directly to check content
+            match = re.search(r'PEPTIDE1\{(.*?)\}', line)
+            if match:
+                sequence = match.group(1)
+                monomers = sequence.split('.')
+                length = len(monomers)
+                
+                if length > 0:
+                    lengths.append(length)
+                    
+                    # Check for X-starting monomers (e.g. X, [X...])
+                    has_x = False
+                    for m in monomers:
+                        token = m.strip('[]')
+                        if token.startswith('X'):
+                            has_x = True
+                            break
+                    if has_x:
+                        x_monomer_seq_count += 1
     
     total_sequences = len(lengths)
     length_counts = Counter(lengths)
@@ -43,6 +67,14 @@ def analyze_lengths(file_path):
     print(f"Max length: {max(lengths)}")
     print(f"Average length: {sum(lengths) / total_sequences:.2f}")
     
+    print("-" * 30)
+    print(f"Sequences with 'X' monomers: {x_monomer_seq_count}")
+    print(f"Percentage: {(x_monomer_seq_count / total_sequences * 100):.2f}%")
+    
+    print("-" * 30)
+    print(f"Cyclic Peptides (ending with $$$): {cyclic_peptide_count}")
+    print(f"Percentage: {(cyclic_peptide_count / total_sequences * 100):.2f}%")
+
     # Print top 10 most common lengths
     print("\nTop 10 most common lengths:")
     for length, count in length_counts.most_common(10):
