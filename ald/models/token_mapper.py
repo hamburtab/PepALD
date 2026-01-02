@@ -93,6 +93,7 @@ class TokenMapper(nn.Module):
         elif position == seq_len - 1:
             return self.class3_tokens or list(range(self.vocab_size))
         return self.class2_tokens or list(range(self.vocab_size))
+        # return list(range(self.vocab_size))
     
     def _select_token(self, distances: torch.Tensor, allowed: List[int]) -> int:
         """Select nearest token from allowed tokens."""

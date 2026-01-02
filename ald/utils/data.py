@@ -33,10 +33,16 @@ class HELMDataset(Dataset):
         self.sequences = []
         with open(data_file, 'r') as f:
             for line in f:
-                if line.strip():
-                    self.sequences.append(line.strip())
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # Filter by length
+                parsed = self.topology_analyzer.parse_helm_sequence(line)
+                if len(parsed['monomers']) <= self.max_seq_len:
+                    self.sequences.append(line)
         
-        print(f"[HELMDataset] Loaded {len(self.sequences)} sequences, vocab: {self.vocab_size}")
+        print(f"[HELMDataset] Loaded {len(self.sequences)} sequences (<= {self.max_seq_len}), vocab: {self.vocab_size}")
     
     def __len__(self) -> int:
         return len(self.sequences)
@@ -46,11 +52,12 @@ class HELMDataset(Dataset):
         parsed = self.topology_analyzer.parse_helm_sequence(helm_seq)
         monomers = parsed['monomers']
         
-        # Convert to token IDs and handle length
+        # Convert to token IDs
         token_ids = [self.vocab.get(m, self.pad_id) for m in monomers]
-        actual_len = min(len(token_ids), self.max_seq_len)
-        token_ids = token_ids[:self.max_seq_len]
-        token_ids = token_ids + [self.pad_id] * (self.max_seq_len - len(token_ids))
+        actual_len = len(token_ids)
+        
+        # Pad to max_seq_len
+        token_ids = token_ids + [self.pad_id] * (self.max_seq_len - actual_len)
         
         # Create mask (1 for valid, 0 for padding)
         mask = [1.0] * actual_len + [0.0] * (self.max_seq_len - actual_len)

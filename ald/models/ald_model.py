@@ -4,6 +4,7 @@ Autoregressive Latent Diffusion (ALD) Model for HELM Peptide Generation.
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from typing import Optional, Dict, List
 
 from .context_encoder import CausalContextEncoder
@@ -106,6 +107,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
             num_bond_types=5
         )
         
+        # 5. LM Head for Hybrid Modeling (Next Token Prediction)
+        self.lm_head = nn.Linear(self.d_model, self.vocab_size)
+        
         if verbose:
             self._print_model_info(model_cfg)
     
@@ -118,7 +122,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
         return {
             'loss': torch.tensor(0.0, device=device, requires_grad=True),
             'diffusion_loss': torch.tensor(0.0, device=device),
-            'ring_bond_loss': torch.tensor(0.0, device=device)
+            'ring_bond_loss': torch.tensor(0.0, device=device),
+            'ce_loss': torch.tensor(0.0, device=device)
         }
     
     def _prepare_contexts(
@@ -177,13 +182,20 @@ class AutoregressiveLatentDiffusion(nn.Module):
         diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
         diffusion_loss = diff_result['loss']
         
+        # Auxiliary Next Token Prediction Loss (Hybrid Modeling)
+        token_logits = self.lm_head(contexts_for_pred)  # [Batch, Seq, Vocab]
+        active_logits = token_logits[valid_mask]
+        active_labels = token_ids[valid_mask]
+        ce_loss = F.cross_entropy(active_logits, active_labels)
+        
         # TODO: Add ring bond supervision
         ring_bond_loss = torch.tensor(0.0, device=device)
         
         return {
-            'loss': diffusion_loss + 0.1 * ring_bond_loss,
+            'loss': diffusion_loss + 0.1 * ring_bond_loss + 0.5 * ce_loss,
             'diffusion_loss': diffusion_loss,
-            'ring_bond_loss': ring_bond_loss
+            'ring_bond_loss': ring_bond_loss,
+            'ce_loss': ce_loss
         }
     
     def forward_efficient(
@@ -210,6 +222,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         # Sample random positions
         sampled_targets = []
         sampled_contexts = []
+        sampled_token_ids = []
         
         for b in range(batch_size):
             seq_length = lengths[b].item()
@@ -221,19 +234,30 @@ class AutoregressiveLatentDiffusion(nn.Module):
             
             sampled_targets.append(gt_embeddings[b, positions, :])
             sampled_contexts.append(contexts_for_pred[b, positions, :])
+            sampled_token_ids.append(token_ids[b, positions])
         
         if len(sampled_targets) == 0:
             return self._empty_loss(device)
         
         target_flat = torch.cat(sampled_targets, dim=0)
         context_flat = torch.cat(sampled_contexts, dim=0).unsqueeze(1)
+        token_ids_flat = torch.cat(sampled_token_ids, dim=0)
         
         diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
+        diffusion_loss = diff_result['loss']
+        
+        # Auxiliary Next Token Prediction Loss (Hybrid Modeling)
+        token_logits = self.lm_head(context_flat.squeeze(1))
+        ce_loss = F.cross_entropy(token_logits, token_ids_flat)
+        
+        # TODO: Add ring bond supervision
+        ring_bond_loss = torch.tensor(0.0, device=device)
         
         return {
-            'loss': diff_result['loss'],
-            'diffusion_loss': diff_result['loss'],
-            'ring_bond_loss': torch.tensor(0.0, device=device)
+            'loss': diffusion_loss + 0.1 * ring_bond_loss + 0.5 * ce_loss,
+            'diffusion_loss': diffusion_loss,
+            'ring_bond_loss': ring_bond_loss,
+            'ce_loss': ce_loss
         }
     
     @torch.no_grad()
