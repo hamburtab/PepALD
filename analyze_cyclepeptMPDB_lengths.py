@@ -82,5 +82,5 @@ def analyze_lengths(file_path):
         print(f"Length {length}: {count} ({percentage:.2f}%)")
 
 if __name__ == "__main__":
-    file_path = "./data/helm_sequences_chembl32.txt"
+    file_path = "./data/helm_sequences_cycpeptmpdb.txt"
     analyze_lengths(file_path)
