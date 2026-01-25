@@ -1,9 +1,7 @@
 """
-Chemically Informed Ring Bond Predictor (方案A: 层次化融合)
-
 使用化学知识和多模态信息预测环肽成环位置：
 1. 筛选化学上可配对的单体
-2. 融合全局上下文、化学特征和attention信息
+2. 融合全局上下文、化学特征和attention信息(context_embedding+unimol_embeddings+attention_weights)
 3. 使用门控机制调制化学特征
 """
 
@@ -18,9 +16,6 @@ from pathlib import Path
 
 class ChemicallyInformedRingPredictor(nn.Module):
     """
-    化学知识引导的环肽成环预测器
-    
-    方案A - 层次化融合架构：
     1. 降维投影（512→256）
     2. 化学配对网络（融合两个单体特征）
     3. Attention门控（1→256，调制化学特征）
