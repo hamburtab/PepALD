@@ -208,6 +208,9 @@ class RingBondPredictor(nn.Module):
         return bonds_per_sample if batch_size > 1 else bonds_per_sample[0]
 
 
+"""
+Method 2: Autoregressive Ring Bond Prediction
+"""
 class AutoregressiveRingPredictor(nn.Module):
     """
     Autoregressive ring bond predictor.

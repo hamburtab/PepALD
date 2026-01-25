@@ -129,7 +129,7 @@ mapper = TokenMapper(
 token_id = mapper(embedding, position=t, seq_len=target_length)
 ```
 
-### 4. Ring Bond Predictor (has not been used)
+<!-- ### 4. Ring Bond Predictor (has not been used)
 
 Predicts cyclic connections between residues as tokens are generated:
 
@@ -140,7 +140,7 @@ predictor = AutoregressiveRingPredictor(d_model=512)
 
 # Predict if current token connects to any previous token
 bond = predictor.predict_connection(current_context, history_contexts)
-```
+``` -->
 
 ## Usage
 
