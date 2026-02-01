@@ -234,24 +234,35 @@ class UniMolEmbeddingGenerator:
             atomic_reprs = None
             
             if isinstance(reprs, dict):
+                # Case 1: 返回 dict 格式 {'cls_repr': ..., 'atomic_reprs': ...}
                 if 'cls_repr' in reprs:
                     cls_data = reprs['cls_repr']
                     if isinstance(cls_data, list) and len(cls_data) > 0:
                         cls_repr = np.array(cls_data[0])
-                    elif isinstance(cls_data, np.ndarray):
+                    elif isinstance(cls_data, np.ndarray) and cls_data.size > 0:
                         cls_repr = cls_data[0] if len(cls_data.shape) == 2 else cls_data
                 
                 if 'atomic_reprs' in reprs:
                     atomic_data = reprs['atomic_reprs']
                     if isinstance(atomic_data, list) and len(atomic_data) > 0:
                         atomic_reprs = np.array(atomic_data[0])
-                    elif isinstance(atomic_data, np.ndarray):
+                    elif isinstance(atomic_data, np.ndarray) and atomic_data.size > 0:
                         atomic_reprs = atomic_data[0] if len(atomic_data.shape) == 3 else atomic_data
+                        
+            elif isinstance(reprs, list) and len(reprs) > 0:
+                # Case 2: 返回 list 格式 [array([...], dtype=float32)]
+                # 这种情况下只有分子级别的 embedding，没有原子级别的
+                item = reprs[0]
+                if isinstance(item, np.ndarray) and item.size > 0:
+                    cls_repr = item
+                    atomic_reprs = None  # list 格式没有原子级特征
             
-            # 如果没有 cls_repr，用 atomic_reprs 的均值代替
-            if cls_repr is None and atomic_reprs is not None:
+            # Fallback: 如果没有 cls_repr，用 atomic_reprs 的均值代替
+            if cls_repr is None and atomic_reprs is not None and atomic_reprs.size > 0:
                 cls_repr = np.mean(atomic_reprs, axis=0)
+                logger.debug(f"使用atomic_reprs均值作为cls_repr: {smiles}")
             
+            # 如果都没有，返回 None
             if cls_repr is None:
                 logger.warning(f"无法获取embedding: {smiles}")
                 return None
