@@ -180,18 +180,14 @@ class DiffusionTimeEmbedding(nn.Module):
 
 class UniMolEmbeddingLoader(nn.Module):
     """
-    Loader and wrapper for pre-trained Uni-Mol monomer embeddings.
+    Loader for pre-trained Uni-Mol monomer embeddings with R-group fusion.
     
-    Loads pre-computed Uni-Mol embeddings for HELM monomers and provides
-    an interface compatible with standard PyTorch embedding layers.
-    
-    The embedding indices align with the vocabulary:
-        - Index 0 to num_monomers-1: Monomer embeddings
-        - Index num_monomers: <PAD> token (zero vector)
+    Loads (N, 4, 512) embeddings: [CLS, R1, R2, R3] and fuses them via MLP.
+    Final output = CLS + MLP(concat[R1, R2, R3])
     
     Args:
-        embeddings_dir: Directory containing embeddings_matrix.npy and metadata.json
-        freeze_embeddings: Whether to freeze the embeddings (not update during training)
+        embeddings_dir: Directory containing full_embeddings.npy and metadata.json
+        freeze_embeddings: Whether to freeze the base embeddings
     """
     
     def __init__(
@@ -205,76 +201,95 @@ class UniMolEmbeddingLoader(nn.Module):
         self.freeze_embeddings = freeze_embeddings
         
         self._load_embeddings()
+        self._build_fusion_mlp()
         
     def _load_embeddings(self) -> None:
-        """Load pre-trained embedding matrix and metadata."""
-        # Load metadata
+        """Load pre-trained embedding matrix [N, 4, 512]."""
         metadata_path = self.embeddings_dir / "metadata.json"
         with open(metadata_path, 'r') as f:
             self.metadata = json.load(f)
         
-        # Load embeddings matrix
-        embeddings_path = self.embeddings_dir / "embeddings_matrix.npy"
-        embeddings_matrix = np.load(embeddings_path, allow_pickle=True)
+        # 优先加载 full_embeddings.npy，回退到 embeddings_matrix.npy
+        full_path = self.embeddings_dir / "full_embeddings.npy"
+        legacy_path = self.embeddings_dir / "embeddings_matrix.npy"
+        
+        if full_path.exists():
+            embeddings_matrix = np.load(full_path)  # (N, 4, 512)
+            self.use_fusion = True
+        else:
+            embeddings_matrix = np.load(legacy_path)  # (N, 512)
+            self.use_fusion = False
         
         self.num_monomers = embeddings_matrix.shape[0]
-        self.embedding_dim = embeddings_matrix.shape[1]
+        self.embedding_dim = embeddings_matrix.shape[-1]  # 最后一维是 512
         
-        # Convert to PyTorch tensor
-        embeddings_tensor = torch.from_numpy(embeddings_matrix).float()
+        # 添加 PAD token (全零)
+        if self.use_fusion:
+            pad_embedding = np.zeros((1, 4, self.embedding_dim))
+            embeddings_matrix = np.concatenate([embeddings_matrix, pad_embedding], axis=0)
+        else:
+            pad_embedding = np.zeros((1, self.embedding_dim))
+            embeddings_matrix = np.concatenate([embeddings_matrix, pad_embedding], axis=0)
         
-        # Add PAD token embedding (zero vector)
-        pad_embedding = torch.zeros(1, self.embedding_dim)
-        full_embeddings = torch.cat([embeddings_tensor, pad_embedding], dim=0)
-        
-        # Create embedding layer
-        self.embeddings = nn.Embedding.from_pretrained(
-            full_embeddings,
-            freeze=self.freeze_embeddings,
-            padding_idx=self.num_monomers  # PAD index
-        )
+        # 注册为 buffer（不参与梯度，但会保存到 checkpoint）
+        self.register_buffer('embeddings', torch.from_numpy(embeddings_matrix).float())
         
         self.vocab_size = self.num_monomers + 1
         self.pad_idx = self.num_monomers
         
         print(f"[UniMolEmbeddingLoader] Loaded embeddings:")
-        print(f"  - Embedding dim: {self.embedding_dim}")
-        print(f"  - Num monomers: {self.num_monomers}")
+        print(f"  - Shape: {self.embeddings.shape}")
+        print(f"  - Fusion mode: {self.use_fusion}")
         print(f"  - Vocab size: {self.vocab_size} (including <PAD>)")
-        print(f"  - Frozen: {self.freeze_embeddings}")
+        
+    def _build_fusion_mlp(self) -> None:
+        """Build MLP for fusing R1, R2, R3 features."""
+        if self.use_fusion:
+            # MLP: concat(R1, R2, R3) -> embedding_dim
+            self.r_group_mlp = nn.Sequential(
+                nn.Linear(self.embedding_dim * 3, self.embedding_dim),
+                nn.GELU(),
+                nn.Linear(self.embedding_dim, self.embedding_dim),
+            )
+        else:
+            self.r_group_mlp = None
         
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         """
-        Get embeddings for input token IDs.
+        Get fused embeddings for input token IDs.
         
         Args:
-            input_ids: Token indices [batch_size, seq_len] or [batch_size]
+            input_ids: [batch_size, seq_len] or [batch_size]
             
         Returns:
-            Embeddings [batch_size, seq_len, embedding_dim] or [batch_size, embedding_dim]
+            Fused embeddings with same shape + embedding_dim
         """
-        return self.embeddings(input_ids)
+        # 查表获取 embedding
+        raw_emb = self.embeddings[input_ids]  # (..., 4, 512) or (..., 512)
+        
+        if not self.use_fusion:
+            return raw_emb
+        
+        # 分离 CLS 和 R 基团
+        cls_vec = raw_emb[..., 0, :]   # (..., 512)
+        r1_vec = raw_emb[..., 1, :]
+        r2_vec = raw_emb[..., 2, :]
+        r3_vec = raw_emb[..., 3, :]
+        
+        # 融合: CLS + MLP(concat[R1, R2, R3])
+        r_concat = torch.cat([r1_vec, r2_vec, r3_vec], dim=-1)  # (..., 1536)
+        r_features = self.r_group_mlp(r_concat)                  # (..., 512)
+        
+        return cls_vec + r_features
     
     def get_all_embeddings(self) -> torch.Tensor:
-        """
-        Get the full embedding matrix (excluding PAD).
-        
-        Returns:
-            Embedding matrix [num_monomers, embedding_dim]
-        """
-        return self.embeddings.weight[:self.num_monomers]
+        """Get fused embedding matrix (excluding PAD)."""
+        all_ids = torch.arange(self.num_monomers, device=self.embeddings.device)
+        return self.forward(all_ids)
     
     def get_embedding_for_token(self, token_id: int) -> torch.Tensor:
-        """
-        Get embedding for a single token.
-        
-        Args:
-            token_id: Token index
-            
-        Returns:
-            Embedding vector [embedding_dim]
-        """
-        return self.embeddings.weight[token_id]
+        """Get fused embedding for a single token."""
+        return self.forward(torch.tensor([token_id], device=self.embeddings.device)).squeeze(0)
 
 
 class StartTokenEmbedding(nn.Module):

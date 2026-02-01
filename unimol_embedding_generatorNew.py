@@ -213,8 +213,20 @@ class UniMolEmbeddingGenerator:
             logger.error(f"模型加载失败: {e}")
             raise
     
-    def generate_embedding(self, smiles: str) -> Optional[np.ndarray]:
-        """为单个SMILES生成embedding"""
+    def generate_embedding(self, smiles: str) -> Optional[Dict]:
+        """
+        为单个SMILES生成embedding，返回CLS向量和原子级特征
+        
+        Args:
+            smiles: 有效的SMILES字符串
+            
+        Returns:
+            dict: {
+                'cls_repr': np.ndarray (hidden_dim,),
+                'atomic_reprs': np.ndarray (N_atoms, hidden_dim)
+            }
+            或 None（如果失败）
+        """
         if self.model is None:
             raise ValueError("模型未加载，请先调用load_model()")
         
@@ -223,48 +235,40 @@ class UniMolEmbeddingGenerator:
             return None
         
         try:
-            # Uni-Mol接受SMILES列表作为输入
             reprs = self.model.get_repr([smiles])
             
-            embedding = None
+            cls_repr = None
+            atomic_reprs = None
             
-            # Case 1: reprs is a dictionary (e.g. {'cls_repr': ..., 'atomic_reprs': ...})
             if isinstance(reprs, dict):
+                # 提取 CLS 向量
                 if 'cls_repr' in reprs:
-                    cls_repr = reprs['cls_repr']
-                    if isinstance(cls_repr, list) and len(cls_repr) > 0:
-                        embedding = cls_repr[0]
-                    elif isinstance(cls_repr, np.ndarray):
-                        if len(cls_repr.shape) == 2:
-                            embedding = cls_repr[0]
-                        else:
-                            embedding = cls_repr
-                elif 'atomic_reprs' in reprs:
-                    atomic_reprs = reprs['atomic_reprs']
-                    if isinstance(atomic_reprs, list) and len(atomic_reprs) > 0:
-                        embedding = np.mean(atomic_reprs[0], axis=0)
-                    elif isinstance(atomic_reprs, np.ndarray):
-                        embedding = np.mean(atomic_reprs, axis=0)
-
-            # Case 2: reprs is a list (batch output)
-            elif isinstance(reprs, list):
-                if len(reprs) > 0:
-                    item = reprs[0]
-                    # Subcase 2a: List of numpy arrays (embeddings directly)
-                    if isinstance(item, np.ndarray):
-                        embedding = item
-                    # Subcase 2b: List of dictionaries
-                    elif isinstance(item, dict):
-                        if 'cls_repr' in item:
-                            embedding = item['cls_repr']
-                        elif 'atomic_reprs' in item:
-                            embedding = np.mean(item['atomic_reprs'], axis=0)
+                    cls_data = reprs['cls_repr']
+                    if isinstance(cls_data, list) and len(cls_data) > 0:
+                        cls_repr = np.array(cls_data[0])
+                    elif isinstance(cls_data, np.ndarray):
+                        cls_repr = cls_data[0] if len(cls_data.shape) == 2 else cls_data
+                
+                # 提取原子级特征
+                if 'atomic_reprs' in reprs:
+                    atomic_data = reprs['atomic_reprs']
+                    if isinstance(atomic_data, list) and len(atomic_data) > 0:
+                        atomic_reprs = np.array(atomic_data[0])
+                    elif isinstance(atomic_data, np.ndarray):
+                        atomic_reprs = atomic_data[0] if len(atomic_data.shape) == 3 else atomic_data
             
-            if embedding is None:
+            # 如果没有 cls_repr，用 atomic_reprs 的均值代替
+            if cls_repr is None and atomic_reprs is not None:
+                cls_repr = np.mean(atomic_reprs, axis=0)
+            
+            if cls_repr is None:
                 logger.warning(f"无法获取embedding: {smiles}")
                 return None
             
-            return embedding
+            return {
+                'cls_repr': cls_repr,
+                'atomic_reprs': atomic_reprs
+            }
             
         except Exception as e:
             logger.error(f"生成embedding失败 for SMILES '{smiles}': {e}")
@@ -283,7 +287,8 @@ class UniMolEmbeddingGenerator:
             'symbols': [],
             'smiles': [],
             'cxsmiles': [],
-            'embeddings': [],
+            'embeddings': [],           # CLS embeddings (N, 512)
+            'full_embeddings': [],      # [CLS, R1, R2, R3] embeddings (N, 4, 512)
             'monomer_types': [],
             'r1_site_idx': [],
             'r2_site_idx': [],
@@ -307,34 +312,56 @@ class UniMolEmbeddingGenerator:
             cxsmiles = row['CXSMILES']
             monomer_type = row.get('Monomer_Type', '')
             
-            # 提取SMILES
+            # 提取SMILES和R基团位置信息
             smiles, r1_site_idx, r2_site_idx, r3_site_idx = self.smiles_processor.extract_r_group_info(cxsmiles)
             
-            # 生成embedding
-            embedding = self.generate_embedding(smiles)
+            # 生成embedding（包含原子级特征）
+            emb_result = self.generate_embedding(smiles)
             
-            # 使用isinstance检查，避免numpy array的布尔值歧义
-            if isinstance(embedding, np.ndarray) and embedding.size > 0:
+            if emb_result is not None:
+                cls_repr = emb_result['cls_repr']
+                atomic_reprs = emb_result['atomic_reprs']
+                hidden_dim = len(cls_repr)
+                
+                # 提取 R1, R2, R3 原子的特征向量，不存在则填零
+                r1_vec = np.zeros(hidden_dim)
+                r2_vec = np.zeros(hidden_dim)
+                r3_vec = np.zeros(hidden_dim)
+                
+                if atomic_reprs is not None:
+                    n_atoms = atomic_reprs.shape[0]
+                    if r1_site_idx is not None and r1_site_idx < n_atoms:
+                        r1_vec = atomic_reprs[r1_site_idx]
+                    if r2_site_idx is not None and r2_site_idx < n_atoms:
+                        r2_vec = atomic_reprs[r2_site_idx]
+                    if r3_site_idx is not None and r3_site_idx < n_atoms:
+                        r3_vec = atomic_reprs[r3_site_idx]
+                
+                # 组装 full_embedding: [CLS, R1, R2, R3] -> (4, hidden_dim)
+                full_emb = np.stack([cls_repr, r1_vec, r2_vec, r3_vec], axis=0)
+                
                 results['symbols'].append(symbol)
                 results['smiles'].append(smiles)
                 results['cxsmiles'].append(cxsmiles)
-                results['embeddings'].append(embedding)
+                results['embeddings'].append(cls_repr)      # 保持向后兼容
+                results['full_embeddings'].append(full_emb)  # 新格式
                 results['monomer_types'].append(monomer_type)
-                ### 关键改动
                 results['r1_site_idx'].append(r1_site_idx)
                 results['r2_site_idx'].append(r2_site_idx)
                 results['r3_site_idx'].append(r3_site_idx)
                 
                 # 记录embedding维度
                 if results['metadata']['embedding_dim'] is None:
-                    results['metadata']['embedding_dim'] = len(embedding)
+                    results['metadata']['embedding_dim'] = hidden_dim
             else:
                 results['failed_indices'].append(idx)
                 logger.warning(f"处理失败: {symbol} - {cxsmiles}")
         
         # 转换为numpy数组
         if results['embeddings']:
-            results['embeddings'] = np.array(results['embeddings'])
+            results['embeddings'] = np.array(results['embeddings'])      # (N, 512)
+        if results['full_embeddings']:
+            results['full_embeddings'] = np.array(results['full_embeddings'])  # (N, 4, 512)
         
         # 更新统计信息
         results['metadata']['successful_count'] = len(results['symbols'])
@@ -357,10 +384,17 @@ class UniMolEmbeddingGenerator:
         
         # 保存embedding矩阵为numpy格式
         npy_path = None
+        full_npy_path = None
         if len(results['embeddings']) > 0:
+            # 保存 CLS embedding (向后兼容)
             npy_path = os.path.join(output_dir, 'embeddings_matrix.npy')
             np.save(npy_path, results['embeddings'])
-            logger.info(f"Embedding矩阵已保存到: {npy_path}")
+            logger.info(f"CLS Embedding矩阵已保存到: {npy_path}")
+            
+            # 保存完整的 [CLS, R1, R2, R3] embedding
+            full_npy_path = os.path.join(output_dir, 'full_embeddings.npy')
+            np.save(full_npy_path, results['full_embeddings'])
+            logger.info(f"Full Embedding矩阵 (N, 4, {results['metadata']['embedding_dim']}) 已保存到: {full_npy_path}")
         
         # 保存映射信息为CSV
         mapping_df = pd.DataFrame({
@@ -385,6 +419,7 @@ class UniMolEmbeddingGenerator:
         return {
             'pickle_path': pickle_path,
             'numpy_path': npy_path,
+            'full_numpy_path': full_npy_path,
             'csv_path': csv_path,
             'metadata_path': metadata_path
         }
