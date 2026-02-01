@@ -185,24 +185,25 @@ class UniMolEmbeddingLoader(nn.Module):
     Loads pre-computed Uni-Mol embeddings for HELM monomers and provides
     an interface compatible with standard PyTorch embedding layers.
     
-    The embedding indices align with the vocabulary:
-        - Index 0 to num_monomers-1: Monomer embeddings
-        - Index num_monomers: <PAD> token (zero vector)
+    Fusion formula: CLS + r_weight * (R1 + R2 + R3)
     
     Args:
-        embeddings_dir: Directory containing embeddings_matrix.npy and metadata.json
+        embeddings_dir: Directory containing full_embeddings.npy and metadata.json
         freeze_embeddings: Whether to freeze the embeddings (not update during training)
+        r_weight: Weight for R-group embeddings (default 0.3, adjust as needed)
     """
     
     def __init__(
         self,
         embeddings_dir: str = "./unimol_embeddings",
-        freeze_embeddings: bool = True
+        freeze_embeddings: bool = True,
+        r_weight: float = 0.3  # 可调整的权重
     ):
         super().__init__()
         
         self.embeddings_dir = Path(embeddings_dir)
         self.freeze_embeddings = freeze_embeddings
+        self.r_weight = r_weight
         
         self._load_embeddings()
         
@@ -213,26 +214,22 @@ class UniMolEmbeddingLoader(nn.Module):
         with open(metadata_path, 'r') as f:
             self.metadata = json.load(f)
         
-        # Load embeddings matrix
-        embeddings_path = self.embeddings_dir / "embeddings_matrix.npy"
-        embeddings_matrix = np.load(embeddings_path, allow_pickle=True)
+        # Load full_embeddings: (N, 4, 512) = [CLS, R1, R2, R3]
+        embeddings_path = self.embeddings_dir / "full_embeddings.npy"
+        embeddings_matrix = np.load(embeddings_path, allow_pickle=True)  # (N, 4, 512)
         
         self.num_monomers = embeddings_matrix.shape[0]
-        self.embedding_dim = embeddings_matrix.shape[1]
+        self.embedding_dim = embeddings_matrix.shape[2]  # 512
         
         # Convert to PyTorch tensor
-        embeddings_tensor = torch.from_numpy(embeddings_matrix).float()
+        embeddings_tensor = torch.from_numpy(embeddings_matrix).float()  # (N, 4, 512)
         
         # Add PAD token embedding (zero vector)
-        pad_embedding = torch.zeros(1, self.embedding_dim)
-        full_embeddings = torch.cat([embeddings_tensor, pad_embedding], dim=0)
+        pad_embedding = torch.zeros(1, 4, self.embedding_dim)  # (1, 4, 512)
+        full_embeddings = torch.cat([embeddings_tensor, pad_embedding], dim=0)  # (N+1, 4, 512)
         
-        # Create embedding layer
-        self.embeddings = nn.Embedding.from_pretrained(
-            full_embeddings,
-            freeze=self.freeze_embeddings,
-            padding_idx=self.num_monomers  # PAD index
-        )
+        # Register as buffer (not nn.Embedding since shape is 3D)
+        self.register_buffer('_embeddings', full_embeddings)
         
         self.vocab_size = self.num_monomers + 1
         self.pad_idx = self.num_monomers
@@ -242,6 +239,13 @@ class UniMolEmbeddingLoader(nn.Module):
         print(f"  - Num monomers: {self.num_monomers}")
         print(f"  - Vocab size: {self.vocab_size} (including <PAD>)")
         print(f"  - Frozen: {self.freeze_embeddings}")
+        print(f"  - Fusion: CLS + {self.r_weight} * (R1 + R2 + R3)")
+    
+    def _fuse(self, full: torch.Tensor) -> torch.Tensor:
+        """加权融合: CLS + r_weight * (R1 + R2 + R3)"""
+        cls_vec = full[..., 0, :]   # CLS
+        r_sum = full[..., 1:, :].sum(dim=-2)  # R1 + R2 + R3
+        return cls_vec + self.r_weight * r_sum
         
     def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
         """
@@ -253,20 +257,21 @@ class UniMolEmbeddingLoader(nn.Module):
         Returns:
             Embeddings [batch_size, seq_len, embedding_dim] or [batch_size, embedding_dim]
         """
-        return self.embeddings(input_ids)
+        full = self._embeddings[input_ids]  # (B, L, 4, 512) or (B, 4, 512)
+        return self._fuse(full)
     
     def get_all_embeddings(self) -> torch.Tensor:
         """
-        Get the full embedding matrix (excluding PAD).
+        Get the full embedding matrix (excluding PAD), fused.
         
         Returns:
             Embedding matrix [num_monomers, embedding_dim]
         """
-        return self.embeddings.weight[:self.num_monomers]
+        return self._fuse(self._embeddings[:self.num_monomers])
     
     def get_embedding_for_token(self, token_id: int) -> torch.Tensor:
         """
-        Get embedding for a single token.
+        Get embedding for a single token, fused.
         
         Args:
             token_id: Token index
@@ -274,7 +279,7 @@ class UniMolEmbeddingLoader(nn.Module):
         Returns:
             Embedding vector [embedding_dim]
         """
-        return self.embeddings.weight[token_id]
+        return self._fuse(self._embeddings[token_id])
 
 
 class StartTokenEmbedding(nn.Module):
