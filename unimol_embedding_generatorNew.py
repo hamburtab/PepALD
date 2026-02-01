@@ -271,44 +271,6 @@ class UniMolEmbeddingGenerator:
             traceback.print_exc()
             return None
     
-    def generate_embeddings_batch(self, smiles_list: List[str]) -> Dict[str, np.ndarray]:
-        """批量生成embeddings（更高效）"""
-        if self.model is None:
-            raise ValueError("模型未加载，请先调用load_model()")
-        
-        # 过滤无效的SMILES
-        valid_indices = []
-        valid_smiles = []
-        for i, smi in enumerate(smiles_list):
-            if smi and self.smiles_processor.validate_smiles(smi):
-                valid_indices.append(i)
-                valid_smiles.append(smi)
-        
-        if not valid_smiles:
-            return {'embeddings': None, 'valid_indices': []}
-        
-        try:
-            # 批量处理
-            reprs = self.model.get_repr(valid_smiles)
-            
-            if 'cls_repr' in reprs:
-                embeddings = reprs['cls_repr']  # (n_samples, hidden_dim)
-            else:
-                # 使用atomic_reprs的均值
-                embeddings = []
-                for atomic_repr in reprs['atomic_reprs']:
-                    embeddings.append(np.mean(atomic_repr, axis=0))
-                embeddings = np.array(embeddings)
-            
-            return {
-                'embeddings': embeddings,
-                'valid_indices': valid_indices
-            }
-            
-        except Exception as e:
-            logger.error(f"批量生成embedding失败: {e}")
-            return {'embeddings': None, 'valid_indices': []}
-    
     def process_monomer_library(self, csv_path: str, batch_size: int = 32) -> Dict:
         """处理整个单体库文件"""
         logger.info(f"开始处理单体库文件: {csv_path}")
