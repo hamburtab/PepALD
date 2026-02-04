@@ -39,6 +39,11 @@ class ALDModelConfig:
     variance_schedule: Literal['linear', 'cosine'] = 'cosine'
     beta_start: float = 1e-4
     beta_end: float = 0.02
+    
+    # Ring predictor configuration
+    r_group_dim: int = 512  # R-group embedding dimension
+    ring_hidden_dim: int = 256  # Hidden dimension for ring predictor
+    num_ring_types: int = 4  # Number of ring bond types (R3R3, R1R2, R1R3, R3R2)
 
 
 @dataclass
@@ -78,6 +83,20 @@ class ALDTrainingConfig:
     
     # Data loading
     num_workers: int = 4
+    
+    # Fine-tuning configuration
+    finetune_mode: bool = False
+    pretrained_checkpoint: Optional[str] = None
+    cyclic_only: bool = False
+    
+    # Fine-tuning phases (loss weights)
+    ring_loss_weight: float = 0.5
+    ce_loss_weight: float = 0.5
+    
+    # Layer freezing for fine-tuning
+    freeze_embedding: bool = False
+    freeze_context_encoder: bool = False
+    freeze_diffusion: bool = False
 
 
 @dataclass
@@ -99,6 +118,7 @@ class ALDGenerationConfig:
     # Ring bond prediction
     predict_ring_bonds: bool = True
     ring_bond_threshold: float = 0.5
+    ring_top_k: int = 1  # Number of top candidates to consider for ring prediction
     
     # Token mapping
     use_embedding_norm: bool = True  # Use cosine distance

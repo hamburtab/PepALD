@@ -247,18 +247,47 @@ class UniMolEmbeddingLoader(nn.Module):
         r_sum = full[..., 1:, :].sum(dim=-2)  # R1 + R2 + R3
         return cls_vec + self.r_weight * r_sum
         
-    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, 
+        input_ids: torch.Tensor, 
+        return_r_groups: bool = False
+    ) -> torch.Tensor:
         """
         Get embeddings for input token IDs.
         
         Args:
             input_ids: Token indices [batch_size, seq_len] or [batch_size]
+            return_r_groups: If True, also return R1/R2/R3 embeddings separately
             
         Returns:
-            Embeddings [batch_size, seq_len, embedding_dim] or [batch_size, embedding_dim]
+            If return_r_groups=False:
+                Embeddings [batch_size, seq_len, embedding_dim]
+            If return_r_groups=True:
+                Tuple of:
+                    - cls_emb: [batch_size, seq_len, embedding_dim] (fused embedding)
+                    - r_emb: [batch_size, seq_len, 3, embedding_dim] (R1, R2, R3)
         """
         full = self._embeddings[input_ids]  # (B, L, 4, 512) or (B, 4, 512)
-        return self._fuse(full)
+        cls_emb = self._fuse(full)
+        
+        if return_r_groups:
+            r_emb = full[..., 1:, :]  # (B, L, 3, 512) or (B, 3, 512)
+            return cls_emb, r_emb
+        
+        return cls_emb
+    
+    def get_r_embeddings(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """
+        Get only R1/R2/R3 embeddings for ring bond prediction.
+        
+        Args:
+            input_ids: Token indices [batch_size, seq_len]
+            
+        Returns:
+            R-group embeddings [batch_size, seq_len, 3, embedding_dim]
+        """
+        full = self._embeddings[input_ids]  # (B, L, 4, 512)
+        return full[..., 1:, :]  # (B, L, 3, 512)
     
     def get_all_embeddings(self) -> torch.Tensor:
         """

@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 class HELMTopologyAnalyzer:
     """Analyzes HELM sequence topology and structure."""
     
-    BOND_TYPES = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
+    BOND_TYPES = ['R3R3', 'R1R2', 'R1R3', 'R3R2']  # 4 classes, 0-indexed
     
     def parse_helm_sequence(self, helm_sequence: str) -> Dict:
         """Parse HELM sequence and extract structural information."""
@@ -112,3 +112,46 @@ class HELMTopologyAnalyzer:
         bond_array = [bond_matrix[i][j] for i in range(n) for j in range(i + 1, n)]
         
         return {'sequence_length': n, 'bond_array': bond_array, 'num_pairs': len(bond_array)}
+    
+    def extract_ring_bonds_for_ar(self, helm_sequence: str) -> List[Dict]:
+        """
+        Extract ring bonds in format suitable for autoregressive training.
+        
+        Returns:
+            List of bond dicts: [{'i': int, 'j': int, 'type': int}, ...]
+            where i < j, type is 0-3 (R3R3=0, R1R2=1, R1R3=2, R3R2=3)
+            Positions are 0-indexed.
+        """
+        parsed = self.parse_helm_sequence(helm_sequence)
+        connections = parsed['connections']
+        
+        if not connections:
+            return []
+        
+        bonds = []
+        for conn in connections:
+            pos1, pos2 = conn['pos1'] - 1, conn['pos2'] - 1  # Convert to 0-indexed
+            r1, r2 = conn['r1'], conn['r2']
+            
+            # Ensure i < j
+            if pos1 > pos2:
+                pos1, pos2 = pos2, pos1
+                r1, r2 = r2, r1
+            
+            # Determine bond type
+            r_link = f"R{r1}R{r2}"
+            if r_link in self.BOND_TYPES:
+                bond_type = self.BOND_TYPES.index(r_link)
+                bonds.append({
+                    'i': pos1,
+                    'j': pos2,
+                    'type': bond_type
+                })
+        
+        return bonds
+    
+    def get_bond_type_string(self, bond_type_idx: int) -> str:
+        """Convert bond type index (0-3) to string."""
+        if 0 <= bond_type_idx < len(self.BOND_TYPES):
+            return self.BOND_TYPES[bond_type_idx]
+        return 'unknown'

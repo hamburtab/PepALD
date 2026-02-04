@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import json
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from .topology import HELMTopologyAnalyzer
 
@@ -17,10 +17,12 @@ class HELMDataset(Dataset):
         data_file: str,
         vocab_file: str = "./data/helm_vocab.json",
         max_seq_len: int = 45,
-        include_ring_bonds: bool = True
+        include_ring_bonds: bool = True,
+        cyclic_only: bool = False
     ):
         self.max_seq_len = max_seq_len
         self.include_ring_bonds = include_ring_bonds
+        self.cyclic_only = cyclic_only
         
         with open(vocab_file, 'r') as f:
             self.vocab = json.load(f)
@@ -40,9 +42,15 @@ class HELMDataset(Dataset):
                 # Filter by length
                 parsed = self.topology_analyzer.parse_helm_sequence(line)
                 if len(parsed['monomers']) <= self.max_seq_len:
-                    self.sequences.append(line)
+                    # Filter for cyclic only if requested
+                    if self.cyclic_only:
+                        if parsed['peptide_type'] in ['cyclic', 'q_type']:
+                            self.sequences.append(line)
+                    else:
+                        self.sequences.append(line)
         
-        print(f"[HELMDataset] Loaded {len(self.sequences)} sequences (<= {self.max_seq_len}), vocab: {self.vocab_size}")
+        cyclic_str = " (cyclic only)" if self.cyclic_only else ""
+        print(f"[HELMDataset] Loaded {len(self.sequences)} sequences (<= {self.max_seq_len}){cyclic_str}, vocab: {self.vocab_size}")
     
     def __len__(self) -> int:
         return len(self.sequences)
@@ -71,6 +79,7 @@ class HELMDataset(Dataset):
         }
         
         if self.include_ring_bonds:
+            # Legacy format (flattened upper triangular)
             ring_info = self.topology_analyzer.extract_ring_info(helm_seq)
             if ring_info is not None:
                 result['ring_bond_array'] = torch.tensor(ring_info['bond_array'], dtype=torch.long)
@@ -78,6 +87,10 @@ class HELMDataset(Dataset):
             else:
                 result['ring_bond_array'] = torch.tensor([], dtype=torch.long)
                 result['has_ring_bonds'] = False
+            
+            # New format for autoregressive training
+            # ring_bonds: [{'i': int, 'j': int, 'type': int}, ...]
+            result['ring_bonds'] = self.topology_analyzer.extract_ring_bonds_for_ar(helm_seq)
         
         return result
 
@@ -101,7 +114,29 @@ class HELMCollator:
             result['has_ring_bonds'] = torch.tensor([s.get('has_ring_bonds', False) for s in batch])
             result['ring_bond_arrays'] = [s.get('ring_bond_array', torch.tensor([])) for s in batch]
         
+        if 'ring_bonds' in batch[0]:
+            # List of lists: [[{'i':..., 'j':..., 'type':...}, ...], ...]
+            result['ring_bonds'] = [s.get('ring_bonds', []) for s in batch]
+        
         return result
+
+
+class CyclicHELMDataset(HELMDataset):
+    """Dataset that only loads cyclic peptides for fine-tuning."""
+    
+    def __init__(
+        self,
+        data_file: str,
+        vocab_file: str = "./data/helm_vocab.json",
+        max_seq_len: int = 45
+    ):
+        super().__init__(
+            data_file=data_file,
+            vocab_file=vocab_file,
+            max_seq_len=max_seq_len,
+            include_ring_bonds=True,
+            cyclic_only=True
+        )
 
 
 def create_dataloader(
@@ -110,10 +145,15 @@ def create_dataloader(
     batch_size: int = 32,
     max_seq_len: int = 45,
     shuffle: bool = True,
-    num_workers: int = 4
+    num_workers: int = 4,
+    cyclic_only: bool = False
 ) -> DataLoader:
     """Create a DataLoader for HELM data."""
-    dataset = HELMDataset(data_file, vocab_file, max_seq_len)
+    dataset = HELMDataset(
+        data_file, vocab_file, max_seq_len,
+        include_ring_bonds=True,
+        cyclic_only=cyclic_only
+    )
     return DataLoader(
         dataset,
         batch_size=batch_size,

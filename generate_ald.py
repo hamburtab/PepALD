@@ -1,17 +1,23 @@
 """
 Generation script for Autoregressive Latent Diffusion (ALD) model.
 
-All parameters are loaded from configs/default.json.
-Modify that file to change generation settings.
-
 Usage:
+    # 生成线性肽（预训练模型）
     python generate_ald.py
+    python generate_ald.py --mode linear
+    
+    # 生成环肽（微调模型）
+    python generate_ald.py --mode cyclic
+    
+    # 自定义配置
+    python generate_ald.py --config configs/finetune.json
 """
 
 import os
 import sys
 import json
 import time
+import argparse
 from pathlib import Path
 
 import torch
@@ -25,10 +31,32 @@ from ald import AutoregressiveLatentDiffusion
 from ald.config import ALDConfig
 
 # ============================================================
-# Configuration File Path (the ONLY place to modify settings)
+# 默认配置路径
 # ============================================================
-CONFIG_FILE = PROJECT_ROOT / "configs" / "default.json"
+DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "default.json"
+CYCLIC_CONFIG = PROJECT_ROOT / "configs" / "finetune.json"
 # ============================================================
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Generate peptides with ALD model")
+    parser.add_argument(
+        "--mode", type=str, choices=["linear", "cyclic"], default="linear",
+        help="Generation mode: 'linear' (pretrained) or 'cyclic' (finetuned)"
+    )
+    parser.add_argument(
+        "--config", type=str, default=None,
+        help="Path to config file (overrides --mode)"
+    )
+    parser.add_argument(
+        "--num_samples", type=int, default=None,
+        help="Number of samples to generate"
+    )
+    parser.add_argument(
+        "--output", type=str, default=None,
+        help="Output file path"
+    )
+    return parser.parse_args()
 
 
 def load_model(config: ALDConfig, device: torch.device):
@@ -161,8 +189,8 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
             tokens = sample
             ring_connections = []
         
-        # Decode to HELM
-        helm_seq = decode_sequence(tokens, vocab, idx_to_token)
+        # Decode to HELM (use model's method to include ring bonds)
+        helm_seq = model.decode_to_helm(tokens, ring_connections)
         helm_sequences.append(helm_seq)
         
         # Statistics
@@ -210,16 +238,38 @@ def save_samples(helm_sequences: list, output_file: str):
 
 def main():
     """Main function."""
+    args = parse_args()
     
-    # Load config from file
-    print(f" Loading config from: {CONFIG_FILE}")
-    if not CONFIG_FILE.exists():
-        print(f" Config file not found: {CONFIG_FILE}")
-        print("   Please create it or copy from configs/default.json")
+    # Determine config file
+    if args.config:
+        config_file = Path(args.config)
+    elif args.mode == "cyclic":
+        config_file = CYCLIC_CONFIG
+    else:
+        config_file = DEFAULT_CONFIG
+    
+    # Load config
+    print(f"📄 Loading config from: {config_file}")
+    print(f"🎯 Mode: {args.mode}")
+    
+    if not config_file.exists():
+        print(f"❌ Config file not found: {config_file}")
         sys.exit(1)
     
-    config = ALDConfig.load(str(CONFIG_FILE))
+    config = ALDConfig.load(str(config_file))
     gen_cfg = config.generation
+    
+    # Override from command line args
+    if args.num_samples:
+        gen_cfg.num_samples = args.num_samples
+    if args.output:
+        gen_cfg.output_file = args.output
+    
+    # For linear mode, disable ring prediction
+    if args.mode == "linear":
+        gen_cfg.predict_ring_bonds = False
+    elif args.mode == "cyclic":
+        gen_cfg.predict_ring_bonds = True
     
     # Set seed
     if gen_cfg.seed is not None:
@@ -227,11 +277,11 @@ def main():
         np.random.seed(gen_cfg.seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(gen_cfg.seed)
-        print(f" Random seed set to {gen_cfg.seed}")
+        print(f"🎲 Random seed set to {gen_cfg.seed}")
     
     # Device
     device = torch.device(config.training.device if torch.cuda.is_available() else 'cpu')
-    print(f"  Using device: {device}")
+    print(f"💻 Using device: {device}")
     
     # Load model
     model, vocab = load_model(config, device)
@@ -245,9 +295,9 @@ def main():
     if gen_cfg.output_file:
         save_samples(helm_sequences, gen_cfg.output_file)
     else:
-        print("\n Tip: Set 'generation.output_file' in config to save sequences")
+        print("\n💡 Tip: Use --output <file> to save sequences")
     
-    print("\n Generation complete!")
+    print("\n✅ Generation complete!")
 
 
 if __name__ == "__main__":

@@ -213,121 +213,274 @@ Method 2: Autoregressive Ring Bond Prediction
 """
 class AutoregressiveRingPredictor(nn.Module):
     """
-    Autoregressive ring bond predictor.
+    Autoregressive ring bond predictor with R-group awareness.
     
     Predicts whether the current token connects to any previous token,
-    running at each generation step.
+    running at each generation step. Uses both context vectors and
+    R-group embeddings for prediction.
+    
+    Architecture:
+        - Position head: predicts bonding score for each history position
+        - Type head: predicts bond type (4 classes: R3R3, R1R2, R1R3, R3R2)
     
     Args:
-        d_model: Model dimension
-        hidden_dim: Hidden dimension
-        num_bond_types: Number of bond types
+        d_model: Context encoder output dimension
+        r_dim: R-group embedding dimension (typically 512)
+        hidden_dim: Hidden dimension for networks
+        dropout: Dropout probability
     """
     
-    BOND_TYPES = ['none', 'R3R3', 'R1R2', 'R1R3', 'R3R2']
+    BOND_TYPES = ['R3R3', 'R1R2', 'R1R3', 'R3R2']  # 4 classes, no 'none'
     
     def __init__(
         self,
         d_model: int = 512,
+        r_dim: int = 512,
         hidden_dim: int = 256,
-        num_bond_types: int = 5
+        dropout: float = 0.1
     ):
         super().__init__()
         
         self.d_model = d_model
-        self.num_bond_types = num_bond_types
+        self.r_dim = r_dim
+        self.hidden_dim = hidden_dim
+        self.num_bond_types = 4  # R3R3, R1R2, R1R3, R3R2
         
-        # Query projection (current token)
-        self.query_proj = nn.Linear(d_model, hidden_dim)
-        
-        # Key projection (previous tokens)
-        self.key_proj = nn.Linear(d_model, hidden_dim)
-        
-        # Combined scoring
-        self.scorer = nn.Sequential(
-            nn.Linear(hidden_dim * 2, hidden_dim),
+        # Context pair encoder
+        self.ctx_encoder = nn.Sequential(
+            nn.Linear(d_model * 2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, num_bond_types)
+            nn.Dropout(dropout)
+        )
+        
+        # R-group pair encoder (3x3 = 9 pairwise scores)
+        self.r_encoder = nn.Sequential(
+            nn.Linear(9, 64),
+            nn.GELU(),
+            nn.Dropout(dropout)
+        )
+        
+        # Position prediction head (outputs single score per pair)
+        self.position_head = nn.Sequential(
+            nn.Linear(hidden_dim + 64, 64),
+            nn.GELU(),
+            nn.Linear(64, 1)
+        )
+        
+        # Type prediction head (outputs 4 class logits per pair)
+        self.type_head = nn.Sequential(
+            nn.Linear(hidden_dim + 64, 64),
+            nn.GELU(),
+            nn.Linear(64, self.num_bond_types)
         )
         
     def forward(
         self,
         current_context: torch.Tensor,
-        history_contexts: torch.Tensor,
+        current_r: torch.Tensor,
+        history_context: torch.Tensor,
+        history_r: torch.Tensor,
         history_mask: Optional[torch.Tensor] = None
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Predict bonds between current token and all previous tokens.
         
         Args:
-            current_context: Context for current token [batch_size, d_model]
-            history_contexts: Contexts for previous tokens [batch_size, history_len, d_model]
-            history_mask: Mask for history [batch_size, history_len]
+            current_context: Context for current token [B, d_model]
+            current_r: R-group embeddings for current token [B, 3, r_dim]
+            history_context: Context for previous tokens [B, t, d_model]
+            history_r: R-group embeddings for previous tokens [B, t, 3, r_dim]
+            history_mask: Mask for valid history positions [B, t]
             
         Returns:
-            Bond logits [batch_size, history_len, num_bond_types]
+            position_scores: [B, t] - bonding score for each history position
+            type_logits: [B, t, 4] - bond type logits for each history position
         """
         batch_size = current_context.size(0)
-        history_len = history_contexts.size(1)
+        history_len = history_context.size(1)
+        device = current_context.device
         
         if history_len == 0:
-            return torch.zeros(batch_size, 0, self.num_bond_types, device=current_context.device)
+            return (
+                torch.zeros(batch_size, 0, device=device),
+                torch.zeros(batch_size, 0, self.num_bond_types, device=device)
+            )
         
-        # Project
-        query = self.query_proj(current_context)  # [batch_size, hidden_dim]
-        keys = self.key_proj(history_contexts)  # [batch_size, history_len, hidden_dim]
+        # Expand current context for pairing with each history position
+        current_ctx_exp = current_context.unsqueeze(1).expand(-1, history_len, -1)  # [B, t, d_model]
         
-        # Expand query for each history position
-        query_expanded = query.unsqueeze(1).expand(-1, history_len, -1)
+        # Concatenate current and history context
+        ctx_pairs = torch.cat([current_ctx_exp, history_context], dim=-1)  # [B, t, d_model*2]
         
-        # Concatenate and score
-        combined = torch.cat([query_expanded, keys], dim=-1)  # [batch_size, history_len, hidden_dim * 2]
-        logits = self.scorer(combined)  # [batch_size, history_len, num_bond_types]
+        # Encode context pairs
+        ctx_feat = self.ctx_encoder(ctx_pairs)  # [B, t, hidden_dim]
         
-        # Apply mask
+        # Compute R-group pairwise scores
+        # current_r: [B, 3, r_dim], history_r: [B, t, 3, r_dim]
+        current_r_exp = current_r.unsqueeze(1).expand(-1, history_len, -1, -1)  # [B, t, 3, r_dim]
+        
+        # Compute 3x3 pairwise scores for each (current, history) pair
+        # r_scores[b, h, i, j] = current_r[b, i] · history_r[b, h, j]
+        r_scores = torch.einsum('btid,btjd->btij', current_r_exp, history_r)  # [B, t, 3, 3]
+        r_scores = r_scores / (self.r_dim ** 0.5)  # Scale
+        r_scores_flat = r_scores.view(batch_size, history_len, 9)  # [B, t, 9]
+        
+        # Encode R-group features
+        r_feat = self.r_encoder(r_scores_flat)  # [B, t, 64]
+        
+        # Combine context and R-group features
+        combined = torch.cat([ctx_feat, r_feat], dim=-1)  # [B, t, hidden_dim+64]
+        
+        # Predict position scores and type logits
+        position_scores = self.position_head(combined).squeeze(-1)  # [B, t]
+        type_logits = self.type_head(combined)  # [B, t, 4]
+        
+        # Apply mask if provided
         if history_mask is not None:
-            mask = history_mask.unsqueeze(-1)  # [batch_size, history_len, 1]
-            logits = logits.masked_fill(~mask.bool(), float('-inf'))
+            position_scores = position_scores.masked_fill(~history_mask.bool(), float('-inf'))
+            type_logits = type_logits.masked_fill(~history_mask.bool().unsqueeze(-1), float('-inf'))
         
-        return logits
+        return position_scores, type_logits
     
     def predict_connection(
         self,
         current_context: torch.Tensor,
-        history_contexts: torch.Tensor,
-        threshold: float = 0.5
+        current_r: torch.Tensor,
+        history_context: torch.Tensor,
+        history_r: torch.Tensor,
+        threshold: float = 0.0
     ) -> Optional[Dict]:
         """
-        Predict if current token connects to any previous token.
+        Predict if current token connects to any previous token (inference).
         
         Args:
-            current_context: [batch_size, d_model] (batch_size should be 1)
-            history_contexts: [batch_size, history_len, d_model]
-            threshold: Confidence threshold
+            current_context: [1, d_model]
+            current_r: [1, 3, r_dim]
+            history_context: [1, t, d_model]
+            history_r: [1, t, 3, r_dim]
+            threshold: Score threshold for predicting a bond
             
         Returns:
-            Bond dict or None if no bond predicted
+            Bond dict with 'res1', 'res2', 'bond_type', 'position_score', 'type_confidence'
+            or None if no bond predicted
         """
-        logits = self.forward(current_context, history_contexts)
-        probs = F.softmax(logits, dim=-1)  # [batch_size, history_len, num_bond_types]
+        position_scores, type_logits = self.forward(
+            current_context, current_r, history_context, history_r
+        )
+        # position_scores: [1, t], type_logits: [1, t, 4]
         
-        # Find max non-zero bond
-        # Exclude class 0 (no bond)
-        bond_probs = probs[0, :, 1:]  # [history_len, num_bond_types - 1]
-        
-        if bond_probs.numel() == 0:
+        if position_scores.size(1) == 0:
             return None
         
-        max_prob, max_idx = bond_probs.max(dim=1)  # [history_len]
-        best_pos = max_prob.argmax().item()
-        best_prob = max_prob[best_pos].item()
-        best_type = max_idx[best_pos].item() + 1  # Add 1 because we excluded class 0
+        # Find best position
+        best_pos_score, best_pos_idx = position_scores[0].max(dim=0)
+        best_pos_idx = best_pos_idx.item()
+        best_pos_score = best_pos_score.item()
         
-        if best_prob > threshold:
-            return {
-                'res1': best_pos + 1,  # Previous position (1-indexed)
-                'bond_type': self.BOND_TYPES[best_type],
-                'confidence': best_prob
-            }
+        if best_pos_score < threshold:
+            return None
         
-        return None
+        # Get bond type for best position
+        best_type_logits = type_logits[0, best_pos_idx]  # [4]
+        best_type_probs = F.softmax(best_type_logits, dim=-1)
+        best_type_idx = best_type_logits.argmax().item()
+        best_type_conf = best_type_probs[best_type_idx].item()
+        
+        return {
+            'res1': best_pos_idx + 1,  # 1-indexed (history position)
+            'bond_type': self.BOND_TYPES[best_type_idx],
+            'position_score': best_pos_score,
+            'type_confidence': best_type_conf
+        }
+
+
+def compute_ring_loss_ar(
+    position_scores: torch.Tensor,
+    type_logits: torch.Tensor,
+    ring_bonds: List[List[Dict]],
+    current_positions: torch.Tensor,
+    margin: float = 1.0
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    """
+    Compute ring bond loss for autoregressive prediction.
+    
+    Args:
+        position_scores: [B, t] - bonding scores for each history position
+        type_logits: [B, t, 4] - bond type logits
+        ring_bonds: List of ring bond info per sample
+            Each element: [{'i': int, 'j': int, 'type': int}, ...]
+            where i < j, type is 0-3 (R3R3, R1R2, R1R3, R3R2)
+        current_positions: [B] - current position index for each sample
+        margin: Margin for contrastive loss
+        
+    Returns:
+        total_loss: Combined position and type loss
+        loss_dict: {'position_loss': ..., 'type_loss': ...}
+    """
+    device = position_scores.device
+    batch_size = position_scores.size(0)
+    
+    position_loss = torch.tensor(0.0, device=device)
+    type_loss = torch.tensor(0.0, device=device)
+    pos_count = 0
+    type_count = 0
+    
+    for b in range(batch_size):
+        curr_pos = current_positions[b].item()
+        bonds = ring_bonds[b]
+        history_len = position_scores.size(1)
+        
+        if history_len == 0:
+            continue
+        
+        # Find if current position has a bond with any history position
+        positive_hist_pos = -1
+        bond_type = -1
+        
+        for bond in bonds:
+            i, j = bond['i'], bond['j']
+            # Current position is j (the later one), check if i is in history
+            if j == curr_pos and i < curr_pos:
+                positive_hist_pos = i
+                bond_type = bond['type']
+                break
+            # Also check reversed case
+            elif i == curr_pos and j < curr_pos:
+                positive_hist_pos = j
+                bond_type = bond['type']
+                break
+        
+        if positive_hist_pos >= 0:
+            # === Position Loss (Contrastive) ===
+            pos_score = position_scores[b, positive_hist_pos]
+            
+            # Create mask for negative samples
+            neg_mask = torch.ones(history_len, dtype=torch.bool, device=device)
+            neg_mask[positive_hist_pos] = False
+            neg_scores = position_scores[b][neg_mask]
+            
+            if neg_scores.numel() > 0:
+                # Margin loss: pos_score should be higher than max(neg_scores) by margin
+                loss_b = F.relu(margin - pos_score + neg_scores.max())
+                position_loss = position_loss + loss_b
+                pos_count += 1
+            
+            # === Type Loss (CrossEntropy) ===
+            logits = type_logits[b, positive_hist_pos]  # [4]
+            label = torch.tensor(bond_type, device=device)
+            type_loss = type_loss + F.cross_entropy(logits.unsqueeze(0), label.unsqueeze(0))
+            type_count += 1
+    
+    # Average losses
+    if pos_count > 0:
+        position_loss = position_loss / pos_count
+    if type_count > 0:
+        type_loss = type_loss / type_count
+    
+    total_loss = position_loss + type_loss
+    
+    return total_loss, {
+        'position_loss': position_loss,
+        'type_loss': type_loss
+    }
