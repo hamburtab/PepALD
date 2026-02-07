@@ -372,10 +372,16 @@ class UniMolEmbeddingGenerator:
         
         # 保存full_embeddings矩阵为numpy格式 (N, 4, 512)
         npy_path = None
+        cls_npy_path = None
         if len(results['full_embeddings']) > 0:
             npy_path = os.path.join(output_dir, 'full_embeddings.npy')
             np.save(npy_path, results['full_embeddings'])
             logger.info(f"Full Embedding矩阵 (N, 4, {results['metadata']['embedding_dim']}) 已保存到: {npy_path}")
+            
+            # 同时保存CLS-only矩阵 (N, 512)，供TokenMapper使用
+            cls_npy_path = os.path.join(output_dir, 'embeddings_matrix.npy')
+            np.save(cls_npy_path, results['full_embeddings'][:, 0, :])
+            logger.info(f"CLS Embedding矩阵 (N, {results['metadata']['embedding_dim']}) 已保存到: {cls_npy_path}")
         
         # 保存映射信息为CSV
         mapping_df = pd.DataFrame({

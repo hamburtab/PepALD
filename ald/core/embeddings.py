@@ -197,7 +197,7 @@ class UniMolEmbeddingLoader(nn.Module):
         self,
         embeddings_dir: str = "./unimol_embeddings",
         freeze_embeddings: bool = True,
-        r_weight: float = 0.3  # 可调整的权重
+        r_weight: float = 0.0  # 可调整的权重
     ):
         super().__init__()
         
