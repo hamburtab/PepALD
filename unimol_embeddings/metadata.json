@@ -1,7 +1,7 @@
 {
   "model_name": "Uni-Mol",
   "total_monomers": 3104,
-  "processed_date": "2025-12-09T21:36:25.935106",
+  "processed_date": "2026-02-07T16:32:44.017253",
   "embedding_dim": 512,
   "successful_count": 3104,
   "failed_count": 0
