@@ -671,8 +671,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 ring_connections = []
                 for bond in ring_bonds:
                     ring_connections.append({
-                        'res1': f"PEPTIDE1:{bond['i']+1}",  # 1-indexed for HELM
-                        'res2': f"PEPTIDE1:{bond['j']+1}",
+                        'res1': bond['i'] + 1,  # 1-indexed for HELM
+                        'res2': bond['j'] + 1,
                         'bond_type': bond['type_name']
                     })
                 result['ring_connections'] = ring_connections
