@@ -118,6 +118,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
     def _print_model_info(self, model_cfg):
         """Print model configuration summary."""
         print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
+
+    @property
+    def embedding_loader(self):
+        """Backward-compatible access to the Uni-Mol embedding loader."""
+        return self.context_encoder.embedding
     
     def _empty_loss(self, device: torch.device) -> Dict[str, torch.Tensor]:
         """Return zero loss dictionary for edge cases."""
@@ -451,7 +456,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         device: Optional[torch.device] = None,
         use_ddim: Optional[bool] = None,
         ddim_steps: Optional[int] = None,
-        lambda_gpt: float = 0.8,
+        lambda_gpt: float = 0.0,
         predict_ring_bonds: Optional[bool] = None,
         ring_threshold: float = 0.5,
         ring_top_k: int = 1,
@@ -615,8 +620,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     
                     # Predict
                     position_scores, type_logits = self.ar_ring_predictor(
-                        current_ctx.squeeze(0), current_r.squeeze(0),
-                        history_ctx.squeeze(0).unsqueeze(0), history_r.squeeze(0).unsqueeze(0)
+                        current_ctx, current_r,
+                        history_ctx, history_r
                     )
                     # position_scores: [1, t], type_logits: [1, t, 4]
                     

@@ -223,13 +223,14 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
     return helm_sequences, ring_bond_counts, sequence_lengths
 
 
-def save_samples(helm_sequences: list, output_file: str):
+def save_samples(helm_sequences: list, output_file: str, append: bool = False):
     """Save generated samples to file."""
     
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     
-    with open(output_path, 'w') as f:
+    mode = 'a' if append else 'w'
+    with open(output_path, mode) as f:
         for seq in helm_sequences:
             f.write(f"{seq}\n")
     
@@ -296,6 +297,11 @@ def main():
         save_samples(helm_sequences, gen_cfg.output_file)
     else:
         print("\n💡 Tip: Use --output <file> to save sequences")
+
+    # Always append cyclic samples to ChEMBL32-only file
+    if args.mode == "cyclic":
+        chembl_out = PROJECT_ROOT / "chembl32_samples" / "helm_chembl32only_samples.txt"
+        save_samples(helm_sequences, str(chembl_out), append=True)
     
     print("\n✅ Generation complete!")
 
