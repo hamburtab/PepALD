@@ -349,6 +349,16 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     loss_type = F.cross_entropy(logits.unsqueeze(0), label.unsqueeze(0))
                     total_type_loss = total_type_loss + loss_type
                     type_count += 1
+                else:
+                    # === Negative Sample Loss ===
+                    # This position should NOT have any ring bond.
+                    # Penalize the highest score to push all scores below -0.5
+                    scores_t = position_scores[b, :t]
+                    if scores_t.numel() > 0:
+                        max_score = scores_t.max()
+                        loss_neg = F.relu(max_score + 0.5)
+                        total_position_loss = total_position_loss + loss_neg
+                        pos_count += 1
         
         # Average losses
         if pos_count > 0:
@@ -572,10 +582,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
             all_embeddings[active_idx, t, :] = embeddings
             all_tokens[active_idx, t] = token_ids
             
-            # 4. Ring Bond Prediction (if enabled and t > 0)
+            # 4. Ring Bond Prediction (if enabled)
             if predict_ring_bonds and t > 0:
-                # Get R-group embeddings for generated tokens
-                # Need to get R-embeddings from the embedding loader
+                # Always store R-group embeddings for later use
                 _, r_emb_current = self.embedding_loader(token_ids, return_r_groups=True)
                 # r_emb_current: [num_active, 3, r_dim]
                 
@@ -584,11 +593,14 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 
                 # For first token (t==0), also need to store
                 if t == 1:
-                    # Get R-embeddings for first token
                     first_tokens = all_tokens[active_idx, 0]
                     _, r_emb_first = self.embedding_loader(first_tokens, return_r_groups=True)
                     all_r_embeddings[active_idx, 0, :, :] = r_emb_first
-                
+            
+            # Only start predicting ring bonds after enough tokens are generated
+            min_ring_start = 3
+            min_ring_distance = 3
+            if predict_ring_bonds and t >= min_ring_start:
                 # Predict ring bonds for each active sample
                 for i in range(num_active):
                     sample_idx = active_idx[i].item()
@@ -625,14 +637,23 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     )
                     # position_scores: [1, t], type_logits: [1, t, 4]
                     
-                    # Get top-K candidates
+                    # Get top-K candidates with minimum distance constraint
                     scores = position_scores[0]  # [t]
                     if scores.numel() > 0:
-                        top_k = min(ring_top_k, scores.numel())
-                        top_scores, top_positions = torch.topk(scores, top_k)
+                        # Mask out candidates too close to current position
+                        valid_scores = scores.clone()
+                        valid_scores[max(0, t - min_ring_distance + 1):] = float('-inf')
+                        
+                        num_valid = (valid_scores > float('-inf')).sum().item()
+                        if num_valid > 0:
+                            top_k = min(ring_top_k, num_valid)
+                            top_scores, top_positions = torch.topk(valid_scores, top_k)
+                        else:
+                            top_scores = torch.tensor([], device=device)
+                            top_positions = torch.tensor([], dtype=torch.long, device=device)
                         
                         # Check if top score exceeds threshold
-                        if top_scores[0].item() > ring_threshold:
+                        if top_scores.numel() > 0 and top_scores[0].item() > ring_threshold:
                             best_pos = top_positions[0].item()
                             # Get bond type
                             type_probs = F.softmax(type_logits[0, best_pos], dim=-1)
