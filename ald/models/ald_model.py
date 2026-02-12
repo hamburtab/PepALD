@@ -112,12 +112,41 @@ class AutoregressiveLatentDiffusion(nn.Module):
         # 5. LM Head for Hybrid Modeling (Next Token Prediction)
         self.lm_head = nn.Linear(self.d_model, self.vocab_size)
         
+        # 6. R-group lookup table for generation-time validation
+        self.token_rgroups = self._build_rgroup_table(data_dir)
+        
         if verbose:
             self._print_model_info(model_cfg)
     
     def _print_model_info(self, model_cfg):
         """Print model configuration summary."""
         print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
+
+    def _build_rgroup_table(self, data_dir) -> Dict[int, set]:
+        """Build lookup: token_id -> set of available R-groups ('R1','R2','R3')."""
+        table = {}
+        try:
+            import pandas as pd
+            from pathlib import Path
+            csv_path = Path(data_dir) / "monomer_library.csv"
+            if csv_path.exists():
+                df = pd.read_csv(csv_path)
+                for _, row in df.iterrows():
+                    symbol = row['Symbol']
+                    if symbol not in self.vocab:
+                        continue
+                    tid = self.vocab[symbol]
+                    rgroups = set()
+                    for rname in ('R1', 'R2', 'R3'):
+                        val = str(row.get(rname, '-')).strip()
+                        if val not in ('-', 'nan', ''):
+                            rgroups.add(rname)
+                    table[tid] = rgroups
+                print(f"[ALD] R-group table: {len(table)} monomers, "
+                      f"{sum(1 for v in table.values() if 'R3' in v)} with R3")
+        except Exception as e:
+            print(f"[ALD] Warning: Could not build R-group table: {e}")
+        return table
 
     @property
     def embedding_loader(self):
@@ -655,20 +684,40 @@ class AutoregressiveLatentDiffusion(nn.Module):
                         # Check if top score exceeds threshold
                         if top_scores.numel() > 0 and top_scores[0].item() > ring_threshold:
                             best_pos = top_positions[0].item()
-                            # Get bond type
-                            type_probs = F.softmax(type_logits[0, best_pos], dim=-1)
-                            bond_type_idx = torch.argmax(type_probs).item()
                             
                             bond_type_map = {0: 'R3R3', 1: 'R1R2', 2: 'R1R3', 3: 'R3R2'}
+                            # R-group requirements: (R-group for pos_i, R-group for pos_j)
+                            bond_rgroup_req = {
+                                0: ('R3', 'R3'), 1: ('R1', 'R2'),
+                                2: ('R1', 'R3'), 3: ('R3', 'R2')
+                            }
                             
-                            predicted_ring_bonds[sample_idx].append({
-                                'i': best_pos,  # history position (0-indexed)
-                                'j': t,         # current position (0-indexed)
-                                'type': bond_type_idx,
-                                'type_name': bond_type_map[bond_type_idx],
-                                'score': top_scores[0].item()
-                            })
-                            has_ring_bond[sample_idx] = True
+                            # Get R-groups available on both monomers
+                            tid_i = all_tokens[sample_idx, best_pos].item()
+                            tid_j = all_tokens[sample_idx, t].item()
+                            rg_i = self.token_rgroups.get(tid_i, set())
+                            rg_j = self.token_rgroups.get(tid_j, set())
+                            
+                            # Try bond types in order of probability
+                            type_probs = F.softmax(type_logits[0, best_pos], dim=-1)
+                            sorted_types = torch.argsort(type_probs, descending=True)
+                            
+                            chosen = None
+                            for bt in sorted_types.tolist():
+                                req_i, req_j = bond_rgroup_req[bt]
+                                if req_i in rg_i and req_j in rg_j:
+                                    chosen = bt
+                                    break
+                            
+                            if chosen is not None:
+                                predicted_ring_bonds[sample_idx].append({
+                                    'i': best_pos,
+                                    'j': t,
+                                    'type': chosen,
+                                    'type_name': bond_type_map[chosen],
+                                    'score': top_scores[0].item()
+                                })
+                                has_ring_bond[sample_idx] = True
             
             if verbose and (t + 1) % 5 == 0:
                 print(f"  Step {t+1}/{max_seq_len}, active samples: {num_active}")
