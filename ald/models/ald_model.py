@@ -705,11 +705,16 @@ class AutoregressiveLatentDiffusion(nn.Module):
                             chosen = None
                             for bt in sorted_types.tolist():
                                 req_i, req_j = bond_rgroup_req[bt]
-                                if req_i in rg_i and req_j in rg_j:
-                                    chosen = bt
-                                    break
+                                if req_i not in rg_i or req_j not in rg_j:
+                                    continue
+                                # Position i: R1 is occupied by main chain when i > 0
+                                if req_i == 'R1' and best_pos > 0:
+                                    continue
+                                chosen = bt
+                                break
                             
                             if chosen is not None:
+                                req_i, req_j = bond_rgroup_req[chosen]
                                 predicted_ring_bonds[sample_idx].append({
                                     'i': best_pos,
                                     'j': t,
@@ -718,6 +723,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
                                     'score': top_scores[0].item()
                                 })
                                 has_ring_bond[sample_idx] = True
+                                # Position j: R2 occupied by ring → main chain cannot continue
+                                if req_j == 'R2':
+                                    lengths[sample_idx] = t + 1
             
             if verbose and (t + 1) % 5 == 0:
                 print(f"  Step {t+1}/{max_seq_len}, active samples: {num_active}")
