@@ -168,7 +168,8 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
             device=device,
             use_ddim=gen_cfg.use_ddim,
             ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
-            predict_ring_bonds=gen_cfg.predict_ring_bonds
+            predict_ring_bonds=gen_cfg.predict_ring_bonds,
+            ring_threshold=gen_cfg.ring_bond_threshold
         )
     
     elapsed_time = time.time() - start_time

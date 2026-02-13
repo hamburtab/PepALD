@@ -155,8 +155,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
     
     def _empty_loss(self, device: torch.device) -> Dict[str, torch.Tensor]:
         """Return zero loss dictionary for edge cases."""
+        zero_loss = torch.tensor(0.0, device=device, requires_grad=True)
         return {
-            'loss': torch.tensor(0.0, device=device, requires_grad=True),
+            'loss': zero_loss,
+            'total_loss': zero_loss,
             'diffusion_loss': torch.tensor(0.0, device=device),
             'ring_bond_loss': torch.tensor(0.0, device=device),
             'ring_position_loss': torch.tensor(0.0, device=device),
@@ -272,8 +274,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
             ring_position_loss = ring_loss_result['position_loss']
             ring_type_loss = ring_loss_result['type_loss']
         
+        combined_loss = diffusion_loss + 0.5 * ring_bond_loss + 0.5 * ce_loss
+        
         return {
-            'loss': diffusion_loss + 0.5 * ring_bond_loss + 0.5 * ce_loss,
+            'loss': combined_loss,
+            'total_loss': combined_loss,
             'diffusion_loss': diffusion_loss,
             'ring_bond_loss': ring_bond_loss,
             'ring_position_loss': ring_position_loss,
@@ -477,8 +482,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
             ring_position_loss = ring_loss_result['position_loss']
             ring_type_loss = ring_loss_result['type_loss']
         
+        combined_loss = diffusion_loss + 0.5 * ring_bond_loss + 0.5 * ce_loss
+        
         return {
-            'loss': diffusion_loss + 0.5 * ring_bond_loss + 0.5 * ce_loss,
+            'loss': combined_loss,
+            'total_loss': combined_loss,
             'diffusion_loss': diffusion_loss,
             'ring_bond_loss': ring_bond_loss,
             'ring_position_loss': ring_position_loss,
@@ -497,7 +505,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         ddim_steps: Optional[int] = None,
         lambda_gpt: float = 0.0,
         predict_ring_bonds: Optional[bool] = None,
-        ring_threshold: float = 0.5,
+        ring_threshold: float = -0.3,
         ring_top_k: int = 1,
         verbose: bool = False
     ) -> List[Dict]:
@@ -506,7 +514,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         Args:
             predict_ring_bonds: Whether to predict ring bonds during generation
-            ring_threshold: Score threshold for ring bond prediction
+            ring_threshold: Score threshold for ring bond prediction.
+                The AR ring predictor uses contrastive loss, so scores are relative.
+                A negative threshold (e.g. -0.3) is appropriate since positive
+                scores just need to be higher than negatives by a margin.
             ring_top_k: Number of top candidates to consider per position
         """
         gen_cfg = self.config.generation
@@ -642,20 +653,30 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     current_ctx = context[i:i+1]  # [1, d_model]
                     current_r = r_emb_current[i:i+1]  # [1, 3, r_dim]
                     
-                    # Get history context and R-groups
-                    history_ctx = self.context_encoder.get_context_for_next_token(
-                        all_embeddings[sample_idx:sample_idx+1, :t, :]
-                    )  # Need all positions 0 to t-1
-                    # Actually, we need the context at each position
-                    history_ctx_all = []
-                    for j in range(t):
-                        if j == 0:
-                            h = torch.zeros(1, 0, self.embedding_dim, device=device)
-                        else:
-                            h = all_embeddings[sample_idx:sample_idx+1, :j, :]
-                        ctx_j = self.context_encoder.get_context_for_next_token(h)
-                        history_ctx_all.append(ctx_j)
-                    history_ctx = torch.stack(history_ctx_all, dim=1)  # [1, t, d_model]
+                    # Get history context for positions 0..t-1
+                    # During training, contexts_for_pred is built as:
+                    #   [start_context, full_contexts[:, 0], ..., full_contexts[:, t-2]]
+                    # So contexts_for_pred[t] = encoder_output[t-1] (shifted)
+                    # To match training, we compute shifted contexts for history:
+                    history_emb = all_embeddings[sample_idx:sample_idx+1, :t, :]  # [1, t, emb]
+                    
+                    # Start context (for position 0)
+                    start_ctx = self.context_encoder.get_context_for_next_token(
+                        history_emb[:, :0, :]
+                    )  # [1, d_model]
+                    
+                    if t == 1:
+                        history_ctx = start_ctx.unsqueeze(1)  # [1, 1, d_model]
+                    else:
+                        # Run encoder on history to get full contexts for positions 0..t-2
+                        token_ids_hist = all_tokens[sample_idx:sample_idx+1, :t]
+                        mask_hist = torch.ones(1, t, dtype=torch.bool, device=device)
+                        full_ctx = self.context_encoder(token_ids_hist, mask_hist)  # [1, t, d_model]
+                        # Shift: context for pos 0 = start_ctx, pos k = full_ctx[:, k-1, :]
+                        history_ctx = torch.cat([
+                            start_ctx.unsqueeze(1),
+                            full_ctx[:, :-1, :]
+                        ], dim=1)  # [1, t, d_model]
                     
                     history_r = all_r_embeddings[sample_idx:sample_idx+1, :t, :, :]  # [1, t, 3, r_dim]
                     
@@ -669,6 +690,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     # Get top-K candidates with minimum distance constraint
                     scores = position_scores[0]  # [t]
                     if scores.numel() > 0:
+                        # Log scores for debugging
+                        if verbose and i == 0:
+                            max_s = scores.max().item()
+                            min_s = scores.min().item()
+                            print(f"    Ring@t={t}, sample={sample_idx}: "
+                                  f"scores range=[{min_s:.3f}, {max_s:.3f}], "
+                                  f"threshold={ring_threshold:.3f}")
                         # Mask out candidates too close to current position
                         valid_scores = scores.clone()
                         valid_scores[max(0, t - min_ring_distance + 1):] = float('-inf')
@@ -707,8 +735,14 @@ class AutoregressiveLatentDiffusion(nn.Module):
                                 req_i, req_j = bond_rgroup_req[bt]
                                 if req_i not in rg_i or req_j not in rg_j:
                                     continue
-                                # Position i: R1 is occupied by main chain when i > 0
-                                if req_i == 'R1' and best_pos > 0:
+                                # R2 on position i is occupied by main chain when i < last_pos
+                                # (R2 connects to next residue's R1 in the backbone)
+                                current_seq_len_s = lengths[sample_idx].item()
+                                if req_i == 'R2' and best_pos < current_seq_len_s - 1:
+                                    continue
+                                # R1 on position j is occupied by main chain when j > 0
+                                # (R1 connects to previous residue's R2 in the backbone)
+                                if req_j == 'R1' and t > 0:
                                     continue
                                 chosen = bt
                                 break
