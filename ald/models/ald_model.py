@@ -297,6 +297,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         Compute ring bond loss in autoregressive manner.
         
         For each position t (from 1 to L-1), predict if it bonds with any position < t.
+        Uses BCE loss with sigmoid for calibrated probability output.
         
         Args:
             context: [B, L, d_model] - context vectors (shifted for prediction)
@@ -307,10 +308,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
         device = context.device
         batch_size, seq_len, _ = context.shape
         
-        total_position_loss = torch.tensor(0.0, device=device)
-        total_type_loss = torch.tensor(0.0, device=device)
-        pos_count = 0
-        type_count = 0
+        all_position_logits = []  # raw logits for BCE
+        all_position_labels = []  # 0/1 labels
+        all_type_logits = []      # bond type logits for positive pairs
+        all_type_labels = []      # bond type labels for positive pairs
         
         # Get sequence lengths
         if mask is not None:
@@ -339,10 +340,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
             )
             # position_scores: [B, t], type_logits: [B, t, 4]
             
-            # Compute loss for each sample
+            # Build BCE targets for each sample
             for b in range(batch_size):
                 if not active_mask[b]:
                     continue
+                
+                # Build binary label vector: 1 at bonded position, 0 elsewhere
+                labels = torch.zeros(t, device=device)
                 
                 # Find if position t has a bond with any history position
                 bonds = ring_bonds[b]
@@ -351,61 +355,54 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 
                 for bond in bonds:
                     i, j = bond['i'], bond['j']
-                    # Check if j == t and i < t (bond from history to current)
                     if j == t and i < t:
                         positive_hist_pos = i
                         bond_type = bond['type']
                         break
-                    # Also check if i == t and j < t
                     elif i == t and j < t:
                         positive_hist_pos = j
                         bond_type = bond['type']
                         break
                 
                 if positive_hist_pos >= 0:
-                    # === Position Loss (Contrastive) ===
-                    pos_score = position_scores[b, positive_hist_pos]
-                    
-                    # Create mask for negative samples
-                    neg_mask = torch.ones(t, dtype=torch.bool, device=device)
-                    neg_mask[positive_hist_pos] = False
-                    neg_scores = position_scores[b][neg_mask]
-                    
-                    if neg_scores.numel() > 0:
-                        margin = 1.0
-                        loss_pos = F.relu(margin - pos_score + neg_scores.max())
-                        total_position_loss = total_position_loss + loss_pos
-                        pos_count += 1
-                    
-                    # === Type Loss (CrossEntropy) ===
-                    logits = type_logits[b, positive_hist_pos]  # [4]
-                    label = torch.tensor(bond_type, device=device)
-                    loss_type = F.cross_entropy(logits.unsqueeze(0), label.unsqueeze(0))
-                    total_type_loss = total_type_loss + loss_type
-                    type_count += 1
-                else:
-                    # === Negative Sample Loss ===
-                    # This position should NOT have any ring bond.
-                    # Penalize the highest score to push all scores below -0.5
-                    scores_t = position_scores[b, :t]
-                    if scores_t.numel() > 0:
-                        max_score = scores_t.max()
-                        loss_neg = F.relu(max_score + 0.5)
-                        total_position_loss = total_position_loss + loss_neg
-                        pos_count += 1
+                    labels[positive_hist_pos] = 1.0
+                    # Collect type loss for the positive pair
+                    all_type_logits.append(type_logits[b, positive_hist_pos])
+                    all_type_labels.append(bond_type)
+                
+                # Collect all position logits/labels for BCE
+                all_position_logits.append(position_scores[b, :t])
+                all_position_labels.append(labels)
         
-        # Average losses
-        if pos_count > 0:
-            total_position_loss = total_position_loss / pos_count
-        if type_count > 0:
-            total_type_loss = total_type_loss / type_count
+        # === Position Loss (BCE with sigmoid) ===
+        if all_position_logits:
+            cat_logits = torch.cat(all_position_logits)
+            cat_labels = torch.cat(all_position_labels)
+            # Weighted BCE: positive samples are rare, upweight them
+            num_pos = cat_labels.sum().clamp(min=1)
+            num_neg = (cat_labels.numel() - num_pos).clamp(min=1)
+            pos_weight = (num_neg / num_pos).clamp(max=50.0)
+            position_loss = F.binary_cross_entropy_with_logits(
+                cat_logits, cat_labels,
+                pos_weight=torch.tensor(pos_weight, device=device)
+            )
+        else:
+            position_loss = torch.tensor(0.0, device=device)
         
-        total_loss = total_position_loss + total_type_loss
+        # === Type Loss (CrossEntropy) ===
+        if all_type_logits:
+            type_logits_t = torch.stack(all_type_logits)
+            type_labels_t = torch.tensor(all_type_labels, device=device, dtype=torch.long)
+            type_loss = F.cross_entropy(type_logits_t, type_labels_t)
+        else:
+            type_loss = torch.tensor(0.0, device=device)
+        
+        total_loss = position_loss + type_loss
         
         return {
             'total_loss': total_loss,
-            'position_loss': total_position_loss,
-            'type_loss': total_type_loss
+            'position_loss': position_loss,
+            'type_loss': type_loss
         }
     
     def forward_efficient(
@@ -505,7 +502,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         ddim_steps: Optional[int] = None,
         lambda_gpt: float = 0.0,
         predict_ring_bonds: Optional[bool] = None,
-        ring_threshold: float = -0.3,
+        ring_threshold: float = 0.5,
         ring_top_k: int = 1,
         verbose: bool = False
     ) -> List[Dict]:
@@ -514,10 +511,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         Args:
             predict_ring_bonds: Whether to predict ring bonds during generation
-            ring_threshold: Score threshold for ring bond prediction.
-                The AR ring predictor uses contrastive loss, so scores are relative.
-                A negative threshold (e.g. -0.3) is appropriate since positive
-                scores just need to be higher than negatives by a margin.
+            ring_threshold: Probability threshold (0-1) for ring bond prediction.
+                The AR ring predictor uses sigmoid-calibrated scores via BCE loss.
             ring_top_k: Number of top candidates to consider per position
         """
         gen_cfg = self.config.generation
@@ -554,8 +549,6 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         # Ring bond predictions: List[List[Dict]] for each sample
         predicted_ring_bonds = [[] for _ in range(num_samples)]
-        # Track which samples already have a ring bond predicted
-        has_ring_bond = [False for _ in range(num_samples)]
         
         # Generate token by token (parallel across samples)
         for t in range(max_seq_len):
@@ -645,10 +638,6 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 for i in range(num_active):
                     sample_idx = active_idx[i].item()
                     
-                    # Skip if this sample already has a ring bond (only one per cyclic peptide)
-                    if has_ring_bond[sample_idx]:
-                        continue
-                    
                     # Get current context and R-groups
                     current_ctx = context[i:i+1]  # [1, d_model]
                     current_r = r_emb_current[i:i+1]  # [1, 3, r_dim]
@@ -688,29 +677,31 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     # position_scores: [1, t], type_logits: [1, t, 4]
                     
                     # Get top-K candidates with minimum distance constraint
-                    scores = position_scores[0]  # [t]
+                    scores = position_scores[0]  # [t] — raw logits
                     if scores.numel() > 0:
+                        # Apply sigmoid to get calibrated probabilities
+                        probs = torch.sigmoid(scores)
                         # Log scores for debugging
                         if verbose and i == 0:
-                            max_s = scores.max().item()
-                            min_s = scores.min().item()
+                            max_p = probs.max().item()
+                            min_p = probs.min().item()
                             print(f"    Ring@t={t}, sample={sample_idx}: "
-                                  f"scores range=[{min_s:.3f}, {max_s:.3f}], "
+                                  f"probs range=[{min_p:.3f}, {max_p:.3f}], "
                                   f"threshold={ring_threshold:.3f}")
                         # Mask out candidates too close to current position
-                        valid_scores = scores.clone()
-                        valid_scores[max(0, t - min_ring_distance + 1):] = float('-inf')
+                        valid_probs = probs.clone()
+                        valid_probs[max(0, t - min_ring_distance + 1):] = 0.0
                         
-                        num_valid = (valid_scores > float('-inf')).sum().item()
+                        num_valid = (valid_probs > 0.0).sum().item()
                         if num_valid > 0:
                             top_k = min(ring_top_k, num_valid)
-                            top_scores, top_positions = torch.topk(valid_scores, top_k)
+                            top_probs, top_positions = torch.topk(valid_probs, top_k)
                         else:
-                            top_scores = torch.tensor([], device=device)
+                            top_probs = torch.tensor([], device=device)
                             top_positions = torch.tensor([], dtype=torch.long, device=device)
                         
-                        # Check if top score exceeds threshold
-                        if top_scores.numel() > 0 and top_scores[0].item() > ring_threshold:
+                        # Check if top probability exceeds threshold
+                        if top_probs.numel() > 0 and top_probs[0].item() > ring_threshold:
                             best_pos = top_positions[0].item()
                             
                             bond_type_map = {0: 'R3R3', 1: 'R1R2', 2: 'R1R3', 3: 'R3R2'}
@@ -735,13 +726,18 @@ class AutoregressiveLatentDiffusion(nn.Module):
                                 req_i, req_j = bond_rgroup_req[bt]
                                 if req_i not in rg_i or req_j not in rg_j:
                                     continue
-                                # R2 on position i is occupied by main chain when i < last_pos
-                                # (R2 connects to next residue's R1 in the backbone)
+                                # R-group main chain occupation rules:
+                                # - R1 at pos 0 is FREE (no previous residue)
+                                # - R1 at pos > 0 is occupied by main chain (backbone to previous)
+                                # - R2 at last pos is FREE (no next residue)
+                                # - R2 at pos < last is occupied by main chain (backbone to next)
                                 current_seq_len_s = lengths[sample_idx].item()
-                                if req_i == 'R2' and best_pos < current_seq_len_s - 1:
+                                if req_i == 'R2' and 0 < best_pos < current_seq_len_s - 1:
                                     continue
-                                # R1 on position j is occupied by main chain when j > 0
-                                # (R1 connects to previous residue's R2 in the backbone)
+                                if req_i == 'R1' and best_pos > 0:
+                                    continue
+                                if req_j == 'R2' and t < current_seq_len_s - 1:
+                                    continue
                                 if req_j == 'R1' and t > 0:
                                     continue
                                 chosen = bt
@@ -754,10 +750,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
                                     'j': t,
                                     'type': chosen,
                                     'type_name': bond_type_map[chosen],
-                                    'score': top_scores[0].item()
+                                    'score': top_probs[0].item()
                                 })
-                                has_ring_bond[sample_idx] = True
-                                # Position j: R2 occupied by ring → main chain cannot continue
+                                # R2 occupied by ring bond → main chain cannot continue
                                 if req_j == 'R2':
                                     lengths[sample_idx] = t + 1
             

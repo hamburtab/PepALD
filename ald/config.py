@@ -117,7 +117,7 @@ class ALDGenerationConfig:
     
     # Ring bond prediction
     predict_ring_bonds: bool = True
-    ring_bond_threshold: float = -0.3
+    ring_bond_threshold: float = 0.5
     ring_top_k: int = 1  # Number of top candidates to consider for ring prediction
     
     # Token mapping

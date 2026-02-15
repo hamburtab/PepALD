@@ -51,7 +51,7 @@
     "use_ddim": true,
     "ddim_steps": 50,
     "predict_ring_bonds": true,
-    "ring_bond_threshold": -0.3,
+    "ring_bond_threshold": 0.5,
     "ring_top_k": 1,
     "use_embedding_norm": true,
     "output_file": null,

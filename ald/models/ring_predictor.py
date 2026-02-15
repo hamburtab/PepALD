@@ -359,7 +359,7 @@ class AutoregressiveRingPredictor(nn.Module):
             current_r: [1, 3, r_dim]
             history_context: [1, t, d_model]
             history_r: [1, t, 3, r_dim]
-            threshold: Score threshold for predicting a bond
+            threshold: Probability threshold (0-1) for predicting a bond
             
         Returns:
             Bond dict with 'res1', 'res2', 'bond_type', 'position_score', 'type_confidence'
@@ -373,10 +373,13 @@ class AutoregressiveRingPredictor(nn.Module):
         if position_scores.size(1) == 0:
             return None
         
+        # Apply sigmoid to get calibrated probabilities
+        position_probs = torch.sigmoid(position_scores[0])  # [t]
+        
         # Find best position
-        best_pos_score, best_pos_idx = position_scores[0].max(dim=0)
+        best_pos_prob, best_pos_idx = position_probs.max(dim=0)
         best_pos_idx = best_pos_idx.item()
-        best_pos_score = best_pos_score.item()
+        best_pos_score = best_pos_prob.item()
         
         if best_pos_score < threshold:
             return None
@@ -403,16 +406,16 @@ def compute_ring_loss_ar(
     margin: float = 1.0
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
-    Compute ring bond loss for autoregressive prediction.
+    Compute ring bond loss for autoregressive prediction using BCE loss.
     
     Args:
-        position_scores: [B, t] - bonding scores for each history position
+        position_scores: [B, t] - raw logits for each history position
         type_logits: [B, t, 4] - bond type logits
         ring_bonds: List of ring bond info per sample
             Each element: [{'i': int, 'j': int, 'type': int}, ...]
             where i < j, type is 0-3 (R3R3, R1R2, R1R3, R3R2)
         current_positions: [B] - current position index for each sample
-        margin: Margin for contrastive loss
+        margin: Unused (kept for API compatibility)
         
     Returns:
         total_loss: Combined position and type loss
@@ -420,63 +423,63 @@ def compute_ring_loss_ar(
     """
     device = position_scores.device
     batch_size = position_scores.size(0)
+    history_len = position_scores.size(1)
     
-    position_loss = torch.tensor(0.0, device=device)
-    type_loss = torch.tensor(0.0, device=device)
-    pos_count = 0
-    type_count = 0
+    if history_len == 0:
+        zero = torch.tensor(0.0, device=device)
+        return zero, {'position_loss': zero, 'type_loss': zero}
+    
+    all_logits = []
+    all_labels = []
+    all_type_logits = []
+    all_type_labels = []
     
     for b in range(batch_size):
         curr_pos = current_positions[b].item()
         bonds = ring_bonds[b]
-        history_len = position_scores.size(1)
         
-        if history_len == 0:
-            continue
+        # Build binary label vector
+        labels = torch.zeros(history_len, device=device)
         
-        # Find if current position has a bond with any history position
         positive_hist_pos = -1
         bond_type = -1
-        
         for bond in bonds:
             i, j = bond['i'], bond['j']
-            # Current position is j (the later one), check if i is in history
             if j == curr_pos and i < curr_pos:
                 positive_hist_pos = i
                 bond_type = bond['type']
                 break
-            # Also check reversed case
             elif i == curr_pos and j < curr_pos:
                 positive_hist_pos = j
                 bond_type = bond['type']
                 break
         
         if positive_hist_pos >= 0:
-            # === Position Loss (Contrastive) ===
-            pos_score = position_scores[b, positive_hist_pos]
-            
-            # Create mask for negative samples
-            neg_mask = torch.ones(history_len, dtype=torch.bool, device=device)
-            neg_mask[positive_hist_pos] = False
-            neg_scores = position_scores[b][neg_mask]
-            
-            if neg_scores.numel() > 0:
-                # Margin loss: pos_score should be higher than max(neg_scores) by margin
-                loss_b = F.relu(margin - pos_score + neg_scores.max())
-                position_loss = position_loss + loss_b
-                pos_count += 1
-            
-            # === Type Loss (CrossEntropy) ===
-            logits = type_logits[b, positive_hist_pos]  # [4]
-            label = torch.tensor(bond_type, device=device)
-            type_loss = type_loss + F.cross_entropy(logits.unsqueeze(0), label.unsqueeze(0))
-            type_count += 1
+            labels[positive_hist_pos] = 1.0
+            all_type_logits.append(type_logits[b, positive_hist_pos])
+            all_type_labels.append(bond_type)
+        
+        all_logits.append(position_scores[b])
+        all_labels.append(labels)
     
-    # Average losses
-    if pos_count > 0:
-        position_loss = position_loss / pos_count
-    if type_count > 0:
-        type_loss = type_loss / type_count
+    # BCE position loss with pos_weight
+    cat_logits = torch.cat(all_logits)
+    cat_labels = torch.cat(all_labels)
+    num_pos = cat_labels.sum().clamp(min=1)
+    num_neg = (cat_labels.numel() - num_pos).clamp(min=1)
+    pos_weight = (num_neg / num_pos).clamp(max=50.0)
+    position_loss = F.binary_cross_entropy_with_logits(
+        cat_logits, cat_labels,
+        pos_weight=torch.tensor(pos_weight, device=device)
+    )
+    
+    # Type loss
+    if all_type_logits:
+        type_logits_t = torch.stack(all_type_logits)
+        type_labels_t = torch.tensor(all_type_labels, device=device, dtype=torch.long)
+        type_loss = F.cross_entropy(type_logits_t, type_labels_t)
+    else:
+        type_loss = torch.tensor(0.0, device=device)
     
     total_loss = position_loss + type_loss
     
