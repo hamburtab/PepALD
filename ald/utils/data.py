@@ -3,6 +3,7 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
 import json
+import csv
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
@@ -33,24 +34,47 @@ class HELMDataset(Dataset):
         self.topology_analyzer = HELMTopologyAnalyzer()
         
         self.sequences = []
-        with open(data_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                # Filter by length
-                parsed = self.topology_analyzer.parse_helm_sequence(line)
-                if len(parsed['monomers']) <= self.max_seq_len:
-                    # Filter for cyclic only if requested
-                    if self.cyclic_only:
-                        if parsed['peptide_type'] in ['cyclic', 'q_type']:
-                            self.sequences.append(line)
-                    else:
-                        self.sequences.append(line)
+        for sequence in self._iterate_helm_sequences(data_file):
+            parsed = self.topology_analyzer.parse_helm_sequence(sequence)
+            if len(parsed['monomers']) <= self.max_seq_len:
+                # Filter for cyclic only if requested
+                if self.cyclic_only:
+                    if parsed['peptide_type'] in ['cyclic', 'q_type']:
+                        self.sequences.append(sequence)
+                else:
+                    self.sequences.append(sequence)
         
         cyclic_str = " (cyclic only)" if self.cyclic_only else ""
         print(f"[HELMDataset] Loaded {len(self.sequences)} sequences (<= {self.max_seq_len}){cyclic_str}, vocab: {self.vocab_size}")
+
+    def _iterate_helm_sequences(self, data_file: str):
+        """Yield HELM sequences from txt (one-sequence-per-line) or csv files."""
+        data_path = Path(data_file)
+
+        if data_path.suffix.lower() == '.csv':
+            with open(data_file, 'r', newline='') as f:
+                reader = csv.DictReader(f)
+                if not reader.fieldnames:
+                    raise ValueError(f"CSV file has no header: {data_file}")
+
+                # Prefer canonical uppercase naming, but tolerate lowercase.
+                helm_key = 'HELM' if 'HELM' in reader.fieldnames else 'helm'
+                if helm_key not in reader.fieldnames:
+                    raise ValueError(
+                        f"CSV file {data_file} must contain a HELM column, got: {reader.fieldnames}"
+                    )
+
+                for row in reader:
+                    sequence = (row.get(helm_key) or '').strip()
+                    if sequence:
+                        yield sequence
+            return
+
+        with open(data_file, 'r') as f:
+            for line in f:
+                sequence = line.strip()
+                if sequence:
+                    yield sequence
     
     def __len__(self) -> int:
         return len(self.sequences)
