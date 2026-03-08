@@ -35,14 +35,15 @@ from ald.config import ALDConfig
 # ============================================================
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "default.json"
 CYCLIC_CONFIG = PROJECT_ROOT / "configs" / "finetune.json"
+CPP_CONFIG = PROJECT_ROOT / "configs" / "finetune_permeability_top1000.json"
 # ============================================================
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate peptides with ALD model")
     parser.add_argument(
-        "--mode", type=str, choices=["linear", "cyclic"], default="linear",
-        help="Generation mode: 'linear' (pretrained) or 'cyclic' (finetuned)"
+        "--mode", type=str, choices=["linear", "cyclic", "cpp"], default="linear",
+        help="Generation mode: 'linear', 'cyclic', or 'cpp' (permeability top1000)"
     )
     parser.add_argument(
         "--config", type=str, default=None,
@@ -247,6 +248,8 @@ def main():
         config_file = Path(args.config)
     elif args.mode == "cyclic":
         config_file = CYCLIC_CONFIG
+    elif args.mode == "cpp":
+        config_file = CPP_CONFIG
     else:
         config_file = DEFAULT_CONFIG
     
@@ -299,8 +302,8 @@ def main():
     else:
         print("\n💡 Tip: Use --output <file> to save sequences")
 
-    # Always append cyclic samples to ChEMBL32-only file
-    if args.mode == "cyclic":
+    # Append cyclic/cpp samples to ChEMBL32-only file
+    if args.mode in {"cyclic", "cpp"}:
         chembl_out = PROJECT_ROOT / "chembl32_samples" / "helm_chembl32only_samples.txt"
         save_samples(helm_sequences, str(chembl_out), append=True)
     
