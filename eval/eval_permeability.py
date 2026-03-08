@@ -47,11 +47,20 @@ def fingerprints_from_smiles(smiles: List, size=2048):
     return fps, valid_mask
 
 
+_NEW_DESCRIPTORS = {
+    'SPS', 'FpDensityMorgan1', 'FpDensityMorgan2', 'FpDensityMorgan3',
+    'NumAmideBonds', 'NumBridgeheadAtoms', 'NumSpiroAtoms',
+    'NumUnspecifiedAtomStereoCenters', 'Phi'
+}
+
+
 def getMolDescriptors(mol, missingVal=0):
     """ calculate the full list of descriptors for a molecule """
 
     values, names = [], []
     for nm, fn in Descriptors._descList:
+        if nm in _NEW_DESCRIPTORS:
+            continue
         try:
             val = fn(mol)
         except:
@@ -133,23 +142,25 @@ class Permeability:
 
     @staticmethod
     def load_predictor(model_path):
+        import sklearn.tree._tree as _tree
+        # Patch: old model lacks 'missing_go_to_left' field added in sklearn>=1.3
+        original_check = _tree._check_node_ndarray
+        def _patched_check(node_ndarray, expected_dtype):
+            if node_ndarray.dtype != expected_dtype:
+                new_array = np.zeros(node_ndarray.shape, dtype=expected_dtype)
+                for field in node_ndarray.dtype.names:
+                    new_array[field] = node_ndarray[field]
+                return new_array
+            return node_ndarray
+        _tree._check_node_ndarray = _patched_check
         try:
             predictor = joblib.load(model_path)
-        except ValueError:
-            # Handle sklearn version mismatch: old model lacks 'missing_go_to_left' field
-            import sklearn.tree._tree as _tree
-            original_check = _tree._check_node_ndarray
-            def _patched_check(node_ndarray, expected_dtype):
-                if node_ndarray.dtype != expected_dtype:
-                    new_dtype = expected_dtype
-                    new_array = np.zeros(node_ndarray.shape, dtype=new_dtype)
-                    for field in node_ndarray.dtype.names:
-                        new_array[field] = node_ndarray[field]
-                    return new_array
-                return node_ndarray
-            _tree._check_node_ndarray = _patched_check
-            predictor = joblib.load(model_path)
+        finally:
             _tree._check_node_ndarray = original_check
+        # Patch: old model missing 'estimator' attr (renamed from 'base_estimator' in new sklearn)
+        if not hasattr(predictor, 'estimator'):
+            from sklearn.tree import DecisionTreeRegressor
+            predictor.estimator = DecisionTreeRegressor()
         return predictor
 
     def get_features(self, input_seqs: list):
