@@ -119,11 +119,15 @@ class FinetuneTrainer:
             weight_decay=train_cfg.weight_decay
         )
         
-        # Learning rate scheduler with warmup
+        # Learning rate scheduler with warmup + cosine annealing
+        total_steps = len(train_loader) * train_cfg.num_epochs
+        warmup_steps = train_cfg.warmup_steps
+        
         def lr_lambda(step):
-            if step < train_cfg.warmup_steps:
-                return step / train_cfg.warmup_steps
-            return 1.0
+            if step < warmup_steps:
+                return step / warmup_steps
+            progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            return 0.5 * (1.0 + __import__('math').cos(__import__('math').pi * progress))
         
         self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda)
         

@@ -274,7 +274,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
             ring_position_loss = ring_loss_result['position_loss']
             ring_type_loss = ring_loss_result['type_loss']
         
-        combined_loss = diffusion_loss + 0.5 * ring_bond_loss + 0.5 * ce_loss
+        ring_w = self.config.training.ring_loss_weight
+        ce_w = self.config.training.ce_loss_weight
+        combined_loss = diffusion_loss + ring_w * ring_bond_loss + ce_w * ce_loss
         
         return {
             'loss': combined_loss,
@@ -479,7 +481,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
             ring_position_loss = ring_loss_result['position_loss']
             ring_type_loss = ring_loss_result['type_loss']
         
-        combined_loss = diffusion_loss + 0.5 * ring_bond_loss + 0.5 * ce_loss
+        ring_w = self.config.training.ring_loss_weight
+        ce_w = self.config.training.ce_loss_weight
+        combined_loss = diffusion_loss + ring_w * ring_bond_loss + ce_w * ce_loss
         
         return {
             'loss': combined_loss,
