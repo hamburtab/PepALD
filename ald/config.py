@@ -122,6 +122,7 @@ class ALDGenerationConfig:
     
     # Token mapping
     use_embedding_norm: bool = True  # Use cosine distance
+    logp_weight: float = 0.0  # Weight for logP bias in token selection (0 = disabled)
     
     # Output
     output_file: Optional[str] = None

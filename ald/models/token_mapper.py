@@ -136,6 +136,67 @@ class TokenMapper(nn.Module):
             tokens[b] = self._select_token(distances[b], allowed)
         return tokens
     
+    def _ensure_logp_loaded(self):
+        """Lazily compute and cache logP values for all monomers."""
+        if hasattr(self, '_logp_loaded'):
+            return
+        self._logp_loaded = True
+
+        try:
+            from rdkit import Chem
+            from rdkit.Chem import Descriptors
+        except ImportError:
+            print("[TokenMapper] Warning: RDKit not available, logP weighting disabled")
+            self.register_buffer('logp_values', torch.zeros(self.reference_embeddings.size(0)))
+            return
+
+        num_tokens = self.reference_embeddings.size(0)
+        logp_values = np.zeros(num_tokens)
+        monomer_path = self.data_dir / "monomer_library.csv"
+        if monomer_path.exists():
+            df = pd.read_csv(monomer_path)
+            count = 0
+            for _, row in df.iterrows():
+                symbol = row['Symbol']
+                if symbol not in self.vocab:
+                    continue
+                token_id = self.vocab[symbol]
+                cxsmiles = str(row.get('CXSMILES', ''))
+                smiles = cxsmiles.split(' |')[0] if ' |' in cxsmiles else cxsmiles
+                smiles = smiles.replace('[*]', '[H]')
+                try:
+                    mol = Chem.MolFromSmiles(smiles)
+                    if mol is not None:
+                        logp_values[token_id] = Descriptors.MolLogP(mol)
+                        count += 1
+                except Exception:
+                    pass
+            print(f"[TokenMapper] Loaded logP for {count} monomers")
+
+        self.register_buffer('logp_values', torch.from_numpy(logp_values).float())
+
+    def batch_map_with_logp(
+        self,
+        embeddings: torch.Tensor,
+        positions: int,
+        seq_lens: torch.Tensor,
+        logp_weight: float
+    ) -> torch.Tensor:
+        """Batch map with logP-weighted scoring: score = distance - logp_weight * logP."""
+        self._ensure_logp_loaded()
+        batch_size = embeddings.size(0)
+        device = embeddings.device
+        distances = self._compute_distances(embeddings)
+        logp = self.logp_values.to(device)
+        scores = distances - logp_weight * logp.unsqueeze(0)
+
+        tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
+        for b in range(batch_size):
+            allowed = self._get_allowed_tokens(positions, seq_lens[b].item())
+            idx = torch.argmin(scores[b, allowed]).item()
+            tokens[b] = allowed[idx]
+        return tokens
+
     def get_embedding(self, token_ids: torch.Tensor) -> torch.Tensor:
         """Get embeddings for token IDs (reverse lookup)."""
         return self.reference_embeddings[token_ids]
