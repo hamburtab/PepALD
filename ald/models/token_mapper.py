@@ -173,7 +173,13 @@ class TokenMapper(nn.Module):
                     pass
             print(f"[TokenMapper] Loaded logP for {count} monomers")
 
-        self.register_buffer('logp_values', torch.from_numpy(logp_values).float())
+        logp_tensor = torch.from_numpy(logp_values).float()
+        # Z-score normalize so logP is on the same scale as cosine distance
+        mu, std = logp_tensor.mean(), logp_tensor.std()
+        logp_normalized = (logp_tensor - mu) / std.clamp(min=1e-8)
+        self.register_buffer('logp_values', logp_tensor)
+        self.register_buffer('logp_normalized', logp_normalized)
+        print(f"[TokenMapper] logP z-score: mean={mu:.3f}, std={std:.3f}")
 
     def batch_map_with_logp(
         self,
@@ -182,13 +188,13 @@ class TokenMapper(nn.Module):
         seq_lens: torch.Tensor,
         logp_weight: float
     ) -> torch.Tensor:
-        """Batch map with logP-weighted scoring: score = distance - logp_weight * logP."""
+        """Batch map with logP-weighted scoring: score = distance - logp_weight * zscore(logP)."""
         self._ensure_logp_loaded()
         batch_size = embeddings.size(0)
         device = embeddings.device
         distances = self._compute_distances(embeddings)
-        logp = self.logp_values.to(device)
-        scores = distances - logp_weight * logp.unsqueeze(0)
+        logp_z = self.logp_normalized.to(device)
+        scores = distances - logp_weight * logp_z.unsqueeze(0)
 
         tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
         for b in range(batch_size):
