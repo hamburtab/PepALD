@@ -137,7 +137,7 @@ class TokenMapper(nn.Module):
         return tokens
     
     def _ensure_logp_loaded(self):
-        """Lazily compute and cache logP values for all monomers."""
+        """Lazily compute and cache raw logP values for all monomers."""
         if hasattr(self, '_logp_loaded'):
             return
         self._logp_loaded = True
@@ -146,7 +146,7 @@ class TokenMapper(nn.Module):
             from rdkit import Chem
             from rdkit.Chem import Descriptors
         except ImportError:
-            print("[TokenMapper] Warning: RDKit not available, logP weighting disabled")
+            print("[TokenMapper] Warning: RDKit not available, logP rerank disabled")
             self.register_buffer('logp_values', torch.zeros(self.reference_embeddings.size(0)))
             return
 
@@ -173,34 +173,32 @@ class TokenMapper(nn.Module):
                     pass
             print(f"[TokenMapper] Loaded logP for {count} monomers")
 
-        logp_tensor = torch.from_numpy(logp_values).float()
-        # Z-score normalize so logP is on the same scale as cosine distance
-        mu, std = logp_tensor.mean(), logp_tensor.std()
-        logp_normalized = (logp_tensor - mu) / std.clamp(min=1e-8)
-        self.register_buffer('logp_values', logp_tensor)
-        self.register_buffer('logp_normalized', logp_normalized)
-        print(f"[TokenMapper] logP z-score: mean={mu:.3f}, std={std:.3f}")
+        self.register_buffer('logp_values', torch.from_numpy(logp_values).float())
 
-    def batch_map_with_logp(
+    def batch_map_topk_rerank(
         self,
         embeddings: torch.Tensor,
         positions: int,
         seq_lens: torch.Tensor,
-        logp_weight: float
+        top_k: int = 5
     ) -> torch.Tensor:
-        """Batch map with logP-weighted scoring: score = distance - logp_weight * zscore(logP)."""
+        """Pick top-K nearest allowed tokens by distance, then select the one with highest logP."""
         self._ensure_logp_loaded()
         batch_size = embeddings.size(0)
         device = embeddings.device
         distances = self._compute_distances(embeddings)
-        logp_z = self.logp_normalized.to(device)
-        scores = distances - logp_weight * logp_z.unsqueeze(0)
+        logp = self.logp_values.to(device)
 
         tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
         for b in range(batch_size):
             allowed = self._get_allowed_tokens(positions, seq_lens[b].item())
-            idx = torch.argmin(scores[b, allowed]).item()
-            tokens[b] = allowed[idx]
+            allowed_t = torch.tensor(allowed, dtype=torch.long, device=device)
+            dists_allowed = distances[b, allowed_t]
+            k = min(top_k, len(allowed))
+            _, topk_idx = torch.topk(dists_allowed, k, largest=False)
+            topk_tokens = allowed_t[topk_idx]
+            best = torch.argmax(logp[topk_tokens]).item()
+            tokens[b] = topk_tokens[best]
         return tokens
 
     def get_embedding(self, token_ids: torch.Tensor) -> torch.Tensor:

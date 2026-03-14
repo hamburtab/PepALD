@@ -122,7 +122,7 @@ class ALDGenerationConfig:
     
     # Token mapping
     use_embedding_norm: bool = True  # Use cosine distance
-    logp_weight: float = 0.0  # Weight for logP bias in token selection (0 = disabled)
+    logp_rerank_k: int = 0  # Top-K rerank by logP (0 = disabled, e.g. 5 = pick highest logP among top-5 nearest)
     
     # Output
     output_file: Optional[str] = None

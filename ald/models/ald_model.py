@@ -528,7 +528,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         use_ddim = use_ddim if use_ddim is not None else gen_cfg.use_ddim
         ddim_steps = ddim_steps if ddim_steps is not None else gen_cfg.ddim_steps
         predict_ring_bonds = predict_ring_bonds if predict_ring_bonds is not None else gen_cfg.predict_ring_bonds
-        logp_weight = getattr(gen_cfg, 'logp_weight', 0.0)
+        logp_rerank_k = getattr(gen_cfg, 'logp_rerank_k', 0)
         
         if device is None:
             device = next(self.parameters()).device
@@ -611,11 +611,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     best_idx_in_allowed = torch.argmin(final_scores[i, allowed]).item()
                     token_ids[i] = allowed[best_idx_in_allowed]
             else:
-                # Pure Diffusion (with optional logP weighting)
-                if logp_weight > 0:
-                    token_ids = self.token_mapper.batch_map_with_logp(
+                # Pure Diffusion (with optional top-K logP rerank)
+                if logp_rerank_k > 0:
+                    token_ids = self.token_mapper.batch_map_topk_rerank(
                         embeddings, positions=t, seq_lens=lengths[active_idx],
-                        logp_weight=logp_weight
+                        top_k=logp_rerank_k
                     )
                 else:
                     token_ids = self.token_mapper.batch_map(
