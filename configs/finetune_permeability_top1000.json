@@ -54,7 +54,6 @@
     "ring_bond_threshold": 0.5,
     "ring_top_k": 1,
     "use_embedding_norm": true,
-    "logp_rerank_k": 5,
     "output_file": null,
     "verbose": true,
     "seed": null
