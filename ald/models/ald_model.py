@@ -232,51 +232,57 @@ class AutoregressiveLatentDiffusion(nn.Module):
         if seq_len <= 1:
             return self._empty_loss(device)
         
+        # CE-only fine-tuning mode: skip diffusion & ring loss entirely
+        ce_only = getattr(self.config.training, 'ce_only_finetune', False)
+
         # Prepare contexts (with R-groups if computing ring loss)
-        if compute_ring_loss and ring_bonds is not None:
+        if compute_ring_loss and ring_bonds is not None and not ce_only:
             gt_embeddings, contexts_for_pred, r_emb = self._prepare_contexts(
                 token_ids, mask, return_r_groups=True
             )
         else:
             gt_embeddings, contexts_for_pred = self._prepare_contexts(token_ids, mask)
             r_emb = None
-        
+
         # Create mask for valid positions
         if mask is not None:
             valid_mask = mask.bool()
         else:
             valid_mask = torch.ones(batch_size, seq_len, dtype=torch.bool, device=device)
-        
-        # Flatten valid positions
-        target_flat = gt_embeddings[valid_mask]
-        context_flat = contexts_for_pred[valid_mask].unsqueeze(1)
-        
-        # Diffusion loss
-        diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
-        diffusion_loss = diff_result['loss']
-        
+
+        # Diffusion loss (skip in ce_only mode)
+        diffusion_loss = torch.tensor(0.0, device=device)
+        if not ce_only:
+            target_flat = gt_embeddings[valid_mask]
+            context_flat = contexts_for_pred[valid_mask].unsqueeze(1)
+            diff_result = self.diffusion_engine.training_step(target_flat, context_flat)
+            diffusion_loss = diff_result['loss']
+
         # Auxiliary Next Token Prediction Loss (Hybrid Modeling)
         token_logits = self.lm_head(contexts_for_pred)  # [Batch, Seq, Vocab]
         active_logits = token_logits[valid_mask]
         active_labels = token_ids[valid_mask]
         ce_loss = F.cross_entropy(active_logits, active_labels)
-        
-        # Ring bond loss (autoregressive)
+
+        # Ring bond loss (autoregressive, skip in ce_only mode)
         ring_bond_loss = torch.tensor(0.0, device=device)
         ring_position_loss = torch.tensor(0.0, device=device)
         ring_type_loss = torch.tensor(0.0, device=device)
-        
-        if compute_ring_loss and ring_bonds is not None and r_emb is not None:
+
+        if not ce_only and compute_ring_loss and ring_bonds is not None and r_emb is not None:
             ring_loss_result = self._compute_ring_loss_ar(
                 contexts_for_pred, r_emb, ring_bonds, mask
             )
             ring_bond_loss = ring_loss_result['total_loss']
             ring_position_loss = ring_loss_result['position_loss']
             ring_type_loss = ring_loss_result['type_loss']
-        
-        ring_w = self.config.training.ring_loss_weight
-        ce_w = self.config.training.ce_loss_weight
-        combined_loss = diffusion_loss + ring_w * ring_bond_loss + ce_w * ce_loss
+
+        if ce_only:
+            combined_loss = ce_loss
+        else:
+            ring_w = self.config.training.ring_loss_weight
+            ce_w = self.config.training.ce_loss_weight
+            combined_loss = diffusion_loss + ring_w * ring_bond_loss + ce_w * ce_loss
         
         return {
             'loss': combined_loss,

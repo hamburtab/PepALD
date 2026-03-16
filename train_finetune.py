@@ -159,8 +159,17 @@ class FinetuneTrainer:
     def _setup_layer_freezing(self):
         """Setup layer freezing based on training phase."""
         train_cfg = self.config.training
-        
-        if self.phase == 1:
+
+        if getattr(train_cfg, 'ce_only_finetune', False):
+            # CE-only mode: freeze everything except context_encoder + lm_head
+            print("📌 CE-only fine-tuning: freezing diffusion engine, ring predictor, embedding")
+            for name, param in self.model.named_parameters():
+                if 'context_encoder' in name or 'lm_head' in name:
+                    param.requires_grad = True
+                else:
+                    param.requires_grad = False
+
+        elif self.phase == 1:
             # Phase 1: Only train ring predictor
             print("📌 Phase 1: Freezing all except ring predictor")
             for name, param in self.model.named_parameters():

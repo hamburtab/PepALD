@@ -93,6 +93,9 @@ class ALDTrainingConfig:
     ring_loss_weight: float = 0.5
     ce_loss_weight: float = 0.5
     
+    # CE-only fine-tuning: only train ce_loss, freeze diffusion & ring predictor
+    ce_only_finetune: bool = False
+
     # Layer freezing for fine-tuning
     freeze_embedding: bool = False
     freeze_context_encoder: bool = False
