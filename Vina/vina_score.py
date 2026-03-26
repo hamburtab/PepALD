@@ -11,34 +11,49 @@ from vina import Vina
 #from collections import defaultdict
 
 
+INVALID_SCORE = 0.0
+
+
 def vina_score(
-    ligand_mol_smi: str, # generated mol
-    protein_pdbqt_path: str,     # pdbqt file
-    reference_mol: Chem.rdchem.Mol,    # sdf file
+    ligand_mol_smi: str,
+    protein_pdbqt_path: str,
+    reference_mol: Chem.rdchem.Mol,
     ):
-    """
-    ligand_mol_smi: ligand_mol_smi 环肽的smiles
-    protein_pdbqt_path: 输入蛋白质口袋的pdbqt文件地址
-    reference_mol: 待优化的参考分子，带有三维坐标
-    """
-    ligand_mol= Chem.MolFromSmiles(ligand_mol_smi) 
-    ligand_mol=Chem.AddHs(ligand_mol)
-    AllChem.EmbedMolecule(ligand_mol)
 
-    AllChem.MMFFOptimizeMolecule(ligand_mol)
-    preparator = MoleculePreparation()
-    mol_setups = preparator.prepare(ligand_mol)
-    pdbqt_string, is_ok, error_msg = PDBQTWriterLegacy.write_string(mol_setups[0])
-    v = Vina(sf_name='Vina', cpu=1)
-    v.set_receptor(protein_pdbqt_path)
-    v.set_ligand_from_string(pdbqt_string)
-    v.compute_vina_maps(center=reference_mol.GetConformers()[0].GetPositions().mean(0), box_size=[30, 30, 30])
-    energy_minimized = v.optimize()
+    ligand_mol = Chem.MolFromSmiles(ligand_mol_smi)
+    if ligand_mol is None:
+        return INVALID_SCORE
 
-    v.dock(exhaustiveness=32, n_poses=8)
+    ligand_mol = Chem.AddHs(ligand_mol)
+    embed_status = AllChem.EmbedMolecule(ligand_mol, randomSeed=42)
+    if embed_status == -1:
+        embed_status = AllChem.EmbedMolecule(ligand_mol, useRandomCoords=True, randomSeed=42)
+        if embed_status == -1:
+            return INVALID_SCORE
 
-    docking_score = v.score()[0]
+    try:
+        AllChem.MMFFOptimizeMolecule(ligand_mol, maxIters=500)
+    except Exception:
+        pass
 
-    #ligand_mol.SetProp('docking_score', str(docking_score))
-    
+    try:
+        preparator = MoleculePreparation()
+        mol_setups = preparator.prepare(ligand_mol)
+        pdbqt_string, is_ok, _ = PDBQTWriterLegacy.write_string(mol_setups[0])
+        if not is_ok:
+            return INVALID_SCORE
+    except Exception:
+        return INVALID_SCORE
+
+    try:
+        center = reference_mol.GetConformers()[0].GetPositions().mean(axis=0)
+        v = Vina(sf_name='Vina', cpu=1, verbosity=0)
+        v.set_receptor(protein_pdbqt_path)
+        v.set_ligand_from_string(pdbqt_string)
+        v.compute_vina_maps(center=center.tolist(), box_size=[30, 30, 30])
+        v.dock(exhaustiveness=32, n_poses=8)
+        docking_score = v.energies()[0][0]
+    except Exception:
+        return INVALID_SCORE
+
     return docking_score
