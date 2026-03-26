@@ -49,7 +49,7 @@
     "num_samples": 1002,
     "max_length": 20,
     "min_length": 4,
-    "use_ddim": true,
+    "use_ddim": false,
     "ddim_steps": 50,
     "predict_ring_bonds": true,
     "ring_bond_threshold": 0.5,
