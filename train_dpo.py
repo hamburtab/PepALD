@@ -2,18 +2,18 @@
 DPO Training Script for Autoregressive Latent Diffusion.
 
 Diffusion-DPO (Wallace et al. 2023) applied to cyclic peptide generation:
-    1. Generate sequences with pretrained model
+    1. Load candidate sequences from file (or generate with pretrained model)
     2. Evaluate reward = w1 * Vina_docking_score + w2 * Permeability_score
-    3. Build preference pairs (top-25% vs bottom-25%)
+    3. Build preference pairs (e.g., top-20% vs bottom-20%)
     4. Train with DPO loss: -log σ(β · [progress_w - progress_l])
 
 Usage:
     python train_dpo.py
     python train_dpo.py --config configs/dpo.json
+    python train_dpo.py --sample_file chembl32_samples/head_tail_single_cycle_samples.txt
     python train_dpo.py --config configs/dpo.json --skip_generate --winner_file w.txt --loser_file l.txt
 """
 
-import os
 import sys
 import json
 import argparse
@@ -41,6 +41,11 @@ def parse_args():
         help="Path to DPO config file"
     )
     parser.add_argument(
+        "--sample_file", type=str, default=None,
+        help="Candidate HELM sequences file for ranking (one per line). "
+             "Overrides dpo.sample_file in config."
+    )
+    parser.add_argument(
         "--skip_generate", action="store_true",
         help="Skip generation step, use pre-computed winner/loser files"
     )
@@ -57,6 +62,14 @@ def parse_args():
         help="Resume DPO training from checkpoint"
     )
     return parser.parse_args()
+
+
+def resolve_path(path_str: str) -> Path:
+    """Resolve path; relative paths are interpreted from project root."""
+    path = Path(path_str).expanduser()
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path
 
 
 def load_pretrained_model(config: ALDConfig, device: torch.device):
@@ -91,6 +104,59 @@ def load_pretrained_model(config: ALDConfig, device: torch.device):
     print(f"Model loaded ({total_params/1e6:.1f}M parameters)")
 
     return model, vocab
+
+
+def evaluate_rewards(all_helms: list, dpo_cfg: dict):
+    """Step 2: Evaluate reward for a list of HELM sequences."""
+    if len(all_helms) == 0:
+        raise ValueError("No HELM sequences provided for reward evaluation.")
+    print(f"\n{'='*60}")
+    print(f"Step 2: Evaluating rewards...")
+    print(f"{'='*60}")
+
+    w_vina = dpo_cfg.get('reward_w_vina', 1.0)
+    w_perm = dpo_cfg.get('reward_w_perm', 0.5)
+
+    # Permeability prediction
+    perm_scores = np.zeros(len(all_helms))
+    try:
+        from eval.eval_permeability import Permeability
+        perm_predictor = Permeability()
+        perm_scores = perm_predictor(all_helms)
+        valid_perm = perm_scores[perm_scores > -10]
+        print(f"Permeability: {len(valid_perm)}/{len(all_helms)} valid, "
+              f"mean={valid_perm.mean():.4f}" if len(valid_perm) > 0 else "No valid permeability scores")
+    except Exception as e:
+        print(f"Warning: Permeability evaluation failed: {e}")
+        print("Using zero permeability scores")
+
+    # Vina docking score
+    # TODO: 接入实际的 Vina docking 代码
+    # 目前使用占位符, 需要你提供 Vina docking 函数:
+    #   vina_scores = dock(all_helms)  # 返回 np.ndarray, 越负越好(结合越强)
+    vina_scores = np.zeros(len(all_helms))
+    try:
+        # 尝试导入 Vina docking 模块 (你需要实现这个)
+        from Vina.dock import dock_helms
+        vina_scores = dock_helms(all_helms)
+        valid_vina = vina_scores[vina_scores != 0]
+        print(f"Vina docking: {len(valid_vina)}/{len(all_helms)} valid, "
+              f"mean={valid_vina.mean():.4f}" if len(valid_vina) > 0 else "No valid Vina scores")
+    except ImportError:
+        print("Warning: Vina docking module not found (Vina/dock.py)")
+        print("Using zero Vina scores. Only permeability will drive DPO.")
+    except Exception as e:
+        print(f"Warning: Vina docking failed: {e}")
+        print("Using zero Vina scores")
+
+    # Combined reward
+    # Vina score 越负越好, 取负号使得越大越好 (与 DPO 的 "higher is better" 一致)
+    all_rewards = w_vina * (-vina_scores) + w_perm * perm_scores
+    print(f"\nReward stats: mean={all_rewards.mean():.4f}, "
+          f"std={all_rewards.std():.4f}, "
+          f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
+
+    return all_rewards
 
 
 def generate_and_evaluate(
@@ -140,54 +206,7 @@ def generate_and_evaluate(
         all_helms.append(helm_seq)
 
     print(f"Generated {len(all_helms)} HELM sequences")
-
-    # ── Evaluate rewards ──
-    print(f"\n{'='*60}")
-    print(f"Step 2: Evaluating rewards...")
-    print(f"{'='*60}")
-
-    w_vina = dpo_cfg.get('reward_w_vina', 1.0)
-    w_perm = dpo_cfg.get('reward_w_perm', 0.5)
-
-    # Permeability prediction
-    perm_scores = np.zeros(len(all_helms))
-    try:
-        from eval.eval_permeability import Permeability
-        perm_predictor = Permeability()
-        perm_scores = perm_predictor(all_helms)
-        valid_perm = perm_scores[perm_scores > -10]
-        print(f"Permeability: {len(valid_perm)}/{len(all_helms)} valid, "
-              f"mean={valid_perm.mean():.4f}" if len(valid_perm) > 0 else "No valid permeability scores")
-    except Exception as e:
-        print(f"Warning: Permeability evaluation failed: {e}")
-        print("Using zero permeability scores")
-
-    # Vina docking score
-    # TODO: 接入实际的 Vina docking 代码
-    # 目前使用占位符, 需要你提供 Vina docking 函数:
-    #   vina_scores = dock(all_helms)  # 返回 np.ndarray, 越负越好(结合越强)
-    vina_scores = np.zeros(len(all_helms))
-    try:
-        # 尝试导入 Vina docking 模块 (你需要实现这个)
-        from Vina.dock import dock_helms
-        vina_scores = dock_helms(all_helms)
-        valid_vina = vina_scores[vina_scores != 0]
-        print(f"Vina docking: {len(valid_vina)}/{len(all_helms)} valid, "
-              f"mean={valid_vina.mean():.4f}" if len(valid_vina) > 0 else "No valid Vina scores")
-    except ImportError:
-        print("Warning: Vina docking module not found (Vina/dock.py)")
-        print("Using zero Vina scores. Only permeability will drive DPO.")
-    except Exception as e:
-        print(f"Warning: Vina docking failed: {e}")
-        print("Using zero Vina scores")
-
-    # Combined reward
-    # Vina score 越负越好, 取负号使得越大越好 (与 DPO 的 "higher is better" 一致)
-    all_rewards = w_vina * (-vina_scores) + w_perm * perm_scores
-    print(f"\nReward stats: mean={all_rewards.mean():.4f}, "
-          f"std={all_rewards.std():.4f}, "
-          f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
-
+    all_rewards = evaluate_rewards(all_helms, dpo_cfg)
     return all_helms, all_rewards
 
 
@@ -203,6 +222,31 @@ def load_helm_list(path: str) -> list:
     """Load HELM sequences from file."""
     with open(path, 'r') as f:
         return [line.strip() for line in f if line.strip()]
+
+
+def load_and_evaluate_from_file(sample_file: str, dpo_cfg: dict):
+    """
+    Step 1: Load candidate sequences from file.
+    Step 2: Evaluate reward for each sequence.
+    """
+    sample_path = resolve_path(sample_file)
+    if not sample_path.exists():
+        print(f"Sample file not found: {sample_path}")
+        sys.exit(1)
+
+    print(f"\n{'='*60}")
+    print(f"Step 1: Loading candidate sequences from file...")
+    print(f"{'='*60}")
+    print(f"Sample file: {sample_path}")
+
+    all_helms = load_helm_list(str(sample_path))
+    if len(all_helms) == 0:
+        print("No valid HELM sequences found in sample file.")
+        sys.exit(1)
+
+    print(f"Loaded {len(all_helms)} HELM sequences from file")
+    all_rewards = evaluate_rewards(all_helms, dpo_cfg)
+    return all_helms, all_rewards, sample_path
 
 
 def main():
@@ -225,24 +269,34 @@ def main():
     model, vocab = load_pretrained_model(config, device)
 
     # ── Build preference pairs ──
-    if args.skip_generate and args.winner_file and args.loser_file:
+    if args.skip_generate:
+        if not (args.winner_file and args.loser_file):
+            print("When --skip_generate is set, both --winner_file and --loser_file must be provided.")
+            sys.exit(1)
         print(f"\nLoading pre-computed preference pairs...")
         winner_helms = load_helm_list(args.winner_file)
         loser_helms = load_helm_list(args.loser_file)
         print(f"Loaded {len(winner_helms)} winners, {len(loser_helms)} losers")
     else:
-        # Generate and evaluate
-        all_helms, all_rewards = generate_and_evaluate(model, config, dpo_cfg, device)
+        sample_file = args.sample_file or dpo_cfg.get('sample_file')
+
+        if sample_file:
+            all_helms, all_rewards, sample_path = load_and_evaluate_from_file(sample_file, dpo_cfg)
+            print(f"Using candidate set from: {sample_path}")
+        else:
+            # Fallback: generate and evaluate with pretrained model
+            all_helms, all_rewards = generate_and_evaluate(model, config, dpo_cfg, device)
 
         # Build pairs
-        top_ratio = dpo_cfg.get('top_ratio', 0.25)
-        bottom_ratio = dpo_cfg.get('bottom_ratio', 0.25)
+        top_ratio = dpo_cfg.get('top_ratio', 0.2)
+        bottom_ratio = dpo_cfg.get('bottom_ratio', 0.2)
         winner_helms, loser_helms = build_preference_pairs(
             all_helms, all_rewards, top_ratio, bottom_ratio
         )
 
         # Save for reproducibility
         save_dir = Path(config.training.checkpoint_dir) / 'dpo_data'
+        save_helm_list(all_helms, str(save_dir / 'candidates.txt'))
         save_helm_list(winner_helms, str(save_dir / 'winners.txt'))
         save_helm_list(loser_helms, str(save_dir / 'losers.txt'))
         np.save(str(save_dir / 'rewards.npy'), all_rewards)

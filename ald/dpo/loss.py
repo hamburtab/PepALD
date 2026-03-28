@@ -12,7 +12,7 @@ Where:
 Properties:
     - logsigmoid 提供自稳定梯度: margin 大时梯度自动消失, 防止过拟合
     - ref_model 提供 baseline: 消除样本本身难度差异
-    - beta 控制偏离 ref 的程度: 越大越激进, 越小越保守
+    - beta 控制偏离 ref 的程度: β 大 → r(x)/β 小 → 最优策略接近 π_ref → 保守（KL 约束强）
 """
 
 import torch
