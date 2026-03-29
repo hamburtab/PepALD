@@ -130,24 +130,34 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         print(f"Warning: Permeability evaluation failed: {e}")
         print("Using zero permeability scores")
 
-    # Vina docking score
-    # TODO: 接入实际的 Vina docking 代码
-    # 目前使用占位符, 需要你提供 Vina docking 函数:
-    #   vina_scores = dock(all_helms)  # 返回 np.ndarray, 越负越好(结合越强)
-    vina_scores = np.zeros(len(all_helms))
+    # Vina docking score (required).
     try:
-        # 尝试导入 Vina docking 模块 (你需要实现这个)
         from Vina.dock import dock_helms
-        vina_scores = dock_helms(all_helms)
-        valid_vina = vina_scores[vina_scores != 0]
-        print(f"Vina docking: {len(valid_vina)}/{len(all_helms)} valid, "
-              f"mean={valid_vina.mean():.4f}" if len(valid_vina) > 0 else "No valid Vina scores")
-    except ImportError:
-        print("Warning: Vina docking module not found (Vina/dock.py)")
-        print("Using zero Vina scores. Only permeability will drive DPO.")
     except Exception as e:
-        print(f"Warning: Vina docking failed: {e}")
-        print("Using zero Vina scores")
+        raise RuntimeError(
+            f"Vina docking import failed, cannot continue DPO training: {e}"
+        ) from e
+
+    try:
+        vina_scores = np.asarray(dock_helms(all_helms), dtype=np.float64)
+    except Exception as e:
+        raise RuntimeError(
+            f"Vina docking execution failed, cannot continue DPO training: {e}"
+        ) from e
+
+    if vina_scores.shape[0] != len(all_helms):
+        raise RuntimeError(
+            f"Vina returned {vina_scores.shape[0]} scores for {len(all_helms)} sequences."
+        )
+
+    valid_vina = vina_scores[vina_scores != 0]
+    if len(valid_vina) == 0:
+        raise RuntimeError(
+            "Vina produced zero valid scores (all scores are INVALID_SCORE=0.0); aborting DPO."
+        )
+
+    print(f"Vina docking: {len(valid_vina)}/{len(all_helms)} valid, "
+          f"mean={valid_vina.mean():.4f}")
 
     # Combined reward
     # Vina score 越负越好, 取负号使得越大越好 (与 DPO 的 "higher is better" 一致)
@@ -224,6 +234,46 @@ def load_helm_list(path: str) -> list:
         return [line.strip() for line in f if line.strip()]
 
 
+def deduplicate_candidates(
+    all_helms: list,
+    all_rewards: np.ndarray,
+    vina_scores: np.ndarray,
+    perm_scores: np.ndarray,
+):
+    """Remove duplicate HELM candidates before preference pairing."""
+    n = len(all_helms)
+    if not (n == len(all_rewards) == len(vina_scores) == len(perm_scores)):
+        raise ValueError("Candidate arrays must have the same length before deduplication.")
+
+    seen = set()
+    keep_indices = []
+    duplicate_count = 0
+
+    for idx, helm in enumerate(all_helms):
+        if helm in seen:
+            duplicate_count += 1
+            continue
+        seen.add(helm)
+        keep_indices.append(idx)
+
+    if duplicate_count == 0:
+        print("Candidate dedup: no duplicates found")
+        return all_helms, all_rewards, vina_scores, perm_scores
+
+    keep_indices = np.asarray(keep_indices, dtype=np.int64)
+    dedup_helms = [all_helms[i] for i in keep_indices]
+    dedup_rewards = np.asarray(all_rewards)[keep_indices]
+    dedup_vina = np.asarray(vina_scores)[keep_indices]
+    dedup_perm = np.asarray(perm_scores)[keep_indices]
+
+    print(
+        f"Candidate dedup: {n} -> {len(dedup_helms)} unique "
+        f"({duplicate_count} duplicates removed)"
+    )
+
+    return dedup_helms, dedup_rewards, dedup_vina, dedup_perm
+
+
 def load_and_evaluate_from_file(sample_file: str, dpo_cfg: dict):
     """
     Step 1: Load candidate sequences from file.
@@ -286,6 +336,10 @@ def main():
         else:
             # Fallback: generate and evaluate with pretrained model
             all_helms, all_rewards, vina_scores, perm_scores = generate_and_evaluate(model, config, dpo_cfg, device)
+
+        all_helms, all_rewards, vina_scores, perm_scores = deduplicate_candidates(
+            all_helms, all_rewards, vina_scores, perm_scores
+        )
 
         # Build pairs
         top_ratio = dpo_cfg.get('top_ratio', 0.2)
