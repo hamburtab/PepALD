@@ -156,7 +156,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
           f"std={all_rewards.std():.4f}, "
           f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
 
-    return all_rewards
+    return all_rewards, vina_scores, perm_scores
 
 
 def generate_and_evaluate(
@@ -206,8 +206,8 @@ def generate_and_evaluate(
         all_helms.append(helm_seq)
 
     print(f"Generated {len(all_helms)} HELM sequences")
-    all_rewards = evaluate_rewards(all_helms, dpo_cfg)
-    return all_helms, all_rewards
+    all_rewards, vina_scores, perm_scores = evaluate_rewards(all_helms, dpo_cfg)
+    return all_helms, all_rewards, vina_scores, perm_scores
 
 
 def save_helm_list(helms: list, path: str):
@@ -245,8 +245,8 @@ def load_and_evaluate_from_file(sample_file: str, dpo_cfg: dict):
         sys.exit(1)
 
     print(f"Loaded {len(all_helms)} HELM sequences from file")
-    all_rewards = evaluate_rewards(all_helms, dpo_cfg)
-    return all_helms, all_rewards, sample_path
+    all_rewards, vina_scores, perm_scores = evaluate_rewards(all_helms, dpo_cfg)
+    return all_helms, all_rewards, vina_scores, perm_scores, sample_path
 
 
 def main():
@@ -281,17 +281,21 @@ def main():
         sample_file = args.sample_file or dpo_cfg.get('sample_file')
 
         if sample_file:
-            all_helms, all_rewards, sample_path = load_and_evaluate_from_file(sample_file, dpo_cfg)
+            all_helms, all_rewards, vina_scores, perm_scores, sample_path = load_and_evaluate_from_file(sample_file, dpo_cfg)
             print(f"Using candidate set from: {sample_path}")
         else:
             # Fallback: generate and evaluate with pretrained model
-            all_helms, all_rewards = generate_and_evaluate(model, config, dpo_cfg, device)
+            all_helms, all_rewards, vina_scores, perm_scores = generate_and_evaluate(model, config, dpo_cfg, device)
 
         # Build pairs
         top_ratio = dpo_cfg.get('top_ratio', 0.2)
         bottom_ratio = dpo_cfg.get('bottom_ratio', 0.2)
+        w_vina = dpo_cfg.get('reward_w_vina', 1.0)
+        w_perm = dpo_cfg.get('reward_w_perm', 0.5)
         winner_helms, loser_helms = build_preference_pairs(
-            all_helms, all_rewards, top_ratio, bottom_ratio
+            all_helms, all_rewards, top_ratio, bottom_ratio,
+            vina_scores=vina_scores, perm_scores=perm_scores,
+            reward_w_vina=w_vina, reward_w_perm=w_perm,
         )
 
         # Save for reproducibility

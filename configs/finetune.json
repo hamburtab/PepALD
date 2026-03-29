@@ -44,10 +44,10 @@
     "freeze_diffusion": false
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_cyclic/latest.pt",
-    "num_samples": 1000,
-    "max_length": 20,
-    "min_length": 4,
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_cyclic/checkpoint_epoch_35.pt",
+    "num_samples": 12000,
+    "max_length": 7,
+    "min_length": 7,
     "use_ddim": true,
     "ddim_steps": 50,
     "predict_ring_bonds": true,

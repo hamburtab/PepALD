@@ -126,15 +126,23 @@ def build_preference_pairs(
     all_rewards: np.ndarray,
     top_ratio: float = 0.25,
     bottom_ratio: float = 0.25,
+    vina_scores: Optional[np.ndarray] = None,
+    perm_scores: Optional[np.ndarray] = None,
+    reward_w_vina: float = 1.0,
+    reward_w_perm: float = 0.5,
 ):
     """
     从生成结果中构造 winner/loser 列表.
 
     Args:
-        all_helms:   生成的 HELM 序列列表
-        all_rewards:  对应的 reward 数组 (= w1*vina + w2*perm)
+        all_helms:    生成的 HELM 序列列表
+        all_rewards:  对应的 reward 数组 (= w1*(-vina) + w2*perm)
         top_ratio:    取 reward 最高的比例作为 winner
         bottom_ratio: 取 reward 最低的比例作为 loser
+        vina_scores:  原始 Vina docking 分数 (越负越好)
+        perm_scores:  透膜性分数
+        reward_w_vina: Vina 权重
+        reward_w_perm: 透膜性权重
 
     Returns:
         winner_helms: List[str]
@@ -152,8 +160,40 @@ def build_preference_pairs(
     winner_helms = [all_helms[i] for i in winner_idx]
     loser_helms = [all_helms[i] for i in loser_idx]
 
-    print(f"[build_preference_pairs] N={n}, "
-          f"winners={len(winner_helms)} (reward >= {all_rewards[winner_idx[0]]:.4f}), "
-          f"losers={len(loser_helms)} (reward <= {all_rewards[loser_idx[-1]]:.4f})")
+    # ── 详细统计 ──
+    w_rewards = all_rewards[winner_idx]
+    l_rewards = all_rewards[loser_idx]
+
+    print(f"\n{'='*60}")
+    print(f"Preference Pair Statistics")
+    print(f"{'='*60}")
+    print(f"Total candidates: {n}")
+    print(f"Winners (top {top_ratio*100:.0f}%):  n={len(winner_helms)}, "
+          f"reward mean={w_rewards.mean():.4f}, std={w_rewards.std():.4f}, "
+          f"range=[{w_rewards.min():.4f}, {w_rewards.max():.4f}]")
+    print(f"Losers (bottom {bottom_ratio*100:.0f}%): n={len(loser_helms)}, "
+          f"reward mean={l_rewards.mean():.4f}, std={l_rewards.std():.4f}, "
+          f"range=[{l_rewards.min():.4f}, {l_rewards.max():.4f}]")
+
+    if vina_scores is not None:
+        w_vina = vina_scores[winner_idx]
+        l_vina = vina_scores[loser_idx]
+        print(f"  Vina (raw, lower=better):")
+        print(f"    Winners: mean={w_vina.mean():.4f}, range=[{w_vina.min():.4f}, {w_vina.max():.4f}]  "
+              f"(contribution: {reward_w_vina}*(-vina) = {reward_w_vina * (-w_vina.mean()):.4f})")
+        print(f"    Losers:  mean={l_vina.mean():.4f}, range=[{l_vina.min():.4f}, {l_vina.max():.4f}]  "
+              f"(contribution: {reward_w_vina}*(-vina) = {reward_w_vina * (-l_vina.mean()):.4f})")
+
+    if perm_scores is not None:
+        w_perm = perm_scores[winner_idx]
+        l_perm = perm_scores[loser_idx]
+        print(f"  Permeability (higher=better):")
+        print(f"    Winners: mean={w_perm.mean():.4f}, range=[{w_perm.min():.4f}, {w_perm.max():.4f}]  "
+              f"(contribution: {reward_w_perm}*perm = {reward_w_perm * w_perm.mean():.4f})")
+        print(f"    Losers:  mean={l_perm.mean():.4f}, range=[{l_perm.min():.4f}, {l_perm.max():.4f}]  "
+              f"(contribution: {reward_w_perm}*perm = {reward_w_perm * l_perm.mean():.4f})")
+
+    print(f"Reward gap (winner_mean - loser_mean): {w_rewards.mean() - l_rewards.mean():.4f}")
+    print(f"{'='*60}\n")
 
     return winner_helms, loser_helms
