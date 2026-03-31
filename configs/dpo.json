@@ -68,7 +68,7 @@
     "bottom_ratio": 0.1,
     "num_generate": 2000,
     "vina_device": "cpu",
-    "vina_cpu": "auto",
+    "vina_cpu": 32,
     "vina_show_progress": true,
     "reward_w_vina": 1.0,
     "reward_w_perm": 0.5,
