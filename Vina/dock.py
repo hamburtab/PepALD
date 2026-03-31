@@ -69,18 +69,28 @@ def dock_helms(
         progress = tqdm(iterator, desc=f"Vina docking ({device})", unit="ligand")
         iterator = progress
 
+    def _log_timing(msg: str):
+        if use_tqdm and progress is not None:
+            progress.write(msg)
+        else:
+            print(msg)
+
     for i in iterator:
         helm = helm_list[i]
         # HELM → SMILES
         smi = get_cycpep_smi_from_helm(helm)
         if smi is None:
+            _log_timing(
+                f"[timing] ligand={i+1}/{len(helm_list)} mmff=0.000s "
+                f"vina_dock=0.000s total=0.000s status=invalid_smiles"
+            )
             if use_tqdm and progress is not None and (i + 1) % 20 == 0:
                 avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
                 progress.set_postfix(valid=f"{valid_count}/{i+1}", avg=f"{avg:.2f}")
             continue
 
         # SMILES → Vina score
-        score = vina_score(
+        score, mmff_sec, dock_sec = vina_score(
             ligand_mol_smi=smi,
             protein_pdbqt_path=protein_pdbqt_path,
             reference_mol=reference_mol,
@@ -88,6 +98,12 @@ def dock_helms(
             cpu=cpu,
         )
         scores[i] = score
+
+        status = "valid" if score != INVALID_SCORE else "invalid"
+        _log_timing(
+            f"[timing] ligand={i+1}/{len(helm_list)} mmff={mmff_sec:.3f}s "
+            f"vina_dock={dock_sec:.3f}s total={mmff_sec + dock_sec:.3f}s status={status}"
+        )
 
         if score != INVALID_SCORE:
             valid_count += 1
