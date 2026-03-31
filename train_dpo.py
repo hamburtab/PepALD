@@ -116,6 +116,9 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
 
     w_vina = dpo_cfg.get('reward_w_vina', 1.0)
     w_perm = dpo_cfg.get('reward_w_perm', 0.5)
+    vina_device = str(dpo_cfg.get('vina_device', 'cuda')).lower()
+    vina_cpu = int(dpo_cfg.get('vina_cpu', 1))
+    vina_show_progress = bool(dpo_cfg.get('vina_show_progress', True))
 
     # Permeability prediction
     perm_scores = np.zeros(len(all_helms))
@@ -139,7 +142,16 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         ) from e
 
     try:
-        vina_scores = np.asarray(dock_helms(all_helms), dtype=np.float64)
+        print(f"Vina runtime: device={vina_device}, cpu={vina_cpu}, progress={vina_show_progress}")
+        vina_scores = np.asarray(
+            dock_helms(
+                all_helms,
+                device=vina_device,
+                cpu=vina_cpu,
+                show_progress=vina_show_progress,
+            ),
+            dtype=np.float64,
+        )
     except Exception as e:
         raise RuntimeError(
             f"Vina docking execution failed, cannot continue DPO training: {e}"
@@ -234,44 +246,29 @@ def load_helm_list(path: str) -> list:
         return [line.strip() for line in f if line.strip()]
 
 
-def deduplicate_candidates(
-    all_helms: list,
-    all_rewards: np.ndarray,
-    vina_scores: np.ndarray,
-    perm_scores: np.ndarray,
-):
-    """Remove duplicate HELM candidates before preference pairing."""
-    n = len(all_helms)
-    if not (n == len(all_rewards) == len(vina_scores) == len(perm_scores)):
-        raise ValueError("Candidate arrays must have the same length before deduplication.")
-
+def deduplicate_helms(helms: list, stage: str = "candidates") -> list:
+    """Remove duplicate HELM sequences while preserving order."""
+    n = len(helms)
     seen = set()
-    keep_indices = []
+    unique_helms = []
     duplicate_count = 0
 
-    for idx, helm in enumerate(all_helms):
+    for helm in helms:
         if helm in seen:
             duplicate_count += 1
             continue
         seen.add(helm)
-        keep_indices.append(idx)
+        unique_helms.append(helm)
 
     if duplicate_count == 0:
-        print("Candidate dedup: no duplicates found")
-        return all_helms, all_rewards, vina_scores, perm_scores
-
-    keep_indices = np.asarray(keep_indices, dtype=np.int64)
-    dedup_helms = [all_helms[i] for i in keep_indices]
-    dedup_rewards = np.asarray(all_rewards)[keep_indices]
-    dedup_vina = np.asarray(vina_scores)[keep_indices]
-    dedup_perm = np.asarray(perm_scores)[keep_indices]
+        print(f"{stage} dedup: no duplicates found")
+        return helms
 
     print(
-        f"Candidate dedup: {n} -> {len(dedup_helms)} unique "
+        f"{stage} dedup: {n} -> {len(unique_helms)} unique "
         f"({duplicate_count} duplicates removed)"
     )
-
-    return dedup_helms, dedup_rewards, dedup_vina, dedup_perm
+    return unique_helms
 
 
 def load_and_evaluate_from_file(sample_file: str, dpo_cfg: dict):
@@ -295,6 +292,7 @@ def load_and_evaluate_from_file(sample_file: str, dpo_cfg: dict):
         sys.exit(1)
 
     print(f"Loaded {len(all_helms)} HELM sequences from file")
+    all_helms = deduplicate_helms(all_helms, stage="candidate file")
     all_rewards, vina_scores, perm_scores = evaluate_rewards(all_helms, dpo_cfg)
     return all_helms, all_rewards, vina_scores, perm_scores, sample_path
 
@@ -336,10 +334,6 @@ def main():
         else:
             # Fallback: generate and evaluate with pretrained model
             all_helms, all_rewards, vina_scores, perm_scores = generate_and_evaluate(model, config, dpo_cfg, device)
-
-        all_helms, all_rewards, vina_scores, perm_scores = deduplicate_candidates(
-            all_helms, all_rewards, vina_scores, perm_scores
-        )
 
         # Build pairs
         top_ratio = dpo_cfg.get('top_ratio', 0.2)

@@ -16,10 +16,27 @@ DEFAULT_RECEPTOR = osp.join(osp.dirname(__file__), "6dn5_receptor.pdbqt")
 DEFAULT_REF_SDF = osp.join(osp.dirname(__file__), "raw_cyclic_pep.sdf")
 
 
+def _build_vina_instance(device: str = "cuda", cpu: int = 1) -> Vina:
+    device = str(device).lower()
+    if device == "cuda":
+        try:
+            return Vina(sf_name='Vina', cpu=cpu, verbosity=0, gpu=True)
+        except TypeError as e:
+            raise RuntimeError(
+                "Current vina Python package does not expose CUDA mode. "
+                "Install a CUDA-enabled Vina build or set vina_device='cpu'."
+            ) from e
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize Vina with CUDA: {e}") from e
+    return Vina(sf_name='Vina', cpu=cpu, verbosity=0)
+
+
 def vina_score(
     ligand_mol_smi: str,
     protein_pdbqt_path: str,
     reference_mol: Chem.rdchem.Mol,
+    device: str = "cuda",
+    cpu: int = 1,
     ):
 
     ligand_mol = Chem.MolFromSmiles(ligand_mol_smi)
@@ -49,12 +66,14 @@ def vina_score(
 
     try:
         center = reference_mol.GetConformers()[0].GetPositions().mean(axis=0)
-        v = Vina(sf_name='Vina', cpu=1, verbosity=0)
+        v = _build_vina_instance(device=device, cpu=cpu)
         v.set_receptor(protein_pdbqt_path)
         v.set_ligand_from_string(pdbqt_string)
         v.compute_vina_maps(center=center.tolist(), box_size=[30, 30, 30])
         v.dock(exhaustiveness=32, n_poses=8)
         docking_score = v.energies()[0][0]
+    except RuntimeError:
+        raise
     except Exception:
         return INVALID_SCORE
 

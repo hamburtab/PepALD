@@ -7,6 +7,11 @@ import numpy as np
 from typing import List
 from rdkit import Chem
 
+try:
+    from tqdm.auto import tqdm
+except Exception:
+    tqdm = None
+
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,6 +24,9 @@ def dock_helms(
     helm_list: List[str],
     protein_pdbqt_path: str = None,
     ref_sdf_path: str = None,
+    device: str = "cuda",
+    cpu: int = 1,
+    show_progress: bool = True,
 ) -> np.ndarray:
     """
     批量对 HELM 序列做 Vina docking。
@@ -29,6 +37,9 @@ def dock_helms(
         helm_list:           HELM 序列列表
         protein_pdbqt_path:  受体文件, 默认 6dn5_receptor.pdbqt
         ref_sdf_path:        参考配体, 默认 raw_cyclic_pep.sdf
+        device:              打分设备标记, 默认 cuda
+        cpu:                 Vina CPU 线程数
+        show_progress:       是否显示进度条
 
     Returns:
         scores: np.ndarray [N], 每条 HELM 的 docking score (越负越好, 无效=0.0)
@@ -45,24 +56,50 @@ def dock_helms(
         raise ValueError(f"无法从 {ref_sdf_path} 加载参考分子")
 
     scores = np.full(len(helm_list), INVALID_SCORE, dtype=np.float64)
+    valid_count = 0
+    valid_sum = 0.0
 
-    for i, helm in enumerate(helm_list):
+    use_tqdm = bool(show_progress and tqdm is not None)
+    if show_progress and tqdm is None:
+        print("Warning: tqdm is not available, fallback to periodic logging.")
+
+    iterator = range(len(helm_list))
+    progress = None
+    if use_tqdm:
+        progress = tqdm(iterator, desc=f"Vina docking ({device})", unit="ligand")
+        iterator = progress
+
+    for i in iterator:
+        helm = helm_list[i]
         # HELM → SMILES
         smi = get_cycpep_smi_from_helm(helm)
         if smi is None:
+            if use_tqdm and progress is not None and (i + 1) % 20 == 0:
+                avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
+                progress.set_postfix(valid=f"{valid_count}/{i+1}", avg=f"{avg:.2f}")
             continue
 
         # SMILES → Vina score
-        scores[i] = vina_score(
+        score = vina_score(
             ligand_mol_smi=smi,
             protein_pdbqt_path=protein_pdbqt_path,
             reference_mol=reference_mol,
+            device=device,
+            cpu=cpu,
         )
+        scores[i] = score
 
-        if (i + 1) % 50 == 0:
-            valid_mask = scores[:i+1] != INVALID_SCORE
-            valid_rate = valid_mask.sum() / (i + 1)
-            avg = scores[:i+1][valid_mask].mean() if valid_mask.any() else 0
+        if score != INVALID_SCORE:
+            valid_count += 1
+            valid_sum += score
+
+        if use_tqdm and progress is not None:
+            if (i + 1) % 20 == 0:
+                avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
+                progress.set_postfix(valid=f"{valid_count}/{i+1}", avg=f"{avg:.2f}")
+        elif (i + 1) % 50 == 0:
+            valid_rate = valid_count / (i + 1)
+            avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
             print(f"  Vina: {i+1}/{len(helm_list)}, "
                   f"valid={valid_rate:.1%}, avg={avg:.2f}")
 
