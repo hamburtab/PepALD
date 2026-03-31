@@ -18,6 +18,7 @@ import sys
 import json
 import argparse
 import time
+import os
 import numpy as np
 from pathlib import Path
 
@@ -117,7 +118,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     w_vina = dpo_cfg.get('reward_w_vina', 1.0)
     w_perm = dpo_cfg.get('reward_w_perm', 0.5)
     vina_device = str(dpo_cfg.get('vina_device', 'cuda')).lower()
-    vina_cpu = int(dpo_cfg.get('vina_cpu', 1))
+    vina_cpu = resolve_vina_cpu(dpo_cfg.get('vina_cpu', None))
     vina_show_progress = bool(dpo_cfg.get('vina_show_progress', True))
 
     # Permeability prediction
@@ -179,6 +180,41 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
           f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
 
     return all_rewards, vina_scores, perm_scores
+
+
+def resolve_vina_cpu(vina_cpu_value) -> int:
+    """Resolve Vina CPU threads from config; default is all available CPU cores."""
+    available = os.cpu_count() or 1
+
+    if vina_cpu_value is None:
+        return available
+
+    if isinstance(vina_cpu_value, str):
+        value = vina_cpu_value.strip().lower()
+        if value in {"auto", "max", "all"}:
+            return available
+        try:
+            vina_cpu_value = int(value)
+        except ValueError as e:
+            raise ValueError(
+                "Invalid dpo.vina_cpu value. Use integer, 0/-1, or one of: auto/max/all."
+            ) from e
+
+    try:
+        cpu = int(vina_cpu_value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(
+            "Invalid dpo.vina_cpu value. Use integer, 0/-1, or one of: auto/max/all."
+        ) from e
+
+    if cpu <= 0:
+        return available
+
+    if cpu > available:
+        print(f"Warning: vina_cpu={cpu} exceeds available CPU cores ({available}); capping to {available}")
+        return available
+
+    return cpu
 
 
 def generate_and_evaluate(
