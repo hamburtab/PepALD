@@ -12,8 +12,8 @@ from utils.metrics_utils import Metrics
 
 def main():
     # 读取生成的 HELM 序列
-    samples_file = os.path.join(project_root, 'chembl32_samples/head_tail_single_cycle_samples.txt')
-    # samples_file = os.path.join(project_root, 'chembl32_samples/helm_chembl32only_samples.txt')
+    # samples_file = os.path.join(project_root, 'chembl32_samples/head_tail_single_cycle_samples.txt')
+    samples_file = os.path.join(project_root, 'chembl32_samples/helm_chembl32only_samples.txt')
     # samples_file = os.path.join(project_root, 'chembl32_samples/cyclic_samples.txt')
     # samples_file = os.path.join(project_root, 'chembl32_samples/random_generated_samples.txt')
     with open(samples_file, 'r') as f:
