@@ -45,7 +45,7 @@
   },
   "generation": {
     "checkpoint_path": "/root/autodl-tmp/checkpoints/ald/checkpoint_epoch_199.pt",
-    "num_samples": 12000,
+    "num_samples": 6000,
     "max_length": 7,
     "min_length": 7,
     "use_ddim": true,
