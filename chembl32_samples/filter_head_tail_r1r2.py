@@ -1,112 +1,94 @@
 """
-从 helm_chembl32only_samples.txt 中筛选出
-第一个 token 和最后一个 token 都同时拥有 R1、R2 的序列。
-这些序列可以通过添加 1:R1-N:R2 头尾环化键变成环肽。
+从 helm_chembl32only_samples.txt 中筛选出严格满足以下条件的序列：
+1. 第一个 token 同时拥有 R1、R2
+2. 最后一个 token 同时拥有 R1、R2
 
-用法:
-    python chembl32_samples/filter_head_tail_r1r2.py
+满足条件的线性肽会被强制转换成首尾成环的 HELM：
+PEPTIDE1{...}$PEPTIDE1,PEPTIDE1,1:R1-N:R2$$$
+
+其余样本全部丢弃。
 """
 
-import re
 import csv
+import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 SAMPLE_FILE = Path(__file__).resolve().parent / "helm_chembl32only_samples.txt"
-OUTPUT_FILE = Path(__file__).resolve().parent / "helm_chembl32only_r1r2_filtered.txt"
+OUTPUT_FILE = Path(__file__).resolve().parent / "helm_chembl32only_r1r2_cyclized.txt"
 
 
-def load_rgroup_table(csv_path: str) -> dict:
-    """从 monomer_library.csv 加载每个 monomer 的可用 R-group 集合。"""
-    rgroups = {}
-    with open(csv_path, "r") as f:
+def load_rgroup_table(csv_path: Path) -> dict[str, set[str]]:
+    """加载 monomer_library.csv 中每个 monomer 的可用 R-group。"""
+    rgroups: dict[str, set[str]] = {}
+    with csv_path.open("r") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            symbol = row["Symbol"]
             available = set()
             for rg in ("R1", "R2", "R3"):
-                val = row.get(rg, "-").strip()
-                if val and val != "-" and val.lower() != "nan":
+                value = row.get(rg, "-").strip()
+                if value and value != "-" and value.lower() != "nan":
                     available.add(rg)
-            rgroups[symbol] = available
+            rgroups[row["Symbol"]] = available
     return rgroups
 
 
-def extract_tokens(helm_line: str) -> list:
-    """从 HELM 字符串中提取 monomer token 列表。"""
-    m = re.search(r"PEPTIDE1\{(.+?)\}", helm_line)
-    if not m:
+def extract_tokens(helm_line: str) -> list[str]:
+    """提取 PEPTIDE1{...} 中的 monomer token。"""
+    match = re.search(r"PEPTIDE1\{([^}]*)\}", helm_line)
+    if not match:
         return []
-    return m.group(1).split(".")
+    return [token.strip() for token in match.group(1).split(".") if token.strip()]
 
 
-def main():
+def normalize_token(token: str) -> str:
+    """将 [meA] 这类 token 转成 monomer_library.csv 中的 Symbol。"""
+    if token.startswith("[") and token.endswith("]"):
+        return token[1:-1].strip()
+    return token
+
+
+def has_r1_r2(token: str, rgroups: dict[str, set[str]]) -> bool:
+    """判断 token 是否同时具有 R1 和 R2。"""
+    available = rgroups.get(normalize_token(token))
+    return available is not None and {"R1", "R2"}.issubset(available)
+
+
+def cyclize_if_valid(helm_line: str, rgroups: dict[str, set[str]]) -> str | None:
+    """若首尾 token 都有 R1/R2，则强制转换为 1:R1-N:R2 成环 HELM。"""
+    tokens = extract_tokens(helm_line)
+    if not tokens:
+        return None
+
+    if not has_r1_r2(tokens[0], rgroups):
+        return None
+    if not has_r1_r2(tokens[-1], rgroups):
+        return None
+
+    peptide = f"PEPTIDE1{{{'.'.join(tokens)}}}"
+    return f"{peptide}$PEPTIDE1,PEPTIDE1,1:R1-{len(tokens)}:R2$$$"
+
+
+def main() -> None:
     rgroups = load_rgroup_table(DATA_DIR / "monomer_library.csv")
-    print(f"已加载 {len(rgroups)} 个 monomer 的 R-group 信息")
 
-    with open(SAMPLE_FILE) as f:
-        lines = [l.strip() for l in f if l.strip()]
-    print(f"总样本数: {len(lines)}")
+    with SAMPLE_FILE.open("r") as f:
+        lines = [line.strip() for line in f if line.strip()]
 
-    kept = []
-    skipped_reasons = {"no_tokens": 0, "first_missing": 0, "last_missing": 0, "first_no_r1r2": 0, "last_no_r1r2": 0}
-
+    cyclized = []
     for line in lines:
-        tokens = extract_tokens(line)
-        if not tokens:
-            skipped_reasons["no_tokens"] += 1
-            continue
+        converted = cyclize_if_valid(line, rgroups)
+        if converted is not None:
+            cyclized.append(converted)
 
-        first_token = tokens[0]
-        last_token = tokens[-1]
-
-        # 跳过末端修饰（ac, am 等不是真正的 monomer）
-        # 如果首/尾是修饰符，取下一个/前一个
-        non_monomer = {"ac", "am", "am_G", "HOCOCH2_Bal"}
-        if first_token in non_monomer:
-            if len(tokens) < 2:
-                skipped_reasons["no_tokens"] += 1
-                continue
-            first_token = tokens[1]
-        if last_token in non_monomer:
-            if len(tokens) < 2:
-                skipped_reasons["no_tokens"] += 1
-                continue
-            last_token = tokens[-2]
-
-        rg_first = rgroups.get(first_token)
-        rg_last = rgroups.get(last_token)
-
-        if rg_first is None:
-            skipped_reasons["first_missing"] += 1
-            continue
-        if rg_last is None:
-            skipped_reasons["last_missing"] += 1
-            continue
-
-        if "R1" not in rg_first or "R2" not in rg_first:
-            skipped_reasons["first_no_r1r2"] += 1
-            continue
-        if "R1" not in rg_last or "R2" not in rg_last:
-            skipped_reasons["last_no_r1r2"] += 1
-            continue
-
-        kept.append(line)
-
-    # 保存
-    with open(OUTPUT_FILE, "w") as f:
-        for line in kept:
+    with OUTPUT_FILE.open("w") as f:
+        for line in cyclized:
             f.write(line + "\n")
 
-    print(f"\n筛选结果:")
-    print(f"  保留: {len(kept)} 条 ({len(kept)/len(lines)*100:.1f}%)")
-    print(f"  丢弃: {len(lines) - len(kept)} 条")
-    print(f"\n丢弃原因:")
-    for reason, count in skipped_reasons.items():
-        if count > 0:
-            print(f"  {reason}: {count}")
-    print(f"\n已保存到: {OUTPUT_FILE}")
+    print(f"总样本数: {len(lines)}")
+    print(f"保留并成环: {len(cyclized)}")
+    print(f"输出文件: {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
