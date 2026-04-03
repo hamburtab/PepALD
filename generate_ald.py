@@ -8,6 +8,9 @@ Usage:
     
     # 生成环肽（微调模型）
     python generate_ald.py --mode cyclic
+
+    # 使用 Vina 配置生成样本
+    python generate_ald.py --mode Vina
     
     # 自定义配置
     python generate_ald.py --config configs/finetune.json
@@ -36,14 +39,26 @@ from ald.config import ALDConfig
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "default.json"
 CYCLIC_CONFIG = PROJECT_ROOT / "configs" / "finetune.json"
 CPP_CONFIG = PROJECT_ROOT / "configs" / "finetune_permeability_top1000.json"
+VINA_CONFIG = PROJECT_ROOT / "configs" / "vina.json"
 # ============================================================
+
+
+def parse_mode(value: str) -> str:
+    """Normalize mode and validate supported values."""
+    mode = value.lower()
+    valid_modes = {"linear", "cyclic", "cpp", "vina"}
+    if mode not in valid_modes:
+        raise argparse.ArgumentTypeError(
+            f"invalid mode '{value}'. Choose from: linear, cyclic, cpp, Vina"
+        )
+    return mode
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate peptides with ALD model")
     parser.add_argument(
-        "--mode", type=str, choices=["linear", "cyclic", "cpp"], default="linear",
-        help="Generation mode: 'linear', 'cyclic', or 'cpp' (permeability top1000)"
+        "--mode", type=parse_mode, choices=["linear", "cyclic", "cpp", "vina"], default="linear",
+        help="Generation mode: 'linear', 'cyclic', 'cpp', or 'Vina'"
     )
     parser.add_argument(
         "--config", type=str, default=None,
@@ -250,6 +265,8 @@ def main():
         config_file = CYCLIC_CONFIG
     elif args.mode == "cpp":
         config_file = CPP_CONFIG
+    elif args.mode == "vina":
+        config_file = VINA_CONFIG
     else:
         config_file = DEFAULT_CONFIG
     
@@ -273,7 +290,7 @@ def main():
     # For linear mode, disable ring prediction
     if args.mode == "linear":
         gen_cfg.predict_ring_bonds = False
-    elif args.mode == "cyclic":
+    elif args.mode in {"cyclic", "vina"}:
         gen_cfg.predict_ring_bonds = True
     
     # Set seed
@@ -303,7 +320,7 @@ def main():
         print("\n💡 Tip: Use --output <file> to save sequences")
 
     # Append cyclic/cpp samples to ChEMBL32-only file
-    if args.mode in {"cyclic", "cpp"}:
+    if args.mode in {"cyclic", "cpp", "vina"}:
         chembl_out = PROJECT_ROOT / "chembl32_samples" / "helm_chembl32only_samples.txt"
         save_samples(helm_sequences, str(chembl_out), append=True)
     
