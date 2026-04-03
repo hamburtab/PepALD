@@ -19,6 +19,7 @@ import json
 import argparse
 import time
 import os
+import csv
 import numpy as np
 from pathlib import Path
 
@@ -61,6 +62,11 @@ def parse_args():
     parser.add_argument(
         "--resume", type=str, default=None,
         help="Resume DPO training from checkpoint"
+    )
+    parser.add_argument(
+        "--perm_score_file", type=str, default=None,
+        help="Optional CSV/TSV file with precomputed permeability scores. "
+             "Overrides dpo.perm_score_file in config."
     )
     return parser.parse_args()
 
@@ -120,19 +126,36 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     vina_device = str(dpo_cfg.get('vina_device', 'cuda')).lower()
     vina_cpu = resolve_vina_cpu(dpo_cfg.get('vina_cpu', None))
     vina_show_progress = bool(dpo_cfg.get('vina_show_progress', True))
+    perm_score_file = dpo_cfg.get('perm_score_file')
 
     # Permeability prediction
     perm_scores = np.zeros(len(all_helms))
-    try:
-        from eval.eval_permeability import Permeability
-        perm_predictor = Permeability()
-        perm_scores = perm_predictor(all_helms)
+    if w_perm == 0:
+        print("Permeability reward disabled (reward_w_perm=0); skipping permeability scoring")
+    elif perm_score_file:
+        perm_scores = load_precomputed_perm_scores(all_helms, perm_score_file)
         valid_perm = perm_scores[perm_scores > -10]
-        print(f"Permeability: {len(valid_perm)}/{len(all_helms)} valid, "
-              f"mean={valid_perm.mean():.4f}" if len(valid_perm) > 0 else "No valid permeability scores")
-    except Exception as e:
-        print(f"Warning: Permeability evaluation failed: {e}")
-        print("Using zero permeability scores")
+        print(
+            f"Permeability (precomputed): {len(valid_perm)}/{len(all_helms)} valid, "
+            f"mean={valid_perm.mean():.4f}"
+            if len(valid_perm) > 0 else
+            "No valid precomputed permeability scores"
+        )
+    else:
+        try:
+            from eval.eval_permeability import Permeability
+            perm_predictor = Permeability()
+            perm_scores = perm_predictor(all_helms)
+            valid_perm = perm_scores[perm_scores > -10]
+            print(f"Permeability: {len(valid_perm)}/{len(all_helms)} valid, "
+                  f"mean={valid_perm.mean():.4f}" if len(valid_perm) > 0 else "No valid permeability scores")
+        except Exception as e:
+            raise RuntimeError(
+                "Permeability evaluation failed while reward_w_perm > 0. "
+                "Use the isolated perm_env to export a score file and pass "
+                "--perm_score_file (or set dpo.perm_score_file), or set reward_w_perm=0 "
+                f"if you intentionally want Vina-only DPO. Original error: {e}"
+            ) from e
 
     # Vina docking score (required).
     try:
@@ -180,6 +203,97 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
           f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
 
     return all_rewards, vina_scores, perm_scores
+
+
+def _detect_delimiter(header_line: str, path: Path) -> str:
+    if path.suffix.lower() == '.tsv':
+        return '\t'
+    if '\t' in header_line and ',' not in header_line:
+        return '\t'
+    return ','
+
+
+def load_precomputed_perm_scores(all_helms: list, score_file: str) -> np.ndarray:
+    """Load precomputed permeability scores aligned by HELM sequence."""
+    score_path = resolve_path(score_file)
+    if not score_path.exists():
+        raise FileNotFoundError(f"Permeability score file not found: {score_path}")
+
+    with open(score_path, 'r', newline='') as f:
+        header_line = f.readline()
+        if not header_line:
+            raise ValueError(f"Permeability score file is empty: {score_path}")
+        delimiter = _detect_delimiter(header_line, score_path)
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
+        if reader.fieldnames is None:
+            raise ValueError(
+                "Permeability score file must contain a header row with at least "
+                "'helm' and 'permeability' columns."
+            )
+
+        field_map = {name.strip().lower(): name for name in reader.fieldnames if name}
+        helm_key = field_map.get('helm')
+        score_key = (
+            field_map.get('permeability')
+            or field_map.get('perm_score')
+            or field_map.get('score')
+        )
+        if helm_key is None or score_key is None:
+            raise ValueError(
+                "Permeability score file must contain 'helm' and 'permeability' "
+                "(or 'perm_score' / 'score') columns."
+            )
+
+        score_by_helm = {}
+        duplicate_rows = 0
+        for row in reader:
+            helm = (row.get(helm_key) or '').strip()
+            if not helm:
+                continue
+            raw_score = (row.get(score_key) or '').strip()
+            try:
+                score = float(raw_score)
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid permeability score '{raw_score}' for HELM: {helm}"
+                ) from e
+
+            if helm in score_by_helm:
+                duplicate_rows += 1
+            score_by_helm[helm] = score
+
+    scores = np.zeros(len(all_helms), dtype=np.float64)
+    missing = []
+    invalid = []
+    for idx, helm in enumerate(all_helms):
+        if helm not in score_by_helm:
+            missing.append(helm)
+            continue
+        score = float(score_by_helm[helm])
+        if not np.isfinite(score):
+            invalid.append((helm, score))
+            continue
+        scores[idx] = score
+
+    if missing or invalid:
+        examples = []
+        if missing:
+            examples.extend(missing[:3])
+        if invalid:
+            examples.extend([f"{helm} -> {score}" for helm, score in invalid[:3]])
+        details = "; ".join(examples)
+        raise ValueError(
+            f"Permeability score file {score_path} does not cover the candidate set "
+            f"(missing={len(missing)}, invalid={len(invalid)}). Examples: {details}"
+        )
+
+    print(
+        f"Loaded precomputed permeability scores for {len(scores)} HELM sequences "
+        f"from {score_path}"
+        + (f" ({duplicate_rows} duplicate rows overwritten by last occurrence)" if duplicate_rows else "")
+    )
+    return scores
 
 
 def resolve_vina_cpu(vina_cpu_value) -> int:
@@ -344,6 +458,8 @@ def main():
     with open(args.config, 'r') as f:
         full_config = json.load(f)
     dpo_cfg = full_config.get('dpo', {})
+    if args.perm_score_file:
+        dpo_cfg['perm_score_file'] = args.perm_score_file
 
     # ── Device ──
     device = torch.device(config.training.device if torch.cuda.is_available() else 'cpu')
@@ -363,6 +479,12 @@ def main():
         print(f"Loaded {len(winner_helms)} winners, {len(loser_helms)} losers")
     else:
         sample_file = args.sample_file or dpo_cfg.get('sample_file')
+        if dpo_cfg.get('perm_score_file') and not sample_file:
+            print(
+                "Precomputed permeability scores require a fixed candidate file. "
+                "Set --sample_file (or dpo.sample_file) when using --perm_score_file."
+            )
+            sys.exit(1)
 
         if sample_file:
             all_helms, all_rewards, vina_scores, perm_scores, sample_path = load_and_evaluate_from_file(sample_file, dpo_cfg)

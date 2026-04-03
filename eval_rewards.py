@@ -46,6 +46,11 @@ def parse_args():
         "--max_samples", type=int, default=None,
         help="Only evaluate the first N samples (for quick testing)"
     )
+    parser.add_argument(
+        "--perm_score_file", type=str, default=None,
+        help="Optional CSV/TSV file with precomputed permeability scores. "
+             "Overrides dpo.perm_score_file in config."
+    )
     return parser.parse_args()
 
 
@@ -56,6 +61,8 @@ def main():
     with open(args.config, 'r') as f:
         full_config = json.load(f)
     dpo_cfg = full_config.get('dpo', {})
+    if args.perm_score_file:
+        dpo_cfg['perm_score_file'] = args.perm_score_file
 
     # Resolve sample file
     sample_file = args.sample_file or dpo_cfg.get('sample_file')
