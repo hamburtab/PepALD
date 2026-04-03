@@ -47,19 +47,29 @@ def fingerprints_from_smiles(smiles: List, size=2048):
     return fps, valid_mask
 
 
-_NEW_DESCRIPTORS = {
+_FILTERED_DESCRIPTORS = {
     'SPS', 'FpDensityMorgan1', 'FpDensityMorgan2', 'FpDensityMorgan3',
     'NumAmideBonds', 'NumBridgeheadAtoms', 'NumSpiroAtoms',
     'NumUnspecifiedAtomStereoCenters', 'Phi'
 }
 
 
-def getMolDescriptors(mol, missingVal=0):
-    """ calculate the full list of descriptors for a molecule """
+def get_descriptor_names(mode='filtered'):
+    """Return descriptor names for the requested compatibility mode."""
+    if mode == 'full':
+        return [nm for nm, _ in Descriptors._descList]
+    if mode == 'filtered':
+        return [nm for nm, _ in Descriptors._descList if nm not in _FILTERED_DESCRIPTORS]
+    raise ValueError(f"Unsupported descriptor mode: {mode}")
+
+
+def getMolDescriptors(mol, missingVal=0, descriptor_mode='filtered'):
+    """Calculate RDKit descriptors for one molecule."""
 
     values, names = [], []
+    allowed = set(get_descriptor_names(descriptor_mode))
     for nm, fn in Descriptors._descList:
-        if nm in _NEW_DESCRIPTORS:
+        if nm not in allowed:
             continue
         try:
             val = fn(mol)
@@ -82,21 +92,21 @@ def getMolDescriptors(mol, missingVal=0):
     return values, names
 
 
-def get_pep_dps_from_smi(smi):
+def get_pep_dps_from_smi(smi, descriptor_mode='filtered'):
     try:
         mol = Chem.MolFromSmiles(smi)
     except:
         print(f"convert smi {smi} to molecule failed!")
         mol = None
     
-    dps, _ = getMolDescriptors(mol)
+    dps, _ = getMolDescriptors(mol, descriptor_mode=descriptor_mode)
     return np.array(dps)
 
 
-def get_pep_dps(smi_list):
+def get_pep_dps(smi_list, descriptor_mode='filtered'):
     if len(smi_list) == 0:
-        return np.zeros((0, 211))
-    return np.array([get_pep_dps_from_smi(smi) for smi in smi_list])
+        return np.zeros((0, len(get_descriptor_names(descriptor_mode)) + 3))
+    return np.array([get_pep_dps_from_smi(smi, descriptor_mode=descriptor_mode) for smi in smi_list])
 
 
 def get_smi_from_helms(helm_seqs: list):
@@ -139,12 +149,13 @@ class Permeability:
         self.predictor = self.load_predictor(model_path)
         self.batch_size = batch_size
         self.input_type = input_type if input_type in ['helm', 'smiles'] else 'helm'
+        self.descriptor_mode = self._resolve_descriptor_mode()
 
     @staticmethod
     def load_predictor(model_path):
         import sklearn.tree._tree as _tree
         # Patch: old model lacks 'missing_go_to_left' field added in sklearn>=1.3
-        original_check = _tree._check_node_ndarray
+        original_check = getattr(_tree, '_check_node_ndarray', None)
         def _patched_check(node_ndarray, expected_dtype):
             if node_ndarray.dtype != expected_dtype:
                 new_array = np.zeros(node_ndarray.shape, dtype=expected_dtype)
@@ -152,16 +163,40 @@ class Permeability:
                     new_array[field] = node_ndarray[field]
                 return new_array
             return node_ndarray
-        _tree._check_node_ndarray = _patched_check
+        if original_check is not None:
+            _tree._check_node_ndarray = _patched_check
         try:
             predictor = joblib.load(model_path)
         finally:
-            _tree._check_node_ndarray = original_check
+            if original_check is not None:
+                _tree._check_node_ndarray = original_check
         # Patch: old model missing 'estimator' attr (renamed from 'base_estimator' in new sklearn)
         if not hasattr(predictor, 'estimator'):
             from sklearn.tree import DecisionTreeRegressor
             predictor.estimator = DecisionTreeRegressor()
         return predictor
+
+    def _resolve_descriptor_mode(self):
+        expected_dim = getattr(self.predictor, 'n_features_in_', None)
+        if expected_dim is None:
+            return 'filtered'
+
+        fp_dim = 2048
+        custom_dim = 3
+        full_dim = fp_dim + len(get_descriptor_names('full')) + custom_dim
+        filtered_dim = fp_dim + len(get_descriptor_names('filtered')) + custom_dim
+
+        if expected_dim == full_dim:
+            return 'full'
+        if expected_dim == filtered_dim:
+            return 'filtered'
+
+        raise ValueError(
+            "Permeability predictor feature mismatch. "
+            f"Model expects {expected_dim} features, but current RDKit setup "
+            f"produces {full_dim} ('full') or {filtered_dim} ('filtered'). "
+            "Use the isolated perm_env or rebuild the predictor for this environment."
+        )
 
     def get_features(self, input_seqs: list):
         if self.input_type == 'helm':
@@ -170,7 +205,7 @@ class Permeability:
             valid_smiles, valid_idxes = check_smi_validity(input_seqs)
 
         X_fps = fingerprints_from_smiles(valid_smiles)[0]
-        X_dps = get_pep_dps(valid_smiles)
+        X_dps = get_pep_dps(valid_smiles, descriptor_mode=self.descriptor_mode)
         # logger.debug(f'X_fps.shape: {X_fps.shape}, X_dps.shape: {X_dps.shape}')
 
         if len(X_fps) == 0:

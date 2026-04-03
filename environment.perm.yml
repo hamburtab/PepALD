@@ -1,0 +1,16 @@
+name: perm_env
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.8
+  - numpy=1.19.5
+  - scipy=1.5.3
+  - pandas=1.1.5
+  - scikit-learn=0.23.2
+  - joblib=1.4.2
+  - rdkit=2021.03.1
+  - pip
+  - pip:
+      - loguru==0.7.2
