@@ -6,6 +6,7 @@ HELM → SMILES → Vina docking score 的衔接模块。
 """
 
 import os
+import time
 import numpy as np
 from typing import List
 from rdkit import Chem
@@ -31,6 +32,10 @@ def _dock_single(args):
     用 tuple 传参以兼容 multiprocessing.Pool.imap_unordered。
     """
     idx, helm, protein_pdbqt_path, ref_sdf_path, device, cpu_per_worker, exhaustiveness, n_poses = args
+
+    # 抑制 RDKit 中间步骤的 WARNING（拼接 R-group 时的正常噪音，不影响结果）
+    from rdkit import RDLogger  # noqa: E402
+    RDLogger.DisableLog('rdApp.*')
 
     # 每个 worker 进程内加载参考分子
     # (Chem.Mol 不能 pickle 跨进程，所以每个 worker 自己加载)
@@ -132,7 +137,17 @@ def dock_helms(
         # 多进程模式
         progress = None
         if use_tqdm:
-            progress = tqdm(total=len(tasks), desc=f"Vina docking ({device}, {num_workers}w)", unit="ligand")
+            progress = tqdm(
+                total=len(tasks),
+                desc=f"Vina docking ({device}, {num_workers}w)",
+                unit="ligand",
+                smoothing=0.05,
+                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}, {postfix}]",
+            )
+
+        print(f"  Warming up {num_workers} workers, first results in ~1-3 min...")
+        t_start = time.time()
+        first_result = True
 
         with Pool(processes=num_workers) as pool:
             for idx, score in pool.imap_unordered(_dock_single, tasks):
@@ -140,11 +155,24 @@ def dock_helms(
                 if score != INVALID_SCORE:
                     valid_count += 1
                     valid_sum += score
+
                 if progress is not None:
                     progress.update(1)
+
+                    if first_result:
+                        warmup_sec = time.time() - t_start
+                        progress.write(
+                            f"  First result after {warmup_sec:.1f}s, "
+                            f"ETA is now estimating..."
+                        )
+                        first_result = False
+
                     if progress.n % 20 == 0:
                         avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
-                        progress.set_postfix(valid=f"{valid_count}/{progress.n}", avg=f"{avg:.2f}")
+                        progress.set_postfix(
+                            valid=f"{valid_count}/{progress.n}",
+                            avg=f"{avg:.2f}",
+                        )
 
         if progress is not None:
             progress.close()
