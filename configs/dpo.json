@@ -35,7 +35,7 @@
     "use_amp": false,
     "num_workers": 4,
     "finetune_mode": true,
-    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_cyclic/checkpoint_epoch_35.pt",
+    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_ce_only/latest.pt",
     "cyclic_only": true,
     "ring_loss_weight": 0.5,
     "ce_loss_weight": 0.5,
