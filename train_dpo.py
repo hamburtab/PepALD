@@ -123,8 +123,12 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
 
     w_vina = dpo_cfg.get('reward_w_vina', 1.0)
     w_perm = dpo_cfg.get('reward_w_perm', 0.5)
-    vina_device = str(dpo_cfg.get('vina_device', 'cuda')).lower()
+    vina_device = str(dpo_cfg.get('vina_device', 'cpu')).lower()
     vina_cpu = resolve_vina_cpu(dpo_cfg.get('vina_cpu', None))
+    vina_cpu_per_worker = int(dpo_cfg.get('vina_cpu_per_worker', 2))
+    vina_num_workers = int(dpo_cfg.get('vina_num_workers', 0))
+    vina_exhaustiveness = int(dpo_cfg.get('vina_exhaustiveness', 8))
+    vina_n_poses = int(dpo_cfg.get('vina_n_poses', 2))
     vina_show_progress = bool(dpo_cfg.get('vina_show_progress', True))
     perm_score_file = dpo_cfg.get('perm_score_file')
 
@@ -166,12 +170,18 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         ) from e
 
     try:
-        print(f"Vina runtime: device={vina_device}, cpu={vina_cpu}, progress={vina_show_progress}")
+        print(f"Vina runtime: device={vina_device}, cpu={vina_cpu}, "
+              f"workers={vina_num_workers}, cpu_per_worker={vina_cpu_per_worker}, "
+              f"exhaustiveness={vina_exhaustiveness}, n_poses={vina_n_poses}")
         vina_scores = np.asarray(
             dock_helms(
                 all_helms,
                 device=vina_device,
                 cpu=vina_cpu,
+                cpu_per_worker=vina_cpu_per_worker,
+                num_workers=vina_num_workers,
+                exhaustiveness=vina_exhaustiveness,
+                n_poses=vina_n_poses,
                 show_progress=vina_show_progress,
             ),
             dtype=np.float64,

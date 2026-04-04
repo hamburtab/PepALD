@@ -38,6 +38,8 @@ def vina_score(
     reference_mol: Chem.rdchem.Mol,
     device: str = "cuda",
     cpu: int = 1,
+    exhaustiveness: int = 8,
+    n_poses: int = 2,
     ):
     mmff_sec = 0.0
     dock_sec = 0.0
@@ -81,7 +83,7 @@ def vina_score(
         v.set_receptor(protein_pdbqt_path)
         v.set_ligand_from_string(pdbqt_string)
         v.compute_vina_maps(center=center.tolist(), box_size=[30, 30, 30])
-        v.dock(exhaustiveness=32, n_poses=8)
+        v.dock(exhaustiveness=exhaustiveness, n_poses=n_poses)
         docking_score = v.energies()[0][0]
     except RuntimeError:
         raise
