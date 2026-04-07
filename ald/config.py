@@ -125,6 +125,12 @@ class ALDGenerationConfig:
     
     # Token mapping
     use_embedding_norm: bool = True  # Use cosine distance
+    lambda_gpt: float = 0.0
+    mapping_sample: bool = False
+    mapping_top_k: int = 8
+    mapping_top_p: float = 1.0
+    mapping_temperature: float = 1.0
+    mapping_frequency_penalty: float = 0.0
     
     # Output
     output_file: Optional[str] = None
@@ -211,6 +217,8 @@ class ALDConfig:
         print(f"  use_ddim:           {self.generation.use_ddim}")
         print(f"  ddim_steps:         {self.generation.ddim_steps}")
         print(f"  use_embedding_norm: {self.generation.use_embedding_norm}")
+        print(f"  lambda_gpt:         {self.generation.lambda_gpt}")
+        print(f"  mapping_sample:     {self.generation.mapping_sample}")
         print("="*60 + "\n")
 
 

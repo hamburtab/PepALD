@@ -32,6 +32,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from ald import AutoregressiveLatentDiffusion
 from ald.config import ALDConfig
+from ald.dpo.candidate_utils import compute_chemistry_scores, robust_normalize
 from ald.dpo.dataset import PreferencePairDataset, PreferencePairCollator, build_preference_pairs
 from ald.dpo.trainer import DPOTrainer
 
@@ -111,6 +112,13 @@ def load_pretrained_model(config: ALDConfig, device: torch.device):
     print(f"Model loaded ({total_params/1e6:.1f}M parameters)")
 
     return model, vocab
+
+
+def _print_component_stats(name: str, raw_values: np.ndarray, normalized_values: np.ndarray):
+    print(
+        f"{name:>12s}: raw_mean={raw_values.mean():.4f}, raw_std={raw_values.std():.4f}, "
+        f"norm_mean={normalized_values.mean():.4f}, norm_std={normalized_values.std():.4f}"
+    )
 
 
 def evaluate_rewards(all_helms: list, dpo_cfg: dict):
@@ -207,12 +215,42 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
 
     # Combined reward
     # Vina score 越负越好, 取负号使得越大越好 (与 DPO 的 "higher is better" 一致)
-    all_rewards = w_vina * (-vina_scores) + w_perm * perm_scores
+    reward_w_chem = float(dpo_cfg.get('reward_w_chemistry', 0.0))
+    normalize_rewards = bool(dpo_cfg.get('reward_normalize', True))
+    chemistry_target_len = dpo_cfg.get('chemistry_target_length', None)
+
+    reward_vina = -vina_scores
+    reward_perm = perm_scores
+    chemistry_scores = compute_chemistry_scores(all_helms, target_len=chemistry_target_len)
+
+    if normalize_rewards:
+        norm_vina = robust_normalize(reward_vina)
+        norm_perm = robust_normalize(reward_perm)
+        norm_chem = robust_normalize(chemistry_scores)
+    else:
+        norm_vina = reward_vina
+        norm_perm = reward_perm
+        norm_chem = chemistry_scores
+
+    _print_component_stats("Vina", reward_vina, norm_vina)
+    _print_component_stats("Perm", reward_perm, norm_perm)
+    if reward_w_chem > 0:
+        _print_component_stats("Chemistry", chemistry_scores, norm_chem)
+
+    all_rewards = w_vina * norm_vina + w_perm * norm_perm + reward_w_chem * norm_chem
     print(f"\nReward stats: mean={all_rewards.mean():.4f}, "
           f"std={all_rewards.std():.4f}, "
           f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
 
-    return all_rewards, vina_scores, perm_scores
+    reward_info = {
+        'reward_vina': reward_vina,
+        'reward_perm': reward_perm,
+        'chemistry_scores': chemistry_scores,
+        'norm_vina': norm_vina,
+        'norm_perm': norm_perm,
+        'norm_chemistry': norm_chem,
+    }
+    return all_rewards, vina_scores, perm_scores, reward_info
 
 
 def _detect_delimiter(header_line: str, path: Path) -> str:
@@ -388,8 +426,8 @@ def generate_and_evaluate(
         all_helms.append(helm_seq)
 
     print(f"Generated {len(all_helms)} HELM sequences")
-    all_rewards, vina_scores, perm_scores = evaluate_rewards(all_helms, dpo_cfg)
-    return all_helms, all_rewards, vina_scores, perm_scores
+    all_rewards, vina_scores, perm_scores, reward_info = evaluate_rewards(all_helms, dpo_cfg)
+    return all_helms, all_rewards, vina_scores, perm_scores, reward_info
 
 
 def save_helm_list(helms: list, path: str):
@@ -406,55 +444,77 @@ def load_helm_list(path: str) -> list:
         return [line.strip() for line in f if line.strip()]
 
 
-def deduplicate_helms(helms: list, stage: str = "candidates") -> list:
+def deduplicate_helms(helms: list, labels: list = None, stage: str = "candidates"):
     """Remove duplicate HELM sequences while preserving order."""
     n = len(helms)
     seen = set()
     unique_helms = []
+    unique_labels = []
     duplicate_count = 0
 
-    for helm in helms:
+    for idx, helm in enumerate(helms):
         if helm in seen:
             duplicate_count += 1
             continue
         seen.add(helm)
         unique_helms.append(helm)
+        if labels is not None:
+            unique_labels.append(labels[idx])
 
     if duplicate_count == 0:
         print(f"{stage} dedup: no duplicates found")
-        return helms
+        return (helms, labels) if labels is not None else helms
 
     print(
         f"{stage} dedup: {n} -> {len(unique_helms)} unique "
         f"({duplicate_count} duplicates removed)"
     )
-    return unique_helms
+    return (unique_helms, unique_labels) if labels is not None else unique_helms
 
 
-def load_and_evaluate_from_file(sample_file: str, dpo_cfg: dict):
+def load_candidate_helms(sample_files: list):
+    """Load candidate HELM sequences from one or more files."""
+    all_helms = []
+    source_labels = []
+    resolved_paths = []
+
+    for sample_file in sample_files:
+        sample_path = resolve_path(sample_file)
+        if not sample_path.exists():
+            print(f"Sample file not found: {sample_path}")
+            sys.exit(1)
+
+        helms = load_helm_list(str(sample_path))
+        if len(helms) == 0:
+            print(f"No valid HELM sequences found in sample file: {sample_path}")
+            sys.exit(1)
+
+        source_name = sample_path.stem
+        all_helms.extend(helms)
+        source_labels.extend([source_name] * len(helms))
+        resolved_paths.append(sample_path)
+        print(f"Loaded {len(helms)} HELM sequences from {sample_path}")
+
+    all_helms, source_labels = deduplicate_helms(
+        all_helms,
+        labels=source_labels,
+        stage="candidate files",
+    )
+    return all_helms, source_labels, resolved_paths
+
+
+def load_and_evaluate_from_file(sample_files: list, dpo_cfg: dict):
     """
-    Step 1: Load candidate sequences from file.
+    Step 1: Load candidate sequences from file(s).
     Step 2: Evaluate reward for each sequence.
     """
-    sample_path = resolve_path(sample_file)
-    if not sample_path.exists():
-        print(f"Sample file not found: {sample_path}")
-        sys.exit(1)
-
     print(f"\n{'='*60}")
-    print(f"Step 1: Loading candidate sequences from file...")
+    print(f"Step 1: Loading candidate sequences from file(s)...")
     print(f"{'='*60}")
-    print(f"Sample file: {sample_path}")
-
-    all_helms = load_helm_list(str(sample_path))
-    if len(all_helms) == 0:
-        print("No valid HELM sequences found in sample file.")
-        sys.exit(1)
-
-    print(f"Loaded {len(all_helms)} HELM sequences from file")
-    all_helms = deduplicate_helms(all_helms, stage="candidate file")
-    all_rewards, vina_scores, perm_scores = evaluate_rewards(all_helms, dpo_cfg)
-    return all_helms, all_rewards, vina_scores, perm_scores, sample_path
+    all_helms, source_labels, sample_paths = load_candidate_helms(sample_files)
+    print(f"Loaded {len(all_helms)} unique HELM sequences from {len(sample_paths)} file(s)")
+    all_rewards, vina_scores, perm_scores, reward_info = evaluate_rewards(all_helms, dpo_cfg)
+    return all_helms, all_rewards, vina_scores, perm_scores, reward_info, source_labels, sample_paths
 
 
 def main():
@@ -488,20 +548,37 @@ def main():
         loser_helms = load_helm_list(args.loser_file)
         print(f"Loaded {len(winner_helms)} winners, {len(loser_helms)} losers")
     else:
-        sample_file = args.sample_file or dpo_cfg.get('sample_file')
-        if dpo_cfg.get('perm_score_file') and not sample_file:
+        sample_file = args.sample_file
+        sample_files = []
+        if sample_file:
+            sample_files = [sample_file]
+        elif dpo_cfg.get('sample_files'):
+            sample_files = list(dpo_cfg.get('sample_files', []))
+        elif dpo_cfg.get('sample_file'):
+            sample_files = [dpo_cfg.get('sample_file')]
+
+        if dpo_cfg.get('perm_score_file') and not sample_files:
             print(
                 "Precomputed permeability scores require a fixed candidate file. "
-                "Set --sample_file (or dpo.sample_file) when using --perm_score_file."
+                "Set --sample_file (or dpo.sample_file / dpo.sample_files) when using --perm_score_file."
             )
             sys.exit(1)
 
-        if sample_file:
-            all_helms, all_rewards, vina_scores, perm_scores, sample_path = load_and_evaluate_from_file(sample_file, dpo_cfg)
-            print(f"Using candidate set from: {sample_path}")
+        if sample_files:
+            (
+                all_helms,
+                all_rewards,
+                vina_scores,
+                perm_scores,
+                reward_info,
+                source_labels,
+                sample_paths,
+            ) = load_and_evaluate_from_file(sample_files, dpo_cfg)
+            print(f"Using candidate set from: {', '.join(str(p) for p in sample_paths)}")
         else:
             # Fallback: generate and evaluate with pretrained model
-            all_helms, all_rewards, vina_scores, perm_scores = generate_and_evaluate(model, config, dpo_cfg, device)
+            all_helms, all_rewards, vina_scores, perm_scores, reward_info = generate_and_evaluate(model, config, dpo_cfg, device)
+            source_labels = ["generated"] * len(all_helms)
 
         # Build pairs
         top_ratio = dpo_cfg.get('top_ratio', 0.2)
@@ -511,7 +588,15 @@ def main():
         winner_helms, loser_helms = build_preference_pairs(
             all_helms, all_rewards, top_ratio, bottom_ratio,
             vina_scores=vina_scores, perm_scores=perm_scores,
+            chemistry_scores=reward_info.get('chemistry_scores'),
             reward_w_vina=w_vina, reward_w_perm=w_perm,
+            source_labels=source_labels,
+            winner_pool_ratio=dpo_cfg.get('winner_pool_ratio'),
+            loser_pool_ratio=dpo_cfg.get('loser_pool_ratio'),
+            winner_diversity_lambda=dpo_cfg.get('winner_diversity_lambda', 0.35),
+            loser_diversity_lambda=dpo_cfg.get('loser_diversity_lambda', 0.20),
+            pair_strategy=dpo_cfg.get('pair_strategy', 'nearest_hard_negative'),
+            min_reward_gap=float(dpo_cfg.get('min_reward_gap', 0.0)),
         )
 
         # Save for reproducibility
@@ -520,6 +605,11 @@ def main():
         save_helm_list(winner_helms, str(save_dir / 'winners.txt'))
         save_helm_list(loser_helms, str(save_dir / 'losers.txt'))
         np.save(str(save_dir / 'rewards.npy'), all_rewards)
+        if reward_info:
+            for key, value in reward_info.items():
+                np.save(str(save_dir / f"{key}.npy"), np.asarray(value))
+        with open(save_dir / 'sources.json', 'w') as f:
+            json.dump(source_labels, f, ensure_ascii=False, indent=2)
         print(f"Saved preference data to {save_dir}")
 
     # ── Create dataset & dataloader ──
@@ -528,6 +618,7 @@ def main():
         loser_helms=loser_helms,
         vocab_file=config.training.vocab_file,
         max_seq_len=config.model.max_seq_len,
+        preserve_pairing=bool(dpo_cfg.get('preserve_pairing', True)),
     )
 
     dataloader = DataLoader(

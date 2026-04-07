@@ -168,8 +168,15 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
         print(f"  use_ddim:                 {gen_cfg.use_ddim}")
         if gen_cfg.use_ddim:
             print(f"  ddim_steps:               {gen_cfg.ddim_steps}")
+        print(f"  lambda_gpt:               {gen_cfg.lambda_gpt}")
         print(f"  predict_ring_bonds:       {gen_cfg.predict_ring_bonds}")
         print(f"  use_embedding_norm:       {gen_cfg.use_embedding_norm}")
+        print(f"  mapping_sample:           {gen_cfg.mapping_sample}")
+        if gen_cfg.mapping_sample:
+            print(f"  mapping_top_k:            {gen_cfg.mapping_top_k}")
+            print(f"  mapping_top_p:            {gen_cfg.mapping_top_p}")
+            print(f"  mapping_temperature:      {gen_cfg.mapping_temperature}")
+            print(f"  mapping_frequency_penalty:{gen_cfg.mapping_frequency_penalty}")
         print("="*60)
     
     # Generate samples

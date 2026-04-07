@@ -510,7 +510,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         device: Optional[torch.device] = None,
         use_ddim: Optional[bool] = None,
         ddim_steps: Optional[int] = None,
-        lambda_gpt: float = 0.0,
+        lambda_gpt: Optional[float] = None,
         predict_ring_bonds: Optional[bool] = None,
         ring_threshold: float = 0.5,
         ring_top_k: int = 1,
@@ -534,7 +534,15 @@ class AutoregressiveLatentDiffusion(nn.Module):
         use_ddim = use_ddim if use_ddim is not None else gen_cfg.use_ddim
         ddim_steps = ddim_steps if ddim_steps is not None else gen_cfg.ddim_steps
         predict_ring_bonds = predict_ring_bonds if predict_ring_bonds is not None else gen_cfg.predict_ring_bonds
-        
+        if lambda_gpt is None:
+            lambda_gpt = getattr(gen_cfg, 'lambda_gpt', 0.0)
+
+        mapping_sample = getattr(gen_cfg, 'mapping_sample', False)
+        mapping_top_k = max(1, int(getattr(gen_cfg, 'mapping_top_k', 8)))
+        mapping_top_p = float(getattr(gen_cfg, 'mapping_top_p', 1.0))
+        mapping_temperature = float(getattr(gen_cfg, 'mapping_temperature', 1.0))
+        mapping_frequency_penalty = float(getattr(gen_cfg, 'mapping_frequency_penalty', 0.0))
+
         if device is None:
             device = next(self.parameters()).device
         
@@ -610,16 +618,43 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     # Get allowed tokens for this specific sample based on position t and its total length
                     current_seq_len = lengths[active_idx[i]].item()
                     allowed = self.token_mapper._get_allowed_tokens(t, current_seq_len)
-                    
-                    # Select best token ONLY from allowed list
-                    # final_scores[i, allowed] extracts scores for allowed tokens
-                    best_idx_in_allowed = torch.argmin(final_scores[i, allowed]).item()
-                    token_ids[i] = allowed[best_idx_in_allowed]
+
+                    if mapping_sample:
+                        history_tokens = None
+                        if t > 0:
+                            history_tokens = all_tokens[active_idx[i], :t]
+                        token_ids[i] = self.token_mapper.sample_from_scores(
+                            -final_scores[i],
+                            allowed,
+                            history_tokens=history_tokens,
+                            top_k=mapping_top_k,
+                            top_p=mapping_top_p,
+                            temperature=mapping_temperature,
+                            frequency_penalty=mapping_frequency_penalty,
+                        )
+                    else:
+                        # Select best token ONLY from allowed list
+                        # final_scores[i, allowed] extracts scores for allowed tokens
+                        best_idx_in_allowed = torch.argmin(final_scores[i, allowed]).item()
+                        token_ids[i] = allowed[best_idx_in_allowed]
             else:
                 # Pure Diffusion: nearest neighbor token mapping
-                token_ids = self.token_mapper.batch_map(
-                    embeddings, positions=t, seq_lens=lengths[active_idx]
-                )
+                if mapping_sample:
+                    token_histories = None if t == 0 else all_tokens[active_idx, :t]
+                    token_ids = self.token_mapper.batch_sample(
+                        embeddings,
+                        positions=t,
+                        seq_lens=lengths[active_idx],
+                        token_histories=token_histories,
+                        top_k=mapping_top_k,
+                        top_p=mapping_top_p,
+                        temperature=mapping_temperature,
+                        frequency_penalty=mapping_frequency_penalty,
+                    )
+                else:
+                    token_ids = self.token_mapper.batch_map(
+                        embeddings, positions=t, seq_lens=lengths[active_idx]
+                    )
             
             # Store results
             all_embeddings[active_idx, t, :] = embeddings

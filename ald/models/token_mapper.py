@@ -99,6 +99,76 @@ class TokenMapper(nn.Module):
         """Select nearest token from allowed tokens."""
         idx = torch.argmin(distances[allowed]).item()
         return allowed[idx]
+
+    def _apply_frequency_penalty(
+        self,
+        scores: torch.Tensor,
+        allowed_tensor: torch.Tensor,
+        history_tokens: torch.Tensor,
+        frequency_penalty: float
+    ) -> torch.Tensor:
+        """Discourage repeatedly sampling the same monomers within one peptide."""
+        if history_tokens is None or frequency_penalty <= 0:
+            return scores
+
+        history_tokens = history_tokens[history_tokens >= 0]
+        if history_tokens.numel() == 0:
+            return scores
+
+        counts = torch.bincount(history_tokens, minlength=self.vocab_size).float()
+        penalties = counts[allowed_tensor].to(scores.device)
+        return scores - frequency_penalty * penalties
+
+    def sample_from_scores(
+        self,
+        scores: torch.Tensor,
+        allowed: List[int],
+        history_tokens: torch.Tensor = None,
+        top_k: int = 8,
+        top_p: float = 1.0,
+        temperature: float = 1.0,
+        frequency_penalty: float = 0.0,
+    ) -> int:
+        """
+        Sample a token from precomputed per-vocab scores, where higher is better.
+        """
+        if len(allowed) == 0:
+            return int(torch.argmax(scores).item())
+
+        device = scores.device
+        allowed_tensor = torch.tensor(allowed, dtype=torch.long, device=device)
+        candidate_scores = scores[allowed_tensor]
+        candidate_scores = self._apply_frequency_penalty(
+            candidate_scores,
+            allowed_tensor,
+            history_tokens,
+            frequency_penalty,
+        )
+
+        if top_k is not None and top_k > 0 and candidate_scores.numel() > top_k:
+            top_scores, top_indices = torch.topk(candidate_scores, top_k)
+            allowed_tensor = allowed_tensor[top_indices]
+            candidate_scores = top_scores
+
+        if top_p is not None and 0 < top_p < 1.0 and candidate_scores.numel() > 1:
+            sorted_scores, sorted_indices = torch.sort(candidate_scores, descending=True)
+            logits = sorted_scores / max(temperature, 1e-6)
+            probs = torch.softmax(logits, dim=0)
+            cumulative = torch.cumsum(probs, dim=0)
+            keep_mask = cumulative <= top_p
+            keep_mask[0] = True
+            allowed_tensor = allowed_tensor[sorted_indices[keep_mask]]
+            candidate_scores = sorted_scores[keep_mask]
+
+        if candidate_scores.numel() == 1:
+            return int(allowed_tensor[0].item())
+
+        if temperature is None or temperature <= 1e-6:
+            return int(allowed_tensor[torch.argmax(candidate_scores)].item())
+
+        probs = torch.softmax(candidate_scores / temperature, dim=0)
+        sampled_idx = torch.multinomial(probs, num_samples=1)
+        return int(allowed_tensor[sampled_idx].item())
     
     def forward(
         self,
@@ -134,6 +204,38 @@ class TokenMapper(nn.Module):
         for b in range(batch_size):
             allowed = self._get_allowed_tokens(positions, seq_lens[b].item())
             tokens[b] = self._select_token(distances[b], allowed)
+        return tokens
+
+    def batch_sample(
+        self,
+        embeddings: torch.Tensor,
+        positions: int,
+        seq_lens: torch.Tensor,
+        token_histories: torch.Tensor = None,
+        top_k: int = 8,
+        top_p: float = 1.0,
+        temperature: float = 1.0,
+        frequency_penalty: float = 0.0,
+    ) -> torch.Tensor:
+        """Sample tokens from top-ranked neighbors instead of greedy nearest-neighbor decode."""
+        batch_size = embeddings.size(0)
+        device = embeddings.device
+        distances = self._compute_distances(embeddings)
+        scores = -distances
+        tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
+
+        for b in range(batch_size):
+            allowed = self._get_allowed_tokens(positions, seq_lens[b].item())
+            history = None if token_histories is None else token_histories[b]
+            tokens[b] = self.sample_from_scores(
+                scores[b],
+                allowed,
+                history_tokens=history,
+                top_k=top_k,
+                top_p=top_p,
+                temperature=temperature,
+                frequency_penalty=frequency_penalty,
+            )
         return tokens
     
     def get_embedding(self, token_ids: torch.Tensor) -> torch.Tensor:
