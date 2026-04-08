@@ -138,6 +138,18 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     vina_exhaustiveness = int(dpo_cfg.get('vina_exhaustiveness', 8))
     vina_n_poses = int(dpo_cfg.get('vina_n_poses', 2))
     vina_show_progress = bool(dpo_cfg.get('vina_show_progress', True))
+    docking_backend = str(dpo_cfg.get('docking_backend', 'vina')).lower()
+    dock_box_size = dpo_cfg.get('dock_box_size', 30.0)
+    dock_seed = int(dpo_cfg.get('dock_seed', 42))
+    unidock_binary = str(dpo_cfg.get('unidock_binary', 'unidock'))
+    unidock_batch_size = int(dpo_cfg.get('unidock_batch_size', 64))
+    unidock_search_mode = str(dpo_cfg.get('unidock_search_mode', 'fast'))
+    unidock_scoring = str(dpo_cfg.get('unidock_scoring', 'vina'))
+    unidock_refine_step = int(dpo_cfg.get('unidock_refine_step', 3))
+    unidock_max_step = int(dpo_cfg.get('unidock_max_step', 20))
+    unidock_max_gpu_memory = int(dpo_cfg.get('unidock_max_gpu_memory', 0))
+    unidock_keep_workdir = bool(dpo_cfg.get('unidock_keep_workdir', False))
+    unidock_verbosity = int(dpo_cfg.get('unidock_verbosity', 0))
     perm_score_file = dpo_cfg.get('perm_score_file')
 
     # Permeability prediction
@@ -178,9 +190,11 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         ) from e
 
     try:
-        print(f"Vina runtime: device={vina_device}, cpu={vina_cpu}, "
-              f"workers={vina_num_workers}, cpu_per_worker={vina_cpu_per_worker}, "
-              f"exhaustiveness={vina_exhaustiveness}, n_poses={vina_n_poses}")
+        print(
+            f"Docking runtime: backend={docking_backend}, device={vina_device}, cpu={vina_cpu}, "
+            f"workers={vina_num_workers}, cpu_per_worker={vina_cpu_per_worker}, "
+            f"exhaustiveness={vina_exhaustiveness}, n_poses={vina_n_poses}"
+        )
         vina_scores = np.asarray(
             dock_helms(
                 all_helms,
@@ -191,6 +205,18 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
                 exhaustiveness=vina_exhaustiveness,
                 n_poses=vina_n_poses,
                 show_progress=vina_show_progress,
+                backend=docking_backend,
+                box_size=dock_box_size,
+                seed=dock_seed,
+                unidock_binary=unidock_binary,
+                unidock_batch_size=unidock_batch_size,
+                unidock_search_mode=unidock_search_mode,
+                unidock_scoring=unidock_scoring,
+                unidock_refine_step=unidock_refine_step,
+                unidock_max_step=unidock_max_step,
+                unidock_max_gpu_memory=unidock_max_gpu_memory,
+                unidock_keep_workdir=unidock_keep_workdir,
+                unidock_verbosity=unidock_verbosity,
             ),
             dtype=np.float64,
         )

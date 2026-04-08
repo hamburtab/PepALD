@@ -1,17 +1,20 @@
 """
-HELM → SMILES → Vina docking score 的衔接模块。
-供 train_dpo.py 调用。
+HELM -> docking score backend bridge used by DPO training.
 
-支持多进程并行 docking：自动根据总 CPU 核数和每个 worker 分配的核数计算并行度。
+Supports:
+  - AutoDock Vina Python API (CPU / optional custom CUDA build)
+  - Uni-Dock CLI (GPU, Linux + NVIDIA)
 """
 
 import os
 import time
-import numpy as np
-from typing import List
-from rdkit import Chem
-from multiprocessing import Pool, cpu_count
 from functools import partial
+from multiprocessing import Pool
+from pathlib import Path
+from typing import List, Sequence
+
+import numpy as np
+from rdkit import Chem
 
 try:
     from tqdm.auto import tqdm
@@ -19,26 +22,20 @@ except Exception:
     tqdm = None
 
 import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.helm2smiles import get_cycpep_smi_from_helm
-from Vina.vina_score import vina_score, INVALID_SCORE, DEFAULT_RECEPTOR, DEFAULT_REF_SDF
+from Vina.unidock_backend import dock_helms_unidock
+from Vina.vina_score import DEFAULT_RECEPTOR, DEFAULT_REF_SDF, INVALID_SCORE, vina_score
 
 
-def _dock_single(args):
-    """
-    Worker 函数：对单条 HELM 做 docking。
-    用 tuple 传参以兼容 multiprocessing.Pool.imap_unordered。
-    """
+def _dock_single_vina(args):
+    """Dock a single HELM with the Vina Python backend."""
     idx, helm, protein_pdbqt_path, ref_sdf_path, device, cpu_per_worker, exhaustiveness, n_poses = args
 
-    # 抑制 RDKit 中间步骤的 WARNING（拼接 R-group 时的正常噪音，不影响结果）
     from rdkit import RDLogger  # noqa: E402
     RDLogger.DisableLog('rdApp.*')
 
-    # 每个 worker 进程内加载参考分子
-    # (Chem.Mol 不能 pickle 跨进程，所以每个 worker 自己加载)
     ref_supplier = Chem.SDMolSupplier(ref_sdf_path, removeHs=False)
     reference_mol = next(ref_supplier)
     if reference_mol is None:
@@ -60,52 +57,28 @@ def _dock_single(args):
     return idx, score
 
 
-def dock_helms(
+def _dock_helms_vina(
     helm_list: List[str],
-    protein_pdbqt_path: str = None,
-    ref_sdf_path: str = None,
-    device: str = "cpu",
-    cpu: int = 0,
-    cpu_per_worker: int = 2,
-    num_workers: int = 0,
-    exhaustiveness: int = 8,
-    n_poses: int = 2,
-    show_progress: bool = True,
+    protein_pdbqt_path: str,
+    ref_sdf_path: str,
+    device: str,
+    cpu: int,
+    cpu_per_worker: int,
+    num_workers: int,
+    exhaustiveness: int,
+    n_poses: int,
+    show_progress: bool,
 ) -> np.ndarray:
-    """
-    批量对 HELM 序列做 Vina docking（多进程并行）。
-
-    Args:
-        helm_list:           HELM 序列列表
-        protein_pdbqt_path:  受体文件, 默认 6dn5_receptor.pdbqt
-        ref_sdf_path:        参考配体, 默认 raw_cyclic_pep.sdf
-        device:              打分设备标记
-        cpu:                 总 CPU 核数 (0 = auto-detect)
-        cpu_per_worker:      每个 docking worker 分配的核数
-        num_workers:         并行 worker 数 (0 = auto: total_cpu // cpu_per_worker)
-        exhaustiveness:      Vina exhaustiveness 参数
-        n_poses:             Vina 生成 pose 数
-        show_progress:       是否显示进度条
-
-    Returns:
-        scores: np.ndarray [N], 每条 HELM 的 docking score (越负越好, 无效=0.0)
-    """
-    if protein_pdbqt_path is None:
-        protein_pdbqt_path = DEFAULT_RECEPTOR
-    if ref_sdf_path is None:
-        ref_sdf_path = DEFAULT_REF_SDF
-
-    # 自动检测 CPU 核数并计算并行度
     total_cpu = cpu if cpu > 0 else (os.cpu_count() or 1)
     if num_workers <= 0:
         num_workers = max(1, total_cpu // cpu_per_worker)
-    # 确保不超过总核数
     actual_cpu_per_worker = max(1, total_cpu // num_workers)
 
-    print(f"  Vina parallel: {num_workers} workers × {actual_cpu_per_worker} cores/worker "
-          f"(total {total_cpu} cores), exhaustiveness={exhaustiveness}, n_poses={n_poses}")
+    print(
+        f"  Vina parallel: {num_workers} workers x {actual_cpu_per_worker} cores/worker "
+        f"(total {total_cpu} cores), exhaustiveness={exhaustiveness}, n_poses={n_poses}"
+    )
 
-    # 构建任务列表
     tasks = [
         (i, helm, protein_pdbqt_path, ref_sdf_path, device,
          actual_cpu_per_worker, exhaustiveness, n_poses)
@@ -115,26 +88,23 @@ def dock_helms(
     scores = np.full(len(helm_list), INVALID_SCORE, dtype=np.float64)
     valid_count = 0
     valid_sum = 0.0
-
     use_tqdm = bool(show_progress and tqdm is not None)
 
     if num_workers == 1:
-        # 单进程模式（调试友好）
         iterator = tasks
         if use_tqdm:
             iterator = tqdm(tasks, desc=f"Vina docking ({device})", unit="ligand")
 
         for task in iterator:
-            idx, score = _dock_single(task)
+            idx, score = _dock_single_vina(task)
             scores[idx] = score
             if score != INVALID_SCORE:
                 valid_count += 1
                 valid_sum += score
             if use_tqdm and (idx + 1) % 20 == 0:
                 avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
-                iterator.set_postfix(valid=f"{valid_count}/{idx+1}", avg=f"{avg:.2f}")
+                iterator.set_postfix(valid=f"{valid_count}/{idx + 1}", avg=f"{avg:.2f}")
     else:
-        # 多进程模式
         progress = None
         if use_tqdm:
             progress = tqdm(
@@ -150,7 +120,7 @@ def dock_helms(
         first_result = True
 
         with Pool(processes=num_workers) as pool:
-            for idx, score in pool.imap_unordered(_dock_single, tasks):
+            for idx, score in pool.imap_unordered(_dock_single_vina, tasks):
                 scores[idx] = score
                 if score != INVALID_SCORE:
                     valid_count += 1
@@ -158,28 +128,102 @@ def dock_helms(
 
                 if progress is not None:
                     progress.update(1)
-
                     if first_result:
                         warmup_sec = time.time() - t_start
                         progress.write(
-                            f"  First result after {warmup_sec:.1f}s, "
-                            f"ETA is now estimating..."
+                            f"  First result after {warmup_sec:.1f}s, ETA is now estimating..."
                         )
                         first_result = False
-
                     if progress.n % 20 == 0:
                         avg = (valid_sum / valid_count) if valid_count > 0 else 0.0
-                        progress.set_postfix(
-                            valid=f"{valid_count}/{progress.n}",
-                            avg=f"{avg:.2f}",
-                        )
+                        progress.set_postfix(valid=f"{valid_count}/{progress.n}", avg=f"{avg:.2f}")
 
         if progress is not None:
             progress.close()
 
     valid_mask = scores != INVALID_SCORE
-    print(f"  Vina done: {valid_mask.sum()}/{len(helm_list)} valid, "
-          f"avg={scores[valid_mask].mean():.2f}" if valid_mask.any() else
-          f"  Vina done: 0/{len(helm_list)} valid")
-
+    print(
+        f"  Vina done: {valid_mask.sum()}/{len(helm_list)} valid, avg={scores[valid_mask].mean():.2f}"
+        if valid_mask.any() else f"  Vina done: 0/{len(helm_list)} valid"
+    )
     return scores
+
+
+def dock_helms(
+    helm_list: List[str],
+    protein_pdbqt_path: str = None,
+    ref_sdf_path: str = None,
+    device: str = "cpu",
+    cpu: int = 0,
+    cpu_per_worker: int = 2,
+    num_workers: int = 0,
+    exhaustiveness: int = 8,
+    n_poses: int = 2,
+    show_progress: bool = True,
+    backend: str = "vina",
+    box_size: float | Sequence[float] = 30.0,
+    seed: int = 42,
+    unidock_binary: str = "unidock",
+    unidock_batch_size: int = 64,
+    unidock_search_mode: str = "fast",
+    unidock_scoring: str = "vina",
+    unidock_refine_step: int = 3,
+    unidock_max_step: int = 20,
+    unidock_max_gpu_memory: int = 0,
+    unidock_keep_workdir: bool = False,
+    unidock_verbosity: int = 0,
+) -> np.ndarray:
+    """
+    Dock a HELM list with the selected backend.
+
+    Args:
+        backend:
+            - "vina": current Python Vina backend
+            - "unidock": GPU Uni-Dock CLI backend
+    """
+    if protein_pdbqt_path is None:
+        protein_pdbqt_path = DEFAULT_RECEPTOR
+    if ref_sdf_path is None:
+        ref_sdf_path = DEFAULT_REF_SDF
+
+    backend = str(backend).lower()
+    if backend in {"vina", "vina_python"}:
+        return _dock_helms_vina(
+            helm_list=helm_list,
+            protein_pdbqt_path=protein_pdbqt_path,
+            ref_sdf_path=ref_sdf_path,
+            device=device,
+            cpu=cpu,
+            cpu_per_worker=cpu_per_worker,
+            num_workers=num_workers,
+            exhaustiveness=exhaustiveness,
+            n_poses=n_poses,
+            show_progress=show_progress,
+        )
+
+    if backend in {"unidock", "unidock_gpu", "gpu"}:
+        print(
+            f"  Uni-Dock backend: binary={unidock_binary}, batch_size={unidock_batch_size}, "
+            f"search_mode={unidock_search_mode or 'manual'}, num_modes={n_poses}"
+        )
+        return dock_helms_unidock(
+            helm_list=helm_list,
+            protein_pdbqt_path=protein_pdbqt_path,
+            ref_sdf_path=ref_sdf_path,
+            unidock_binary=unidock_binary,
+            batch_size=unidock_batch_size,
+            scoring=unidock_scoring,
+            search_mode=unidock_search_mode,
+            exhaustiveness=max(exhaustiveness, 1),
+            max_step=max(unidock_max_step, 1),
+            num_modes=max(n_poses, 1),
+            refine_step=max(unidock_refine_step, 1),
+            box_size=box_size,
+            seed=seed,
+            verbosity=unidock_verbosity,
+            max_gpu_memory=unidock_max_gpu_memory,
+            show_progress=show_progress,
+            keep_workdir=unidock_keep_workdir,
+        )
+
+    raise ValueError(f"Unknown docking backend: {backend}")
