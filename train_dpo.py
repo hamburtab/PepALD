@@ -19,6 +19,7 @@ import json
 import argparse
 import time
 import csv
+from collections import Counter
 import numpy as np
 from pathlib import Path
 
@@ -34,6 +35,7 @@ from ald.config import ALDConfig
 from ald.dpo.candidate_utils import compute_chemistry_scores, robust_normalize
 from ald.dpo.dataset import PreferencePairDataset, PreferencePairCollator, build_preference_pairs
 from ald.dpo.trainer import DPOTrainer
+from Vina.constants import INVALID_SCORE
 
 
 def parse_args():
@@ -67,6 +69,11 @@ def parse_args():
         "--perm_score_file", type=str, default=None,
         help="Optional CSV/TSV file with precomputed permeability scores. "
              "Overrides dpo.perm_score_file in config."
+    )
+    parser.add_argument(
+        "--vina_score_file", type=str, default=None,
+        help="Optional CSV/TSV file used as an incremental cache for docking scores. "
+             "Existing rows are reused; missing HELMs are docked and appended."
     )
     return parser.parse_args()
 
@@ -144,6 +151,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     unidock_max_gpu_memory = int(dpo_cfg.get('unidock_max_gpu_memory', 0))
     unidock_keep_workdir = bool(dpo_cfg.get('unidock_keep_workdir', False))
     unidock_verbosity = int(dpo_cfg.get('unidock_verbosity', 0))
+    vina_score_file = dpo_cfg.get('vina_score_file')
     perm_score_file = dpo_cfg.get('perm_score_file')
 
     # Permeability prediction
@@ -183,36 +191,60 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
             f"Vina docking import failed, cannot continue DPO training: {e}"
         ) from e
 
-    try:
-        print(
-            f"Docking runtime: Uni-Dock GPU, batch_size={unidock_batch_size}, "
-            f"search_mode={unidock_search_mode}, exhaustiveness={vina_exhaustiveness}, "
-            f"n_poses={vina_n_poses}"
-        )
-        vina_scores = np.asarray(
-            dock_helms(
-                all_helms,
-                exhaustiveness=vina_exhaustiveness,
-                n_poses=vina_n_poses,
-                show_progress=vina_show_progress,
-                box_size=dock_box_size,
-                seed=dock_seed,
-                unidock_binary=unidock_binary,
-                unidock_batch_size=unidock_batch_size,
-                unidock_search_mode=unidock_search_mode,
-                unidock_scoring=unidock_scoring,
-                unidock_refine_step=unidock_refine_step,
-                unidock_max_step=unidock_max_step,
-                unidock_max_gpu_memory=unidock_max_gpu_memory,
-                unidock_keep_workdir=unidock_keep_workdir,
-                unidock_verbosity=unidock_verbosity,
-            ),
-            dtype=np.float64,
-        )
-    except Exception as e:
-        raise RuntimeError(
-            f"Vina docking execution failed, cannot continue DPO training: {e}"
-        ) from e
+    vina_scores = np.full(len(all_helms), INVALID_SCORE, dtype=np.float64)
+    missing_vina_indices = list(range(len(all_helms)))
+    if vina_score_file:
+        vina_scores, missing_vina_indices, _ = load_cached_vina_scores(all_helms, vina_score_file)
+
+    if missing_vina_indices:
+        missing_helms = [all_helms[i] for i in missing_vina_indices]
+        try:
+            print(
+                f"Docking runtime: Uni-Dock GPU, batch_size={unidock_batch_size}, "
+                f"search_mode={unidock_search_mode}, exhaustiveness={vina_exhaustiveness}, "
+                f"n_poses={vina_n_poses}"
+            )
+            if vina_score_file:
+                print(
+                    f"Docking {len(missing_helms)} missing HELM sequences "
+                    f"(incremental cache: {resolve_path(vina_score_file)})"
+                )
+            docked_scores = np.asarray(
+                dock_helms(
+                    missing_helms,
+                    exhaustiveness=vina_exhaustiveness,
+                    n_poses=vina_n_poses,
+                    show_progress=vina_show_progress,
+                    box_size=dock_box_size,
+                    seed=dock_seed,
+                    unidock_binary=unidock_binary,
+                    unidock_batch_size=unidock_batch_size,
+                    unidock_search_mode=unidock_search_mode,
+                    unidock_scoring=unidock_scoring,
+                    unidock_refine_step=unidock_refine_step,
+                    unidock_max_step=unidock_max_step,
+                    unidock_max_gpu_memory=unidock_max_gpu_memory,
+                    unidock_keep_workdir=unidock_keep_workdir,
+                    unidock_verbosity=unidock_verbosity,
+                    score_log_path=vina_score_file,
+                ),
+                dtype=np.float64,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"Vina docking execution failed, cannot continue DPO training: {e}"
+            ) from e
+
+        if docked_scores.shape[0] != len(missing_vina_indices):
+            raise RuntimeError(
+                f"Vina returned {docked_scores.shape[0]} scores for {len(missing_vina_indices)} missing sequences."
+            )
+        for local_idx, global_idx in enumerate(missing_vina_indices):
+            vina_scores[global_idx] = docked_scores[local_idx]
+        if vina_score_file:
+            print(f"Updated Vina score cache: {resolve_path(vina_score_file)}")
+    else:
+        print("Vina docking: all candidate scores loaded from cache, skipping docking")
 
     if vina_scores.shape[0] != len(all_helms):
         raise RuntimeError(
@@ -274,6 +306,82 @@ def _detect_delimiter(header_line: str, path: Path) -> str:
     if '\t' in header_line and ',' not in header_line:
         return '\t'
     return ','
+
+
+def load_cached_vina_scores(all_helms: list, score_file: str):
+    """Load cached docking scores and report which HELMs still need docking."""
+    score_path = resolve_path(score_file)
+    scores = np.full(len(all_helms), INVALID_SCORE, dtype=np.float64)
+    missing_indices = list(range(len(all_helms)))
+    status_counter = Counter()
+
+    if not score_path.exists():
+        print(f"Vina cache not found yet: {score_path}")
+        return scores, missing_indices, status_counter
+
+    with open(score_path, 'r', newline='') as f:
+        header_line = f.readline()
+        if not header_line:
+            print(f"Vina cache exists but is empty: {score_path}")
+            return scores, missing_indices, status_counter
+        delimiter = _detect_delimiter(header_line, score_path)
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
+        if reader.fieldnames is None:
+            raise ValueError(
+                "Vina score file must contain a header row with at least "
+                "'helm' and 'vina_score' columns."
+            )
+
+        field_map = {name.strip().lower(): name for name in reader.fieldnames if name}
+        helm_key = field_map.get('helm')
+        score_key = (
+            field_map.get('vina_score')
+            or field_map.get('score')
+        )
+        status_key = field_map.get('status')
+        if helm_key is None or score_key is None:
+            raise ValueError(
+                "Vina score file must contain 'helm' and 'vina_score' "
+                "(or 'score') columns."
+            )
+
+        score_by_helm = {}
+        status_by_helm = {}
+        duplicate_rows = 0
+        for row in reader:
+            helm = (row.get(helm_key) or '').strip()
+            if not helm:
+                continue
+            raw_score = (row.get(score_key) or '').strip()
+            try:
+                score = float(raw_score)
+            except ValueError:
+                score = INVALID_SCORE
+
+            if helm in score_by_helm:
+                duplicate_rows += 1
+            score_by_helm[helm] = score
+            status_by_helm[helm] = (row.get(status_key) or 'unknown').strip() if status_key else 'unknown'
+
+    missing_indices = []
+    for idx, helm in enumerate(all_helms):
+        if helm not in score_by_helm:
+            missing_indices.append(idx)
+            continue
+        scores[idx] = score_by_helm[helm]
+        status_counter[status_by_helm.get(helm, 'unknown')] += 1
+
+    cached = len(all_helms) - len(missing_indices)
+    print(
+        f"Loaded cached Vina scores for {cached}/{len(all_helms)} HELM sequences from {score_path}"
+        + (f" ({duplicate_rows} duplicate rows overwritten by last occurrence)" if duplicate_rows else "")
+    )
+    if status_counter:
+        status_text = ", ".join(f"{k}={v}" for k, v in sorted(status_counter.items()))
+        print(f"  Cached docking status breakdown: {status_text}")
+
+    return scores, missing_indices, status_counter
 
 
 def load_precomputed_perm_scores(all_helms: list, score_file: str) -> np.ndarray:
@@ -510,6 +618,10 @@ def main():
     dpo_cfg = full_config.get('dpo', {})
     if args.perm_score_file:
         dpo_cfg['perm_score_file'] = args.perm_score_file
+    if args.vina_score_file:
+        dpo_cfg['vina_score_file'] = args.vina_score_file
+    elif not dpo_cfg.get('vina_score_file'):
+        dpo_cfg['vina_score_file'] = str(Path(config.training.checkpoint_dir) / 'dpo_data' / 'vina_scores.csv')
 
     # ── Device ──
     device = torch.device(config.training.device if torch.cuda.is_available() else 'cpu')

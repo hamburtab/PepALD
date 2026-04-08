@@ -4,7 +4,8 @@ HELM -> GPU Vina scoring bridge used by DPO training.
 This module intentionally keeps a single docking path:
     Uni-Dock (GPU, Linux + NVIDIA)
 
-There is no CPU fallback. Any docking setup/runtime failure is raised directly.
+Environment/setup failures still raise directly. Individual ligand docking
+failures are marked invalid and can be cached for later reuse.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ def dock_helms(
     unidock_max_gpu_memory: int = 0,
     unidock_keep_workdir: bool = False,
     unidock_verbosity: int = 0,
+    score_log_path: str | None = None,
 ) -> np.ndarray:
     """Dock HELM ligands with the GPU Uni-Dock backend and return Vina scores."""
     if protein_pdbqt_path is None:
@@ -65,4 +67,5 @@ def dock_helms(
         max_gpu_memory=int(unidock_max_gpu_memory),
         show_progress=bool(show_progress),
         keep_workdir=bool(unidock_keep_workdir),
+        score_log_path=score_log_path,
     )

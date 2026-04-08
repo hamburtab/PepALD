@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import os
 import platform
 import shutil
@@ -23,6 +24,47 @@ except Exception:
     tqdm = None
 
 
+MAX_UNIDOCK_ATOMS = 150
+
+
+class ScoreLogWriter:
+    """Append-only CSV writer for per-sequence docking results."""
+
+    fieldnames = ["helm", "vina_score", "status", "detail"]
+
+    def __init__(self, path: str | Path | None):
+        self.path = None if path is None else Path(path)
+        self.handle = None
+        self.writer = None
+        if self.path is None:
+            return
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        write_header = (not self.path.exists()) or self.path.stat().st_size == 0
+        self.handle = open(self.path, "a", newline="", encoding="utf-8")
+        self.writer = csv.DictWriter(self.handle, fieldnames=self.fieldnames)
+        if write_header:
+            self.writer.writeheader()
+            self.handle.flush()
+
+    def write(self, helm: str, score: float, status: str, detail: str = ""):
+        if self.writer is None:
+            return
+        self.writer.writerow(
+            {
+                "helm": helm,
+                "vina_score": f"{float(score):.8f}",
+                "status": status,
+                "detail": detail,
+            }
+        )
+        self.handle.flush()
+
+    def close(self):
+        if self.handle is not None:
+            self.handle.close()
+
+
 def _chunked(items: Sequence, chunk_size: int) -> Iterable[Sequence]:
     for start in range(0, len(items), chunk_size):
         yield items[start:start + chunk_size]
@@ -37,12 +79,15 @@ def _get_reference_center(ref_sdf_path: str) -> List[float]:
     return center.tolist()
 
 
-def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> bool:
+def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[bool, str]:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        return False
+        return False, "invalid_smiles"
 
     mol = Chem.AddHs(mol)
+    if mol.GetNumAtoms() > MAX_UNIDOCK_ATOMS:
+        return False, f"atom_count_exceeded:{mol.GetNumAtoms()}>{MAX_UNIDOCK_ATOMS}"
+
     embed_status = AllChem.EmbedMolecule(mol, randomSeed=42)
     if embed_status == -1:
         embed_status = AllChem.EmbedMolecule(
@@ -51,7 +96,7 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> bool:
             randomSeed=42,
         )
         if embed_status == -1:
-            return False
+            return False, "embed_failed"
 
     try:
         AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
@@ -62,7 +107,7 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> bool:
     writer = Chem.SDWriter(str(output_path))
     writer.write(mol)
     writer.close()
-    return True
+    return True, "ok"
 
 
 def _read_first_score_from_result_sdf(result_path: Path) -> float:
@@ -149,6 +194,7 @@ def dock_helms_unidock(
     max_gpu_memory: int = 0,
     show_progress: bool = True,
     keep_workdir: bool = False,
+    score_log_path: str | Path | None = None,
 ) -> np.ndarray:
     """
     Dock HELM ligands with Uni-Dock GPU backend.
@@ -185,6 +231,7 @@ def dock_helms_unidock(
 
     center = _get_reference_center(str(ref_sdf_path))
     scores = np.full(len(helm_list), INVALID_SCORE, dtype=np.float64)
+    score_writer = ScoreLogWriter(score_log_path)
 
     temp_ctx = None
     if keep_workdir:
@@ -199,7 +246,7 @@ def dock_helms_unidock(
         inputs_dir.mkdir(parents=True, exist_ok=True)
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
-        valid_entries: List[Tuple[int, Path]] = []
+        valid_entries: List[Tuple[int, str, Path]] = []
         prep_iter = enumerate(helm_list)
         if show_progress and tqdm is not None:
             prep_iter = tqdm(prep_iter, total=len(helm_list), desc="Uni-Dock prep", unit="ligand")
@@ -207,11 +254,15 @@ def dock_helms_unidock(
         for idx, helm in prep_iter:
             smiles = get_cycpep_smi_from_helm(helm)
             if not smiles:
+                score_writer.write(helm, INVALID_SCORE, "helm_to_smiles_failed", "empty_smiles")
                 continue
 
             ligand_path = inputs_dir / f"ligand_{idx:05d}.sdf"
-            if _write_sdf_from_smiles(smiles, ligand_path, ligand_path.stem):
-                valid_entries.append((idx, ligand_path))
+            ok, detail = _write_sdf_from_smiles(smiles, ligand_path, ligand_path.stem)
+            if ok:
+                valid_entries.append((idx, helm, ligand_path))
+            else:
+                score_writer.write(helm, INVALID_SCORE, "prep_failed", detail)
 
         if len(valid_entries) == 0:
             return scores
@@ -226,7 +277,7 @@ def dock_helms_unidock(
 
             ligand_index_path = workdir / f"ligand_index_{batch_id:04d}.txt"
             with open(ligand_index_path, "w") as f:
-                f.write("\n".join(str(path) for _, path in batch))
+                f.write("\n".join(str(path) for _, _, path in batch))
 
             cmd = _build_unidock_cmd(
                 binary=binary_path,
@@ -252,21 +303,31 @@ def dock_helms_unidock(
                 text=True,
             )
             if proc.returncode != 0:
-                raise RuntimeError(
-                    "Uni-Dock execution failed.\n"
-                    f"Command: {' '.join(cmd)}\n"
-                    f"stdout:\n{proc.stdout}\n"
-                    f"stderr:\n{proc.stderr}"
+                print(
+                    f"  Warning: Uni-Dock batch {batch_id} failed (returncode={proc.returncode}); "
+                    f"marking {len(batch)} ligands invalid."
                 )
+                stderr_tail = (proc.stderr or proc.stdout or "").strip().splitlines()[-3:]
+                detail = " | ".join(stderr_tail)[:500]
+                for _, helm, _ in batch:
+                    score_writer.write(helm, INVALID_SCORE, "batch_failed", detail)
+                continue
 
-            for idx, ligand_path in batch:
+            for idx, helm, ligand_path in batch:
                 result_path = batch_out_dir / f"{ligand_path.stem}_out.sdf"
                 if result_path.exists():
                     scores[idx] = _read_first_score_from_result_sdf(result_path)
+                    if scores[idx] != INVALID_SCORE:
+                        score_writer.write(helm, scores[idx], "ok")
+                    else:
+                        score_writer.write(helm, INVALID_SCORE, "missing_energy", "result_file_without_energy")
+                else:
+                    score_writer.write(helm, INVALID_SCORE, "missing_output", result_path.name)
 
     finally:
         if temp_ctx is not None:
             temp_ctx.cleanup()
+        score_writer.close()
 
     valid_mask = scores != INVALID_SCORE
     print(
