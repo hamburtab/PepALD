@@ -37,8 +37,8 @@ ald/dpo/
 └── trainer.py                  ← DPOTrainer（train_step 中实现完整 DPO 流程）
 Vina/
 ├── __init__.py
-├── vina_score.py               ← 单条 SMILES → Vina docking score（已加异常处理）
-├── dock.py                     ← HELM 列表 → batch docking（HELM→SMILES→vina_score）
+├── dock.py                     ← HELM 列表 → Uni-Dock GPU batch docking
+├── unidock_backend.py          ← HELM→SMILES→3D SDF→Uni-Dock
 ├── 6dn5_receptor.pdbqt         ← 受体蛋白（锁）
 └── raw_cyclic_pep.sdf          ← 参考配体（定位 docking box 中心）
 ```
@@ -60,8 +60,8 @@ eval/eval_permeability.py       ← 随机森林透膜性预测
 - [x] Preference pair 数据集 (ald/dpo/dataset.py)
 - [x] DPO trainer (ald/dpo/trainer.py)
 - [x] 训练主脚本 (train_dpo.py)
-- [x] Vina docking 评分 (Vina/vina_score.py)
-- [x] HELM→Vina 衔接 (Vina/dock.py)
+- [x] Uni-Dock GPU Vina docking 评分 (Vina/dock.py)
+- [x] HELM→Uni-Dock 衔接 (Vina/unidock_backend.py)
 - [x] DPO 配置 (configs/dpo.json)
 - [ ] 端到端测试运行
 - [ ] 验证生成质量（validity, reward 分布, diversity）

@@ -18,7 +18,6 @@ import sys
 import json
 import argparse
 import time
-import os
 import csv
 import numpy as np
 from pathlib import Path
@@ -131,14 +130,9 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
 
     w_vina = dpo_cfg.get('reward_w_vina', 1.0)
     w_perm = dpo_cfg.get('reward_w_perm', 0.5)
-    vina_device = str(dpo_cfg.get('vina_device', 'cpu')).lower()
-    vina_cpu = resolve_vina_cpu(dpo_cfg.get('vina_cpu', None))
-    vina_cpu_per_worker = int(dpo_cfg.get('vina_cpu_per_worker', 2))
-    vina_num_workers = int(dpo_cfg.get('vina_num_workers', 0))
     vina_exhaustiveness = int(dpo_cfg.get('vina_exhaustiveness', 8))
     vina_n_poses = int(dpo_cfg.get('vina_n_poses', 2))
     vina_show_progress = bool(dpo_cfg.get('vina_show_progress', True))
-    docking_backend = str(dpo_cfg.get('docking_backend', 'vina')).lower()
     dock_box_size = dpo_cfg.get('dock_box_size', 30.0)
     dock_seed = int(dpo_cfg.get('dock_seed', 42))
     unidock_binary = str(dpo_cfg.get('unidock_binary', 'unidock'))
@@ -191,21 +185,16 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
 
     try:
         print(
-            f"Docking runtime: backend={docking_backend}, device={vina_device}, cpu={vina_cpu}, "
-            f"workers={vina_num_workers}, cpu_per_worker={vina_cpu_per_worker}, "
-            f"exhaustiveness={vina_exhaustiveness}, n_poses={vina_n_poses}"
+            f"Docking runtime: Uni-Dock GPU, batch_size={unidock_batch_size}, "
+            f"search_mode={unidock_search_mode}, exhaustiveness={vina_exhaustiveness}, "
+            f"n_poses={vina_n_poses}"
         )
         vina_scores = np.asarray(
             dock_helms(
                 all_helms,
-                device=vina_device,
-                cpu=vina_cpu,
-                cpu_per_worker=vina_cpu_per_worker,
-                num_workers=vina_num_workers,
                 exhaustiveness=vina_exhaustiveness,
                 n_poses=vina_n_poses,
                 show_progress=vina_show_progress,
-                backend=docking_backend,
                 box_size=dock_box_size,
                 seed=dock_seed,
                 unidock_binary=unidock_binary,
@@ -368,41 +357,6 @@ def load_precomputed_perm_scores(all_helms: list, score_file: str) -> np.ndarray
         + (f" ({duplicate_rows} duplicate rows overwritten by last occurrence)" if duplicate_rows else "")
     )
     return scores
-
-
-def resolve_vina_cpu(vina_cpu_value) -> int:
-    """Resolve Vina CPU threads from config; default is all available CPU cores."""
-    available = os.cpu_count() or 1
-
-    if vina_cpu_value is None:
-        return available
-
-    if isinstance(vina_cpu_value, str):
-        value = vina_cpu_value.strip().lower()
-        if value in {"auto", "max", "all"}:
-            return available
-        try:
-            vina_cpu_value = int(value)
-        except ValueError as e:
-            raise ValueError(
-                "Invalid dpo.vina_cpu value. Use integer, 0/-1, or one of: auto/max/all."
-            ) from e
-
-    try:
-        cpu = int(vina_cpu_value)
-    except (TypeError, ValueError) as e:
-        raise ValueError(
-            "Invalid dpo.vina_cpu value. Use integer, 0/-1, or one of: auto/max/all."
-        ) from e
-
-    if cpu <= 0:
-        return available
-
-    if cpu > available:
-        print(f"Warning: vina_cpu={cpu} exceeds available CPU cores ({available}); capping to {available}")
-        return available
-
-    return cpu
 
 
 def generate_and_evaluate(

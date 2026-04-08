@@ -1,6 +1,6 @@
 # Uni-Dock GPU Setup
 
-This project now supports a `unidock` docking backend in addition to the original Python `vina` backend.
+This project now uses `unidock` as the only docking backend for Vina scoring.
 
 ## Important platform note
 
@@ -28,9 +28,8 @@ This script will:
 
 ## DPO config
 
-`configs/dpo.json` is wired to the new backend:
+`configs/dpo.json` is wired to the GPU docking path:
 
-- `docking_backend: "unidock"`
 - `unidock_binary: "unidock"`
 - `unidock_batch_size: 64`
 - `unidock_search_mode: "fast"`
@@ -57,10 +56,7 @@ The Uni-Dock backend:
 3. Batches ligands through `unidock --ligand_index`
 4. Reads the first pose energy from each `*_out.sdf`
 
-## Fallback
+## Errors
 
-If you want to switch back to the old backend, set in `configs/dpo.json`:
-
-```json
-"docking_backend": "vina"
-```
+There is no CPU fallback. If `unidock` is missing, the platform is unsupported,
+or docking fails at runtime, training raises an error immediately.

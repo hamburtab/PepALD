@@ -15,7 +15,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 
 from utils.helm2smiles import get_cycpep_smi_from_helm
-from Vina.vina_score import DEFAULT_RECEPTOR, DEFAULT_REF_SDF, INVALID_SCORE
+from Vina.constants import DEFAULT_RECEPTOR, DEFAULT_REF_SDF, INVALID_SCORE
 
 try:
     from tqdm.auto import tqdm
