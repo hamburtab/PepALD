@@ -73,7 +73,7 @@
       "./chembl32_samples/helm_chembl32only_r1r2_cyclized.txt",
       "./chembl32_samples/cpp_lembda0点3_lastest.txt"
     ],
-    "perm_score_file": null,
+    "perm_score_file": "./chembl32_samples/combined_candidates.perm.csv",
     "top_ratio": 0.1,
     "bottom_ratio": 0.1,
     "winner_pool_ratio": 0.3,
