@@ -46,7 +46,7 @@
   },
   "generation": {
     "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_top1000_ce_only/latest.pt",
-    "num_samples": 1002,
+    "num_samples": 1000,
     "max_length": 7,
     "min_length": 7,
     "use_ddim": true,
