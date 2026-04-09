@@ -21,6 +21,7 @@ import sys
 import json
 import time
 import argparse
+import re
 from pathlib import Path
 
 import torch
@@ -73,6 +74,27 @@ def parse_args():
         help="Output file path"
     )
     return parser.parse_args()
+
+
+def is_explicit_dpo_config(config_file: Path, config_arg: str | None) -> bool:
+    """Only special-case explicit dpo.json generation requests."""
+    if config_arg is None:
+        return False
+    return config_file.name == "dpo.json"
+
+
+def force_head_tail_cyclize_helm(helm_seq: str) -> str:
+    """Rewrite a generated peptide as a head-tail single-cycle HELM."""
+    match = re.search(r"PEPTIDE1\{(.+?)\}", helm_seq)
+    if not match:
+        return helm_seq
+
+    tokens = [tok for tok in match.group(1).split(".") if tok]
+    if len(tokens) < 2:
+        return helm_seq
+
+    sequence_part = f"PEPTIDE1{{{'.'.join(tokens)}}}"
+    return f"{sequence_part}$PEPTIDE1,PEPTIDE1,1:R1-{len(tokens)}:R2$$$"
 
 
 def load_model(config: ALDConfig, device: torch.device):
@@ -150,7 +172,13 @@ def decode_sequence(token_ids: torch.Tensor, vocab: dict, idx_to_token: dict = N
     return "PEPTIDE1{" + ".".join(tokens) + "}$$$$"
 
 
-def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device):
+def generate_samples(
+    model,
+    config: ALDConfig,
+    vocab: dict,
+    device: torch.device,
+    force_head_tail_cycle: bool = False,
+):
     """Generate samples using the model."""
     
     gen_cfg = config.generation
@@ -170,6 +198,7 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
             print(f"  ddim_steps:               {gen_cfg.ddim_steps}")
         print(f"  lambda_gpt:               {gen_cfg.lambda_gpt}")
         print(f"  predict_ring_bonds:       {gen_cfg.predict_ring_bonds}")
+        print(f"  cyclization_mode:         {getattr(gen_cfg, 'cyclization_mode', 'predict_ring')}")
         print(f"  use_embedding_norm:       {gen_cfg.use_embedding_norm}")
         print(f"  mapping_sample:           {gen_cfg.mapping_sample}")
         if gen_cfg.mapping_sample:
@@ -212,11 +241,18 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
         else:
             tokens = sample
             ring_connections = []
-        
-        # Decode to HELM (use model's method to include ring bonds)
-        helm_seq = model.decode_to_helm(tokens, ring_connections)
+
+        # Decode to HELM. For DPO config we force head-tail single cyclization.
+        if force_head_tail_cycle:
+            linear_helm = model.decode_to_helm(tokens, [])
+            helm_seq = force_head_tail_cyclize_helm(linear_helm)
+            ring_count = 1 if "$PEPTIDE1,PEPTIDE1," in helm_seq else 0
+        else:
+            helm_seq = model.decode_to_helm(tokens, ring_connections)
+            ring_count = len(ring_connections)
+
         helm_sequences.append(helm_seq)
-        
+
         # Statistics
         pad_id = vocab.get('<PAD>', 0)
         if hasattr(tokens, 'cpu'):
@@ -225,7 +261,7 @@ def generate_samples(model, config: ALDConfig, vocab: dict, device: torch.device
             tokens_np = np.array(tokens)
         seq_len = np.sum(tokens_np != pad_id)
         sequence_lengths.append(seq_len)
-        ring_bond_counts.append(len(ring_connections))
+        ring_bond_counts.append(ring_count)
     
     # Print samples if verbose
     if verbose:
@@ -287,6 +323,9 @@ def main():
     
     config = ALDConfig.load(str(config_file))
     gen_cfg = config.generation
+    is_dpo_config = is_explicit_dpo_config(config_file, args.config)
+    cyclization_mode = getattr(gen_cfg, "cyclization_mode", "predict_ring")
+    force_head_tail_cycle = is_dpo_config and cyclization_mode == "force_head_tail"
     
     # Override from command line args
     if args.num_samples:
@@ -294,8 +333,14 @@ def main():
     if args.output:
         gen_cfg.output_file = args.output
     
-    # For linear mode, disable ring prediction
-    if args.mode == "linear":
+    # For explicit dpo.json generation, cyclization is controlled by generation.cyclization_mode.
+    if is_dpo_config and cyclization_mode == "force_head_tail":
+        gen_cfg.predict_ring_bonds = False
+        print("🔒 dpo.json cyclization_mode=force_head_tail: forcing head-tail single-cycle HELM output")
+    elif is_dpo_config and cyclization_mode == "predict_ring":
+        gen_cfg.predict_ring_bonds = True
+        print("🔁 dpo.json cyclization_mode=predict_ring: using automatic ring-bond prediction")
+    elif args.mode == "linear":
         gen_cfg.predict_ring_bonds = False
     elif args.mode in {"cyclic", "vina"}:
         gen_cfg.predict_ring_bonds = True
@@ -317,7 +362,8 @@ def main():
     
     # Generate samples
     helm_sequences, ring_bond_counts, sequence_lengths = generate_samples(
-        model, config, vocab, device
+        model, config, vocab, device,
+        force_head_tail_cycle=force_head_tail_cycle,
     )
     
     # Save if output file specified

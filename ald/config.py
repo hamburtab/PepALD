@@ -120,6 +120,7 @@ class ALDGenerationConfig:
     
     # Ring bond prediction
     predict_ring_bonds: bool = True
+    cyclization_mode: Literal['predict_ring', 'force_head_tail'] = 'predict_ring'
     ring_bond_threshold: float = 0.5
     ring_top_k: int = 1  # Number of top candidates to consider for ring prediction
     
