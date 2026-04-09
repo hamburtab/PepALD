@@ -45,7 +45,7 @@
   },
   "generation": {
     "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_dpo/dpo_latest.pt",
-    "num_samples": 2000,
+    "num_samples": 1000,
     "max_length": 7,
     "min_length": 7,
     "use_ddim": true,
@@ -60,7 +60,7 @@
     "mapping_top_p": 0.95,
     "mapping_temperature": 0.85,
     "mapping_frequency_penalty": 0.35,
-    "output_file": null,
+    "output_file": "./chembl32_samples/helm_dpo_samples.txt",
     "verbose": true,
     "seed": null
   },
