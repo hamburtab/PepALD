@@ -19,6 +19,7 @@ import json
 import argparse
 import time
 import csv
+from datetime import datetime
 from collections import Counter
 import numpy as np
 from pathlib import Path
@@ -36,6 +37,29 @@ from ald.dpo.candidate_utils import compute_chemistry_scores, robust_normalize
 from ald.dpo.dataset import PreferencePairDataset, PreferencePairCollator, build_preference_pairs
 from ald.dpo.trainer import DPOTrainer
 from Vina.constants import INVALID_SCORE
+
+
+class TeeStream:
+    """Mirror writes to both the original stream and a log file."""
+
+    def __init__(self, primary, secondary):
+        self.primary = primary
+        self.secondary = secondary
+
+    def write(self, data):
+        self.primary.write(data)
+        self.secondary.write(data)
+        return len(data)
+
+    def flush(self):
+        self.primary.flush()
+        self.secondary.flush()
+
+    def isatty(self):
+        return bool(getattr(self.primary, "isatty", lambda: False)())
+
+    def __getattr__(self, name):
+        return getattr(self.primary, name)
 
 
 def parse_args():
@@ -84,6 +108,20 @@ def resolve_path(path_str: str) -> Path:
     if not path.is_absolute():
         path = PROJECT_ROOT / path
     return path
+
+
+def setup_output_logging(checkpoint_dir: str) -> Path:
+    """Mirror stdout/stderr to a timestamped log file under checkpoint_dir/logs."""
+    log_dir = resolve_path(str(Path(checkpoint_dir) / "logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"dpo_train_{timestamp}.log"
+    log_file = open(log_path, "a", encoding="utf-8", buffering=1)
+
+    sys.stdout = TeeStream(sys.stdout, log_file)
+    sys.stderr = TeeStream(sys.stderr, log_file)
+    return log_path
 
 
 def load_pretrained_model(config: ALDConfig, device: torch.device):
@@ -672,14 +710,17 @@ def filter_invalid_docking_candidates(
 def main():
     args = parse_args()
 
-    # ── Load config ──
-    print(f"Loading config from: {args.config}")
+    with open(args.config, 'r') as f:
+        raw_config = json.load(f)
+    checkpoint_dir = raw_config.get('training', {}).get('checkpoint_dir', './checkpoints/ald_dpo')
+    log_path = setup_output_logging(checkpoint_dir)
+
     config = ALDConfig.load(args.config)
+    print(f"Loading config from: {args.config}")
+    print(f"Training log will be written to: {log_path}")
 
     # Load DPO-specific config
-    with open(args.config, 'r') as f:
-        full_config = json.load(f)
-    dpo_cfg = full_config.get('dpo', {})
+    dpo_cfg = raw_config.get('dpo', {})
     if args.perm_score_file:
         dpo_cfg['perm_score_file'] = args.perm_score_file
     if args.vina_score_file:
