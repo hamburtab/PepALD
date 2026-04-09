@@ -251,7 +251,8 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
             f"Vina returned {vina_scores.shape[0]} scores for {len(all_helms)} sequences."
         )
 
-    valid_vina = vina_scores[vina_scores != 0]
+    valid_vina_mask = vina_scores != INVALID_SCORE
+    valid_vina = vina_scores[valid_vina_mask]
     if len(valid_vina) == 0:
         raise RuntimeError(
             "Vina produced zero valid scores (all scores are INVALID_SCORE=0.0); aborting DPO."
@@ -259,6 +260,12 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
 
     print(f"Vina docking: {len(valid_vina)}/{len(all_helms)} valid, "
           f"mean={valid_vina.mean():.4f}")
+    invalid_vina = int((~valid_vina_mask).sum())
+    if invalid_vina > 0:
+        print(
+            f"Vina docking: {invalid_vina} samples are INVALID_SCORE and will be "
+            "excluded before preference pair construction."
+        )
 
     # Combined reward
     # Vina score 越负越好, 取负号使得越大越好 (与 DPO 的 "higher is better" 一致)
@@ -270,24 +277,33 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     reward_perm = perm_scores
     chemistry_scores = compute_chemistry_scores(all_helms, target_len=chemistry_target_len)
 
-    if normalize_rewards:
-        norm_vina = robust_normalize(reward_vina)
-        norm_perm = robust_normalize(reward_perm)
-        norm_chem = robust_normalize(chemistry_scores)
-    else:
-        norm_vina = reward_vina
-        norm_perm = reward_perm
-        norm_chem = chemistry_scores
+    reward_vina_for_norm = reward_vina.copy()
+    reward_perm_for_norm = reward_perm.copy()
+    chemistry_for_norm = chemistry_scores.copy()
+    reward_vina_for_norm[~valid_vina_mask] = np.nan
+    reward_perm_for_norm[~valid_vina_mask] = np.nan
+    chemistry_for_norm[~valid_vina_mask] = np.nan
 
-    _print_component_stats("Vina", reward_vina, norm_vina)
-    _print_component_stats("Perm", reward_perm, norm_perm)
+    if normalize_rewards:
+        norm_vina = robust_normalize(reward_vina_for_norm)
+        norm_perm = robust_normalize(reward_perm_for_norm)
+        norm_chem = robust_normalize(chemistry_for_norm)
+    else:
+        norm_vina = reward_vina_for_norm
+        norm_perm = reward_perm_for_norm
+        norm_chem = chemistry_for_norm
+
+    _print_component_stats("Vina", reward_vina[valid_vina_mask], norm_vina[valid_vina_mask])
+    _print_component_stats("Perm", reward_perm[valid_vina_mask], norm_perm[valid_vina_mask])
     if reward_w_chem > 0:
-        _print_component_stats("Chemistry", chemistry_scores, norm_chem)
+        _print_component_stats("Chemistry", chemistry_scores[valid_vina_mask], norm_chem[valid_vina_mask])
 
     all_rewards = w_vina * norm_vina + w_perm * norm_perm + reward_w_chem * norm_chem
-    print(f"\nReward stats: mean={all_rewards.mean():.4f}, "
-          f"std={all_rewards.std():.4f}, "
-          f"min={all_rewards.min():.4f}, max={all_rewards.max():.4f}")
+    all_rewards[~valid_vina_mask] = -np.inf
+    valid_rewards = all_rewards[valid_vina_mask]
+    print(f"\nReward stats (valid docking only): mean={valid_rewards.mean():.4f}, "
+          f"std={valid_rewards.std():.4f}, "
+          f"min={valid_rewards.min():.4f}, max={valid_rewards.max():.4f}")
 
     reward_info = {
         'reward_vina': reward_vina,
@@ -296,6 +312,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         'norm_vina': norm_vina,
         'norm_perm': norm_perm,
         'norm_chemistry': norm_chem,
+        'valid_vina_mask': valid_vina_mask,
     }
     return all_rewards, vina_scores, perm_scores, reward_info
 
@@ -605,6 +622,53 @@ def load_and_evaluate_from_file(sample_files: list, dpo_cfg: dict):
     return all_helms, all_rewards, vina_scores, perm_scores, reward_info, source_labels, sample_paths
 
 
+def filter_invalid_docking_candidates(
+    all_helms: list,
+    all_rewards: np.ndarray,
+    vina_scores: np.ndarray,
+    perm_scores: np.ndarray,
+    reward_info: dict,
+    source_labels: list | None = None,
+):
+    """Drop candidates with invalid docking scores before pair construction."""
+    valid_mask = None if reward_info is None else reward_info.get('valid_vina_mask')
+    if valid_mask is None:
+        return all_helms, all_rewards, vina_scores, perm_scores, reward_info, source_labels
+
+    valid_mask = np.asarray(valid_mask, dtype=bool)
+    if valid_mask.shape[0] != len(all_helms):
+        raise ValueError("valid_vina_mask does not align with candidate HELM sequences.")
+
+    dropped = int((~valid_mask).sum())
+    if dropped == 0:
+        return all_helms, all_rewards, vina_scores, perm_scores, reward_info, source_labels
+
+    kept = int(valid_mask.sum())
+    print(f"Filtering out {dropped} invalid docking candidates before DPO ({kept} remain)")
+
+    filtered_helms = [helm for helm, keep in zip(all_helms, valid_mask) if keep]
+    filtered_sources = None
+    if source_labels is not None:
+        filtered_sources = [label for label, keep in zip(source_labels, valid_mask) if keep]
+
+    filtered_reward_info = {}
+    for key, value in (reward_info or {}).items():
+        if isinstance(value, np.ndarray) and value.shape[0] == valid_mask.shape[0]:
+            filtered_reward_info[key] = value[valid_mask]
+        else:
+            filtered_reward_info[key] = value
+    filtered_reward_info['valid_vina_mask'] = np.ones(kept, dtype=bool)
+
+    return (
+        filtered_helms,
+        np.asarray(all_rewards)[valid_mask],
+        np.asarray(vina_scores)[valid_mask],
+        np.asarray(perm_scores)[valid_mask],
+        filtered_reward_info,
+        filtered_sources,
+    )
+
+
 def main():
     args = parse_args()
 
@@ -671,6 +735,22 @@ def main():
             # Fallback: generate and evaluate with pretrained model
             all_helms, all_rewards, vina_scores, perm_scores, reward_info = generate_and_evaluate(model, config, dpo_cfg, device)
             source_labels = ["generated"] * len(all_helms)
+
+        (
+            all_helms,
+            all_rewards,
+            vina_scores,
+            perm_scores,
+            reward_info,
+            source_labels,
+        ) = filter_invalid_docking_candidates(
+            all_helms,
+            all_rewards,
+            vina_scores,
+            perm_scores,
+            reward_info,
+            source_labels=source_labels,
+        )
 
         # Build pairs
         top_ratio = dpo_cfg.get('top_ratio', 0.2)

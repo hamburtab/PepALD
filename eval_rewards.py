@@ -20,7 +20,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from train_dpo import evaluate_rewards, load_helm_list, resolve_path
+from train_dpo import (
+    evaluate_rewards,
+    filter_invalid_docking_candidates,
+    load_helm_list,
+    resolve_path,
+)
 from ald.dpo.dataset import build_preference_pairs
 
 
@@ -84,7 +89,15 @@ def main():
         print(f"Using first {args.max_samples} samples for evaluation")
 
     # Evaluate rewards
-    all_rewards, vina_scores, perm_scores = evaluate_rewards(all_helms, dpo_cfg)
+    all_rewards, vina_scores, perm_scores, reward_info = evaluate_rewards(all_helms, dpo_cfg)
+    all_helms, all_rewards, vina_scores, perm_scores, reward_info, _ = filter_invalid_docking_candidates(
+        all_helms,
+        all_rewards,
+        vina_scores,
+        perm_scores,
+        reward_info,
+        source_labels=None,
+    )
 
     # Build preference pairs (with detailed stats)
     top_ratio = args.top_ratio or dpo_cfg.get('top_ratio', 0.2)
@@ -95,6 +108,7 @@ def main():
     winner_helms, loser_helms = build_preference_pairs(
         all_helms, all_rewards, top_ratio, bottom_ratio,
         vina_scores=vina_scores, perm_scores=perm_scores,
+        chemistry_scores=reward_info.get('chemistry_scores'),
         reward_w_vina=w_vina, reward_w_perm=w_perm,
     )
 
