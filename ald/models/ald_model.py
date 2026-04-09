@@ -510,7 +510,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         device: Optional[torch.device] = None,
         use_ddim: Optional[bool] = None,
         ddim_steps: Optional[int] = None,
-        lambda_gpt: Optional[float] = 0.3,
+        lambda_gpt: Optional[float] = None,
         predict_ring_bonds: Optional[bool] = None,
         ring_threshold: float = 0.5,
         ring_top_k: int = 1,

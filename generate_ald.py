@@ -221,8 +221,11 @@ def generate_samples(
             device=device,
             use_ddim=gen_cfg.use_ddim,
             ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
+            lambda_gpt=gen_cfg.lambda_gpt,
             predict_ring_bonds=gen_cfg.predict_ring_bonds,
-            ring_threshold=gen_cfg.ring_bond_threshold
+            ring_threshold=gen_cfg.ring_bond_threshold,
+            ring_top_k=gen_cfg.ring_top_k,
+            verbose=gen_cfg.verbose,
         )
     
     elapsed_time = time.time() - start_time
