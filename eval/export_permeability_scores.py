@@ -24,8 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from eval.eval_permeability import Permeability
 
 
-DEFAULT_INPUT = "chembl32_samples/combined_candidates.txt"
-DEFAULT_OUTPUT = "chembl32_samples/combined_candidates.perm.csv"
+# DEFAULT_INPUT = "chembl32_samples/combined_candidates.txt"
+# DEFAULT_OUTPUT = "chembl32_samples/combined_candidates.perm.csv"
+DEFAULT_INPUT = "chembl32_samples/helm_dpo_samples.txt"
+DEFAULT_OUTPUT = "chembl32_samples/helm_dpo_samples.perm.csv"
 
 
 def parse_args():
