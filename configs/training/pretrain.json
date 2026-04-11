@@ -1,0 +1,49 @@
+{
+  "model": {
+    "embedding_dim": 512,
+    "d_model": 512,
+    "n_heads": 8,
+    "context_layers": 6,
+    "denoiser_layers": 6,
+    "d_ff": 2048,
+    "max_seq_len": 45,
+    "dropout": 0.3,
+    "num_diffusion_steps": 1000,
+    "variance_schedule": "linear",
+    "beta_start": 1e-4,
+    "beta_end": 0.02
+  },
+  "training": {
+    "train_data_file": "./data/processed/helm_sequences_chembl32.txt",
+    "vocab_file": "./data/processed/helm_vocab.json",
+    "embeddings_dir": "./data/processed/unimol_embeddings",
+    "data_dir": "./data/processed",
+    "batch_size": 32,
+    "learning_rate": 1e-4,
+    "weight_decay": 0.05,
+    "num_epochs": 99,
+    "warmup_steps": 1000,
+    "max_grad_norm": 1.0,
+    "sample_positions": 45,
+    "log_interval": 100,
+    "save_interval": 1000,
+    "checkpoint_dir": "./outputs/checkpoints/pretrain",
+    "device": "cuda",
+    "use_amp": false,
+    "num_workers": 4
+  },
+  "generation": {
+    "checkpoint_path": "./outputs/checkpoints/pretrain/checkpoint_epoch_99.pt",
+    "num_samples": 1000,
+    "max_length": 20,
+    "min_length": 4,
+    "use_ddim": true,
+    "ddim_steps": 10,
+    "predict_ring_bonds": true,
+    "ring_bond_threshold": 0.5,
+    "use_embedding_norm": false,
+    "output_file": "./outputs/samples/helm_chembl32only_samples.txt",
+    "verbose": true,
+    "seed": null
+  }
+}

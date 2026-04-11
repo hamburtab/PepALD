@@ -17,7 +17,7 @@ Use the steps below on the Linux/NVIDIA training machine that owns the real `mol
 From the project root:
 
 ```bash
-bash scripts/setup_unidock_linux.sh molformer_env
+bash scripts/setup/setup_unidock_linux.sh molformer_env
 ```
 
 This script will:
@@ -28,7 +28,7 @@ This script will:
 
 ## DPO config
 
-`configs/dpo.json` is wired to the GPU docking path:
+`configs/training/dpo.json` is wired to the GPU docking path:
 
 - `unidock_binary: "unidock"`
 - `unidock_batch_size: 64`
@@ -47,7 +47,7 @@ If accuracy is too low, increase:
 
 The code path is now:
 
-`train_dpo.py -> Vina/dock.py -> Vina/unidock_backend.py`
+`scripts/train/train_dpo.py -> pepar_diff/vina/dock.py -> pepar_diff/vina/unidock_backend.py`
 
 The Uni-Dock backend:
 

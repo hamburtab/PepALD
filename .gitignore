@@ -172,6 +172,8 @@ cython_debug/
 #  be added to the global gitignore or merged into this project gitignore.  For a PyCharm
 #  project, it is common to ignore *.iws files.
 .idea/
+.claude/
+.conda/
 
 # Operating System Files
 .DS_Store
@@ -200,6 +202,11 @@ checkpoints/
 chembl32_checkpoints/
 outputs/
 results/
+!outputs/
+!outputs/samples/
+!outputs/samples/**
+outputs/checkpoints/
+outputs/logs/
 
 # Large data files (uncomment if you want to exclude them)
 # *.csv
