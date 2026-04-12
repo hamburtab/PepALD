@@ -1,7 +1,7 @@
 """
 Export permeability scores for a HELM candidate file.
 
-Run this script inside the isolated `perm_env` environment, then pass the
+Run this script inside the isolated `pepardiff-perm` environment, then pass the
 resulting score file to train_dpo.py / eval_rewards.py via --perm_score_file.
 
 Usage:

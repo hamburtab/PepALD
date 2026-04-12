@@ -1,4 +1,4 @@
-name: perm_env
+name: pepardiff-perm
 channels:
   - conda-forge
   - defaults

@@ -194,7 +194,7 @@ class Permeability:
             "Permeability predictor feature mismatch. "
             f"Model expects {expected_dim} features, but current RDKit setup "
             f"produces {full_dim} ('full') or {filtered_dim} ('filtered'). "
-            "Use the isolated perm_env or rebuild the predictor for this environment."
+            "Use the isolated pepardiff-perm environment or rebuild the predictor for this environment."
         )
 
     def get_features(self, input_seqs: list):

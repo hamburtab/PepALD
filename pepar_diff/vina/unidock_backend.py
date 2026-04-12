@@ -219,7 +219,7 @@ def dock_helms_unidock(
     if binary_path is None:
         raise RuntimeError(
             f"Uni-Dock binary '{unidock_binary}' was not found in PATH. "
-            "Install it in the target conda env, e.g. `conda install -n molformer_env -c conda-forge unidock`."
+            "Install it in the target conda env, e.g. `conda install -n pepardiff -c conda-forge unidock`."
         )
 
     if isinstance(box_size, (int, float)):

@@ -10,14 +10,14 @@ Upstream Uni-Dock officially supports:
 - NVIDIA GPU
 
 The local development machine in this workspace is `macOS arm64`, so the actual GPU binary cannot be installed or validated here.
-Use the steps below on the Linux/NVIDIA training machine that owns the real `molformer_env`.
+Use the steps below on the Linux/NVIDIA training machine that owns the real `pepardiff`.
 
-## Install into `molformer_env`
+## Install into `pepardiff`
 
 From the project root:
 
 ```bash
-bash scripts/setup/setup_unidock_linux.sh molformer_env
+bash scripts/setup/setup_unidock_linux.sh pepardiff
 ```
 
 This script will:

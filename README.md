@@ -9,7 +9,7 @@ The repository is organized for a publication-grade workflow: core model code li
 - Autoregressive latent diffusion for token-by-token HELM peptide generation.
 - Dedicated cyclic-peptide fine-tuning with ring-bond prediction.
 - DPO-based reward optimization integrating docking and permeability signals.
-- Isolated permeability workflow via a separate `perm_env`.
+- Isolated permeability workflow via a separate `pepardiff-perm` environment.
 - Uni-Dock based docking path for Linux + NVIDIA GPU environments.
 
 ## Repository Layout
@@ -29,48 +29,59 @@ deprecated/            Archived legacy scripts and historical artifacts
 
 ## Environment Setup
 
-Two conda environments are used intentionally.
+PepAR-Diff uses two intentionally separated conda environments:
 
-### 1. Base modeling environment: `molformer_env`
+- `pepardiff`: main environment for preprocessing, embedding generation, training, generation, and docking-related evaluation
+- `pepardiff-perm`: isolated environment for the permeability predictor, which depends on a separate legacy-compatible software stack
 
-The environment specification file is [`envs/pepardiff_env.yml`](./envs/pepardiff_env.yml). For compatibility with the existing workflow, it still creates the `molformer_env` conda environment.
+Create both environments from the repository root:
 
 ```bash
-conda env create -f envs/pepardiff_env.yml
-conda activate molformer_env
+conda env create -f envs/pepardiff.yml
+conda env create -f envs/pepardiff-perm.yml
+
+conda activate pepardiff
+pip install -e .
+
+conda activate pepardiff-perm
 pip install -e .
 ```
 
-Use `molformer_env` for:
-
-- data preprocessing
-- Uni-Mol embedding preparation
-- model pretraining and fine-tuning
-- generation
-- DPO training
-- docking score export
-
-### 2. Permeability environment: `perm_env`
-
-Use the isolated permeability environment whenever you run permeability-related scoring code.
+If the environments already exist, update them with:
 
 ```bash
-conda env create -f envs/perm_env.yml
-conda activate perm_env
-pip install -e .
+conda env update -f envs/pepardiff.yml --prune
+conda env update -f envs/pepardiff-perm.yml --prune
 ```
 
-Use `perm_env` for:
+### Environment Usage
+
+Use `pepardiff` for:
+
+- `scripts/data/*`
+- `python -m pepar_diff.embeddings.generator`
+- `scripts/train/train_pretrain.py`
+- `scripts/train/train_finetune.py`
+- `scripts/train/train_dpo.py`
+- `scripts/generate/*`
+- `scripts/eval/export_vina_scores.py`
+- `scripts/eval/evaluate_dpo_samples.py`
+- `scripts/eval/evaluate_rewards.py`
+- `scripts/eval/score_groundtruth_vina.py`
+
+Use `pepardiff-perm` for:
 
 - `scripts/eval/export_permeability_scores.py`
 - direct use of `pepar_diff.evaluation.Permeability`
+
+This separation is recommended because the permeability workflow relies on a dedicated predictor environment and should not be mixed with the main training stack.
 
 ## Data Preparation
 
 Run preprocessing from the repository root.
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 
 python scripts/data/prepare_chembl32_data.py
 python scripts/data/prepare_cycpeptmpdb_data.py
@@ -89,7 +100,7 @@ python -m pepar_diff.embeddings.generator
 ### Pretraining
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 python scripts/train/train_pretrain.py
 ```
 
@@ -98,28 +109,28 @@ Default config: [`configs/training/pretrain.json`](./configs/training/pretrain.j
 ### Cyclic fine-tuning
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 python scripts/train/train_finetune.py --config configs/training/finetune_cyclic.json
 ```
 
 ### Permeability-focused fine-tuning
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 python scripts/train/train_finetune.py --config configs/training/finetune_permeability_top1000.json
 ```
 
 ### DPO training
 
-Permeability scoring should be exported first in `perm_env`, then consumed by DPO training in `molformer_env`.
+Permeability scoring should be exported first in `pepardiff-perm`, then consumed by DPO training in `pepardiff`.
 
 ```bash
-conda activate perm_env
+conda activate pepardiff-perm
 python scripts/eval/export_permeability_scores.py \
   --input outputs/samples/helm_chembl32only_r1r2_cyclized.txt \
   --output outputs/samples/helm_chembl32only_r1r2_cyclized.perm.csv
 
-conda activate molformer_env
+conda activate pepardiff
 python scripts/train/train_dpo.py --config configs/training/dpo.json
 ```
 
@@ -130,7 +141,7 @@ Default DPO config: [`configs/training/dpo.json`](./configs/training/dpo.json)
 Generate from the repository root with the base modeling environment.
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 
 python scripts/generate/generate_peptides.py --mode linear
 python scripts/generate/generate_peptides.py --mode cyclic
@@ -151,7 +162,7 @@ Generated sequences and score caches are written under [`outputs/samples`](./out
 ### Permeability
 
 ```bash
-conda activate perm_env
+conda activate pepardiff-perm
 python scripts/eval/export_permeability_scores.py \
   --input outputs/samples/helm_dpo_samples.txt \
   --output outputs/samples/helm_dpo_samples.perm.csv
@@ -160,7 +171,7 @@ python scripts/eval/export_permeability_scores.py \
 ### Docking / Vina cache export
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 python scripts/eval/export_vina_scores.py \
   --config configs/training/dpo.json \
   --sample_file outputs/samples/combined_candidates.txt
@@ -169,7 +180,7 @@ python scripts/eval/export_vina_scores.py \
 ### Full sample evaluation
 
 ```bash
-conda activate molformer_env
+conda activate pepardiff
 python scripts/eval/evaluate_dpo_samples.py
 python scripts/eval/evaluate_rewards.py --config configs/training/dpo.json
 python scripts/eval/evaluate_validity_uniqueness.py
@@ -187,6 +198,6 @@ Setup instructions are documented in [`docs/unidock_gpu_setup.md`](./docs/unidoc
 
 During the repository refactor, the following lightweight checks were run:
 
-- `conda run -n molformer_env ...` import checks for the base package and main training/generation/evaluation entrypoints
-- `conda run -n perm_env ...` import checks for permeability modules and permeability scoring scripts
-- `conda run -n molformer_env python -m compileall pepar_diff scripts`
+- `conda run -n pepardiff ...` import checks for the base package and main training/generation/evaluation entrypoints
+- `conda run -n pepardiff-perm ...` import checks for permeability modules and permeability scoring scripts
+- `conda run -n pepardiff python -m compileall pepar_diff scripts`

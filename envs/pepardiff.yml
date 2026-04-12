@@ -1,4 +1,4 @@
-name: molformer_env
+name: pepardiff
 channels:
   - pytorch
   - defaults

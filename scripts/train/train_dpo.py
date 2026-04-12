@@ -216,7 +216,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         except Exception as e:
             raise RuntimeError(
                 "Permeability evaluation failed while reward_w_perm > 0. "
-                "Use the isolated perm_env to export a score file and pass "
+                "Use the isolated pepardiff-perm environment to export a score file and pass "
                 "--perm_score_file (or set dpo.perm_score_file), or set reward_w_perm=0 "
                 f"if you intentionally want Vina-only DPO. Original error: {e}"
             ) from e

@@ -2,7 +2,7 @@
 PepAR-Diff package.
 
 The top-level package uses lazy imports so light-weight submodules such as
-`pepar_diff.evaluation` remain usable inside `perm_env` without requiring
+`pepar_diff.evaluation` remain usable inside `pepardiff-perm` without requiring
 training dependencies like PyTorch.
 """
 
