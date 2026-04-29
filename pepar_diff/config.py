@@ -73,7 +73,7 @@ class ALDTrainingConfig:
     # Logging and checkpointing
     log_interval: int = 100
     save_interval: int = 1000
-    checkpoint_dir: str = "./outputs/checkpoints/pretrain"
+    checkpoint_dir: str = "/root/autodl-tmp/checkpoints/ald"
     
     # Device
     device: str = "cuda"
@@ -107,7 +107,7 @@ class ALDGenerationConfig:
     """Generation configuration."""
     
     # Checkpoint path for inference
-    checkpoint_path: str = "./outputs/checkpoints/pretrain/latest.pt"
+    checkpoint_path: str = "/root/autodl-tmp/checkpoints/ald/checkpoint_epoch_99.pt"
     
     # Generation parameters
     num_samples: int = 100

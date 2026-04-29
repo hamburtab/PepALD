@@ -4,7 +4,7 @@
     "num_diffusion_steps": 1000
   },
   "generation": {
-    "checkpoint_path": "./outputs/checkpoints/pretrain/latest.pt",
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald/checkpoint_epoch_99.pt",
     "num_samples": 6000,
     "max_length": 7,
     "min_length": 7,

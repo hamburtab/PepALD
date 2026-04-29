@@ -47,7 +47,7 @@ class DPOTrainer:
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
         freeze_mode: str = 'denoiser_only',
-        checkpoint_dir: str = './outputs/checkpoints/ald_dpo',
+        checkpoint_dir: str = '/root/autodl-tmp/checkpoints/ald_dpo',
         device: str = 'cuda',
     ):
         self.config = config

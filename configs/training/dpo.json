@@ -21,13 +21,13 @@
     "batch_size": 8,
     "weight_decay": 0.01,
     "max_grad_norm": 1.0,
-    "checkpoint_dir": "./outputs/checkpoints/dpo",
+    "checkpoint_dir": "/root/autodl-tmp/checkpoints/ald_dpo",
     "device": "cuda",
     "num_workers": 4,
-    "pretrained_checkpoint": "./outputs/checkpoints/finetune_permeability_top1000/latest.pt"
+    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_ce_only/latest.pt"
   },
   "generation": {
-    "checkpoint_path": "./outputs/checkpoints/dpo/dpo_latest.pt",
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_dpo/dpo_latest.pt",
     "num_samples": 1001,
     "max_length": 7,
     "min_length": 7,
