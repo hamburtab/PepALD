@@ -185,6 +185,8 @@ ehthumbs.db
 Thumbs.db
 
 # Project-specific files
+overleaf-upload-clean/
+
 # Model checkpoints and weights
 *.pth
 *.ckpt
