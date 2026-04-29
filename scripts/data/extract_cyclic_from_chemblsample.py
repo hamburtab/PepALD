@@ -1,4 +1,5 @@
-"""Extract cyclic peptides (sequences ending with $$$ instead of $$$$)."""
+"""评估阶段"""
+"""从helm_chembl32only_samples.txt中提取环肽样本（以$$$结尾而非$$$$）。"""
 
 from pathlib import Path
 

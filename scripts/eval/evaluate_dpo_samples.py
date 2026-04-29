@@ -4,10 +4,10 @@ Evaluate generated DPO samples with:
   2. Full structural metrics from pepar_diff.utils.metrics.Metrics
 
 Default input:
-    outputs/samples/helm_dpo_samples.txt
+    outputs/samples/dpo_generate_data/helm_dpo_samples.txt
 
 Default Vina cache/output:
-    outputs/samples/dpo_generated_samples_score.csv
+    outputs/samples/dpo_generate_data/dpo_generated_samples_score.csv
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ from pepar_diff.vina.constants import INVALID_SCORE
 from pepar_diff.vina.dock import dock_helms
 
 
-DEFAULT_INPUT = "outputs/samples/helm_dpo_samples.txt"
-DEFAULT_VINA_OUTPUT = "outputs/samples/dpo_generated_samples_score.csv"
+DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
+DEFAULT_VINA_OUTPUT = "outputs/samples/dpo_generate_data/dpo_generated_samples_score.csv"
 DEFAULT_PRIOR = "data/processed/prior_data.csv"
 
 

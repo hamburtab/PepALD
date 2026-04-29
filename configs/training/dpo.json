@@ -12,36 +12,19 @@
     "variance_schedule": "cosine",
     "beta_start": 1e-4,
     "beta_end": 0.02,
-    "r_group_dim": 512,
-    "ring_hidden_dim": 256,
-    "num_ring_types": 4
+    "r_group_dim": 512
   },
   "training": {
-    "train_data_file": "./data/processed/helm_sequences_cyclic.txt",
     "vocab_file": "./data/processed/helm_vocab.json",
     "embeddings_dir": "./data/processed/unimol_embeddings",
     "data_dir": "./data/processed",
     "batch_size": 8,
-    "learning_rate": 1e-5,
     "weight_decay": 0.01,
-    "num_epochs": 20,
-    "warmup_steps": 100,
     "max_grad_norm": 1.0,
-    "sample_positions": 45,
-    "log_interval": 10,
-    "save_interval": 500,
     "checkpoint_dir": "./outputs/checkpoints/dpo",
     "device": "cuda",
-    "use_amp": false,
     "num_workers": 4,
-    "finetune_mode": true,
-    "pretrained_checkpoint": "./outputs/checkpoints/finetune_permeability_top1000/latest.pt",
-    "cyclic_only": true,
-    "ring_loss_weight": 0.5,
-    "ce_loss_weight": 0.5,
-    "freeze_embedding": false,
-    "freeze_context_encoder": false,
-    "freeze_diffusion": false
+    "pretrained_checkpoint": "./outputs/checkpoints/finetune_permeability_top1000/latest.pt"
   },
   "generation": {
     "checkpoint_path": "./outputs/checkpoints/dpo/dpo_latest.pt",
@@ -61,7 +44,7 @@
     "mapping_top_p": 0.95,
     "mapping_temperature": 0.85,
     "mapping_frequency_penalty": 0.35,
-    "output_file": "./outputs/samples/helm_dpo_samples.txt",
+    "output_file": "./outputs/samples/dpo_generate_data/helm_dpo_samples.txt",
     "verbose": true,
     "seed": null
   },
@@ -71,11 +54,11 @@
     "num_epochs": 10,
     "freeze_mode": "denoiser_only",
     "sample_files": [
-      "./outputs/samples/helm_chembl32only_r1r2_cyclized.txt",
-      "./outputs/samples/cpp_lambda0_3_latest.txt"
+      "./outputs/samples/dpo_train_data/helm_chembl32only_r1r2_cyclized.txt",
+      "./outputs/samples/dpo_train_data/cpp_lambda0_3_latest.txt"
     ],
-    "vina_score_file": "./outputs/samples/combined_candidates.vina.csv",
-    "perm_score_file": "./outputs/samples/combined_candidates.perm.csv",
+    "vina_score_file": "./outputs/samples/dpo_train_data/combined_candidates.vina.csv",
+    "perm_score_file": "./outputs/samples/dpo_train_data/combined_candidates.perm.csv",
     "top_ratio": 0.1,
     "bottom_ratio": 0.1,
     "winner_pool_ratio": 0.3,
@@ -85,7 +68,6 @@
     "pair_strategy": "nearest_hard_negative",
     "min_reward_gap": 0.5,
     "preserve_pairing": true,
-    "num_generate": 2000,
     "dock_box_size": 30.0,
     "dock_seed": 42,
     "vina_exhaustiveness": 8,

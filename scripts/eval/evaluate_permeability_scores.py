@@ -5,10 +5,10 @@ Run this script inside the isolated `pepardiff-perm` environment, then pass the
 resulting score file to train_dpo.py / eval_rewards.py via --perm_score_file.
 
 Usage:
-    python scripts/eval/export_permeability_scores.py
-    python scripts/eval/export_permeability_scores.py \
-        --input outputs/samples/helm_chembl32only_r1r2_cyclized.txt \
-        --output outputs/samples/helm_chembl32only_r1r2_cyclized.perm.csv
+    python scripts/eval/evaluate_permeability_scores.py
+    python scripts/eval/evaluate_permeability_scores.py \
+        --input outputs/samples/dpo_train_data/combined_candidates.txt \
+        --output outputs/samples/dpo_train_data/combined_candidates.perm.csv
 """
 
 import argparse
@@ -24,8 +24,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.evaluation.permeability import Permeability
 
 
-DEFAULT_INPUT = "outputs/samples/helm_dpo_samples.txt"
-DEFAULT_OUTPUT = "outputs/samples/helm_dpo_samples.perm.csv"
+DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
+DEFAULT_OUTPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.perm.csv"
 
 
 def parse_args():

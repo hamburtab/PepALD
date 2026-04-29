@@ -3,9 +3,9 @@ Score a reference/groundtruth cyclic peptide SDF with the same Uni-Dock
 settings used by DPO training.
 
 Typical usage:
-    python scripts/eval/score_groundtruth_vina.py
-    python scripts/eval/score_groundtruth_vina.py --config configs/training/dpo.json
-    python scripts/eval/score_groundtruth_vina.py --sdf data/docking/raw_cyclic_pep.sdf
+    python scripts/eval/evaluate_groundtruth_vina.py
+    python scripts/eval/evaluate_groundtruth_vina.py --config configs/training/dpo.json
+    python scripts/eval/evaluate_groundtruth_vina.py --sdf data/docking/raw_cyclic_pep.sdf
 
 This script is meant to establish the baseline Vina score that generated
 samples should beat. It prints the baseline plus the target thresholds for

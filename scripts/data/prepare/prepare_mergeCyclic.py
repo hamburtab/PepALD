@@ -1,13 +1,15 @@
 """
+训练阶段
 提取环肽数据：从 ChEMBL32 中筛选环肽 + 合并 CycPeptMPDB（全是环肽）
 输出: data/processed/helm_sequences_cyclic.txt
+用于训练环肽专用模型（finetune_cyclic.json）
 """
 
 import re
 from pathlib import Path
 
 # 路径配置
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DATA_DIR = PROJECT_ROOT / "data" / "processed"
 CHEMBL_FILE = DATA_DIR / "helm_sequences_chembl32.txt"
 CYCPEPT_FILE = DATA_DIR / "helm_sequences_cycpeptmpdb.txt"

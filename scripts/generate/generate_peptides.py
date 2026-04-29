@@ -390,11 +390,6 @@ def main():
     else:
         print("\n💡 Tip: Use --output <file> to save sequences")
 
-    # Append cyclic/cpp samples to ChEMBL32-only file
-    if args.mode in {"cyclic", "cpp", "vina"}:
-        chembl_out = PROJECT_ROOT / "outputs" / "samples" / "helm_chembl32only_samples.txt"
-        save_samples(helm_sequences, str(chembl_out), append=True)
-    
     print("\n✅ Generation complete!")
 
 

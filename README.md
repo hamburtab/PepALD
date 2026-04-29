@@ -64,14 +64,14 @@ Use `pepardiff` for:
 - `scripts/train/train_finetune.py`
 - `scripts/train/train_dpo.py`
 - `scripts/generate/*`
-- `scripts/eval/export_vina_scores.py`
+- `scripts/eval/export_train_vina_scores.py`
 - `scripts/eval/evaluate_dpo_samples.py`
-- `scripts/eval/evaluate_rewards.py`
-- `scripts/eval/score_groundtruth_vina.py`
+- `scripts/eval/eval_add/evaluate_rewards.py`
+- `scripts/eval/evaluate_groundtruth_vina.py`
 
 Use `pepardiff-perm` for:
 
-- `scripts/eval/export_permeability_scores.py`
+- `scripts/eval/evaluate_permeability_scores.py`
 - direct use of `pepar_diff.evaluation.Permeability`
 
 This separation is recommended because the permeability workflow relies on a dedicated predictor environment and should not be mixed with the main training stack.
@@ -83,10 +83,10 @@ Run preprocessing from the repository root.
 ```bash
 conda activate pepardiff
 
-python scripts/data/prepare_chembl32_data.py
-python scripts/data/prepare_cycpeptmpdb_data.py
-python scripts/data/extract_cyclic_peptides.py
-python scripts/data/prepare_prior_data.py
+python scripts/data/prepare/prepare_chembl32_data.py
+python scripts/data/prepare/prepare_cycpeptmpdb_data.py
+python scripts/data/prepare/prepare_mergeCyclic.py
+python scripts/data/prepare/prepare_prior_data.py
 ```
 
 If Uni-Mol monomer embeddings need to be regenerated:
@@ -126,9 +126,9 @@ Permeability scoring should be exported first in `pepardiff-perm`, then consumed
 
 ```bash
 conda activate pepardiff-perm
-python scripts/eval/export_permeability_scores.py \
-  --input outputs/samples/helm_chembl32only_r1r2_cyclized.txt \
-  --output outputs/samples/helm_chembl32only_r1r2_cyclized.perm.csv
+python scripts/eval/evaluate_permeability_scores.py \
+  --input outputs/samples/dpo_train_data/combined_candidates.txt \
+  --output outputs/samples/dpo_train_data/combined_candidates.perm.csv
 
 conda activate pepardiff
 python scripts/train/train_dpo.py --config configs/training/dpo.json
@@ -163,18 +163,18 @@ Generated sequences and score caches are written under [`outputs/samples`](./out
 
 ```bash
 conda activate pepardiff-perm
-python scripts/eval/export_permeability_scores.py \
-  --input outputs/samples/helm_dpo_samples.txt \
-  --output outputs/samples/helm_dpo_samples.perm.csv
+python scripts/eval/evaluate_permeability_scores.py \
+  --input outputs/samples/dpo_generate_data/helm_dpo_samples.txt \
+  --output outputs/samples/dpo_generate_data/helm_dpo_samples.perm.csv
 ```
 
 ### Docking / Vina cache export
 
 ```bash
 conda activate pepardiff
-python scripts/eval/export_vina_scores.py \
+python scripts/eval/export_train_vina_scores.py \
   --config configs/training/dpo.json \
-  --sample_file outputs/samples/combined_candidates.txt
+  --sample_file outputs/samples/dpo_train_data/combined_candidates.txt
 ```
 
 ### Full sample evaluation
@@ -182,10 +182,10 @@ python scripts/eval/export_vina_scores.py \
 ```bash
 conda activate pepardiff
 python scripts/eval/evaluate_dpo_samples.py
-python scripts/eval/evaluate_rewards.py --config configs/training/dpo.json
+python scripts/eval/eval_add/evaluate_rewards.py --config configs/training/dpo.json
 python scripts/eval/evaluate_validity_uniqueness.py
 python scripts/eval/evaluate_full_metrics.py
-python scripts/eval/evaluate_sample_quality.py outputs/samples/helm_dpo_samples.txt
+python scripts/eval/eval_add/evaluate_sample_quality.py outputs/samples/dpo_generate_data/helm_dpo_samples.txt
 ```
 
 ## Docking Backend

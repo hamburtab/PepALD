@@ -55,7 +55,7 @@
     "ring_bond_threshold": 0.5,
     "ring_top_k": 1,
     "use_embedding_norm": true,
-    "output_file": null,
+    "output_file": "./outputs/samples/permeability1000_samples.txt",
     "verbose": true,
     "seed": null
   }

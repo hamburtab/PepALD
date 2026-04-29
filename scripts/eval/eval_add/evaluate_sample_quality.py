@@ -10,7 +10,7 @@
   5. 序列间距离            (20分): Jaccard 距离衡量整体探索广度
 
 用法:
-    python scripts/eval/evaluate_sample_quality.py <样本文件.txt> [--compare <文件2.txt> ...]
+    python scripts/eval/eval_add/evaluate_sample_quality.py <样本文件.txt> [--compare <文件2.txt> ...]
 """
 
 import re
@@ -23,7 +23,7 @@ from pathlib import Path
 from collections import Counter
 from typing import Dict, List, Set, Tuple
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MONOMER_LIBRARY = PROJECT_ROOT / "data" / "processed" / "monomer_library.csv"
 
 # ============================================================

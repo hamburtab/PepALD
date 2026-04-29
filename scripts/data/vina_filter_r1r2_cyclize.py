@@ -1,14 +1,3 @@
-"""
-从 helm_chembl32only_samples.txt 中筛选出严格满足以下条件的序列：
-1. 第一个 token 同时拥有 R1、R2
-2. 最后一个 token 同时拥有 R1、R2
-
-满足条件的线性肽会被强制转换成首尾成环的 HELM：
-PEPTIDE1{...}$PEPTIDE1,PEPTIDE1,1:R1-N:R2$$$
-
-其余样本全部丢弃。
-"""
-
 import csv
 import re
 from pathlib import Path
@@ -16,7 +5,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data" / "processed"
 SAMPLE_FILE = PROJECT_ROOT / "outputs" / "samples" / "helm_chembl32only_samples.txt"
-OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "helm_chembl32only_r1r2_cyclized.txt"
+OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "dpo_train_data" / "helm_chembl32only_r1r2_cyclized.txt"
 
 
 def load_rgroup_table(csv_path: Path) -> dict[str, set[str]]:
@@ -82,6 +71,7 @@ def main() -> None:
         if converted is not None:
             cyclized.append(converted)
 
+    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     with OUTPUT_FILE.open("w") as f:
         for line in cyclized:
             f.write(line + "\n")

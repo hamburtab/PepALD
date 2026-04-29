@@ -11,7 +11,7 @@ from pepar_diff.utils.metrics import Metrics
 
 def main():
     # 读取生成的 HELM 序列
-    samples_file = PROJECT_ROOT / "outputs" / "samples" / "helm_dpo_samples.txt"
+    samples_file = PROJECT_ROOT / "outputs" / "samples" / "dpo_generate_data" / "helm_dpo_samples.txt"
     with open(samples_file, 'r') as f:
         helms = [line.strip() for line in f if line.strip()]
     

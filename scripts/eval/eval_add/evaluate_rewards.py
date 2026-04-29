@@ -5,10 +5,10 @@ Only evaluates rewards and prints preference pair statistics.
 Does NOT start DPO training.
 
 Usage:
-    python scripts/eval/evaluate_rewards.py
-    python scripts/eval/evaluate_rewards.py --sample_file outputs/samples/head_tail_single_cycle_samples.txt
-    python scripts/eval/evaluate_rewards.py --sample_file samples.txt --top_ratio 0.25 --bottom_ratio 0.25
-    python scripts/eval/evaluate_rewards.py --sample_file samples.txt --max_samples 100
+    python scripts/eval/eval_add/evaluate_rewards.py
+    python scripts/eval/eval_add/evaluate_rewards.py --sample_file outputs/samples/head_tail_single_cycle_samples.txt
+    python scripts/eval/eval_add/evaluate_rewards.py --sample_file samples.txt --top_ratio 0.25 --bottom_ratio 0.25
+    python scripts/eval/eval_add/evaluate_rewards.py --sample_file samples.txt --max_samples 100
 """
 
 import sys
@@ -17,7 +17,7 @@ import argparse
 import numpy as np
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.train.train_dpo import (
