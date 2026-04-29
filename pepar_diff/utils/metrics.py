@@ -39,18 +39,58 @@ def batch_tanimoto(ref_fps, gen_fps, agg='max'):
         return tanimoto.mean()
 
 
+def _first_existing_column(df, candidates):
+    """Return the first column from candidates, case-sensitive then case-insensitive."""
+    for name in candidates:
+        if name in df.columns:
+            return name
+
+    lower_to_original = {str(col).lower(): col for col in df.columns}
+    for name in candidates:
+        col = lower_to_original.get(name.lower())
+        if col is not None:
+            return col
+    return None
+
+
+def load_reference_smiles(prior_path):
+    """
+    Load reference molecules from a CSV prior file.
+
+    Supported schemas:
+      - processed prior: cano_smi
+      - ChEMBL raw:      cano_smi + HELM
+      - CycPeptMPDB raw: SMILES + HELM
+      - HELM-only CSV:   HELM / helm
+    """
+    df = pd.read_csv(prior_path)
+
+    smiles_col = _first_existing_column(
+        df,
+        ["cano_smi", "canonical_smiles", "SMILES", "smiles", "Smiles"],
+    )
+    if smiles_col is not None:
+        return df[smiles_col].dropna().astype(str).str.strip().tolist(), smiles_col
+
+    helm_col = _first_existing_column(df, ["HELM", "helm"])
+    if helm_col is not None:
+        helms = df[helm_col].dropna().astype(str).str.strip()
+        return [get_cycpep_smi_from_helm(h) for h in helms if h], helm_col
+
+    fallback_col = df.columns[0]
+    values = df[fallback_col].dropna().astype(str).str.strip()
+    return [get_cycpep_smi_from_helm(h) for h in values if h], fallback_col
+
+
 class Metrics:
     """HELM生成样本评估器"""
     
     def __init__(self, prior_path, n_jobs=1, input_type='helm'):
         """
-        prior_path: 训练集CSV路径，需包含cano_smi列或HELM列
+        prior_path: 训练集CSV路径，支持 cano_smi/SMILES 或 HELM 列
         """
-        df = pd.read_csv(prior_path)
-        if 'cano_smi' in df.columns:
-            train_smiles = df['cano_smi'].dropna().tolist()
-        else:
-            train_smiles = [get_cycpep_smi_from_helm(h) for h in df.iloc[:, 0].dropna()]
+        train_smiles, ref_col = load_reference_smiles(prior_path)
+        print(f"[Metrics] Reference column: {ref_col} ({len(train_smiles)} entries)")
         
         # 计算训练集指纹
         self.train_smiles = set()
