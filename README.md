@@ -147,6 +147,7 @@ python scripts/generate/generate_peptides.py --mode linear
 python scripts/generate/generate_peptides.py --mode cyclic
 python scripts/generate/generate_peptides.py --mode cpp
 python scripts/generate/generate_peptides.py --mode dpo
+python scripts/generate/generate_peptides.py --mode dpo --lambda_gpt 0.3
 ```
 
 Random baseline generation is also available:

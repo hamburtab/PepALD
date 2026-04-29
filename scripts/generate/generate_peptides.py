@@ -78,6 +78,10 @@ def parse_args():
         "--output", type=str, default=None,
         help="Output file path"
     )
+    parser.add_argument(
+        "--lambda_gpt", "--lambda", dest="lambda_gpt", type=float, default=None,
+        help="Override generation.lambda_gpt for hybrid diffusion/GPT token selection"
+    )
     return parser.parse_args()
 
 
@@ -346,6 +350,8 @@ def main():
         gen_cfg.num_samples = args.num_samples
     if args.output:
         gen_cfg.output_file = args.output
+    if args.lambda_gpt is not None:
+        gen_cfg.lambda_gpt = args.lambda_gpt
     
     # For explicit dpo.json generation, cyclization is controlled by generation.cyclization_mode.
     if is_dpo_config and cyclization_mode == "force_head_tail":

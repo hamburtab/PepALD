@@ -10,6 +10,7 @@
     "min_length": 7,
     "use_ddim": true,
     "ddim_steps": 50,
+    "lambda_gpt": 0.0,
     "predict_ring_bonds": true,
     "ring_bond_threshold": 0.5,
     "use_embedding_norm": true,
