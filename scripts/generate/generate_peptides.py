@@ -11,6 +11,9 @@ Usage:
 
     # 使用 Vina 配置生成样本
     python scripts/generate/generate_peptides.py --mode vina
+
+    # 使用 DPO 配置生成样本
+    python scripts/generate/generate_peptides.py --mode dpo
     
     # 自定义配置
     python scripts/generate/generate_peptides.py --config configs/training/finetune_cyclic.json
@@ -42,16 +45,17 @@ DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "training" / "pretrain.json"
 CYCLIC_CONFIG = PROJECT_ROOT / "configs" / "training" / "finetune_cyclic.json"
 CPP_CONFIG = PROJECT_ROOT / "configs" / "training" / "finetune_permeability_top1000.json"
 VINA_CONFIG = PROJECT_ROOT / "configs" / "inference" / "vina.json"
+DPO_CONFIG = PROJECT_ROOT / "configs" / "training" / "dpo.json"
 # ============================================================
 
 
 def parse_mode(value: str) -> str:
     """Normalize mode and validate supported values."""
     mode = value.lower()
-    valid_modes = {"linear", "cyclic", "cpp", "vina"}
+    valid_modes = {"linear", "cyclic", "cpp", "vina", "dpo"}
     if mode not in valid_modes:
         raise argparse.ArgumentTypeError(
-            f"invalid mode '{value}'. Choose from: linear, cyclic, cpp, Vina"
+            f"invalid mode '{value}'. Choose from: linear, cyclic, cpp, vina, dpo"
         )
     return mode
 
@@ -59,8 +63,8 @@ def parse_mode(value: str) -> str:
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate peptides with ALD model")
     parser.add_argument(
-        "--mode", type=parse_mode, choices=["linear", "cyclic", "cpp", "vina"], default="linear",
-        help="Generation mode: 'linear', 'cyclic', 'cpp', or 'Vina'"
+        "--mode", type=parse_mode, choices=["linear", "cyclic", "cpp", "vina", "dpo"], default="linear",
+        help="Generation mode: 'linear', 'cyclic', 'cpp', 'vina', or 'dpo'"
     )
     parser.add_argument(
         "--config", type=str, default=None,
@@ -78,9 +82,7 @@ def parse_args():
 
 
 def is_explicit_dpo_config(config_file: Path, config_arg: str | None) -> bool:
-    """Only special-case explicit dpo.json generation requests."""
-    if config_arg is None:
-        return False
+    """Special-case DPO generation requests selected by --mode or --config."""
     return config_file.name == "dpo.json"
 
 
@@ -319,6 +321,8 @@ def main():
         config_file = CPP_CONFIG
     elif args.mode == "vina":
         config_file = VINA_CONFIG
+    elif args.mode == "dpo":
+        config_file = DPO_CONFIG
     else:
         config_file = DEFAULT_CONFIG
     

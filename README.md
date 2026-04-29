@@ -146,7 +146,7 @@ conda activate pepardiff
 python scripts/generate/generate_peptides.py --mode linear
 python scripts/generate/generate_peptides.py --mode cyclic
 python scripts/generate/generate_peptides.py --mode cpp
-python scripts/generate/generate_peptides.py --config configs/training/dpo.json
+python scripts/generate/generate_peptides.py --mode dpo
 ```
 
 Random baseline generation is also available:
