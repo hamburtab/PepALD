@@ -258,7 +258,7 @@ class FinetuneTrainer:
     def save_checkpoint(self, filename=None):
         """Save model checkpoint."""
         if filename is None:
-            filename = f"checkpoint_step_{self.global_step}.pt"
+            filename = "latest.pt"
         
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
@@ -357,10 +357,6 @@ class FinetuneTrainer:
                           f"LR: {lr:.2e} | "
                           f"Time: {elapsed:.0f}s")
                 
-                # Save checkpoint
-                if self.global_step % train_cfg.save_interval == 0 and self.global_step > 0:
-                    self.save_checkpoint()
-            
             # End of epoch
             avg_epoch_losses = {k: v / num_batches for k, v in epoch_losses.items()}
             

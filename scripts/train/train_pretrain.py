@@ -132,7 +132,7 @@ class Trainer:
     def save_checkpoint(self, filename=None):
         """Save model checkpoint."""
         if filename is None:
-            filename = f"checkpoint_step_{self.global_step}.pt"
+            filename = "latest.pt"
         
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
@@ -204,10 +204,6 @@ class Trainer:
                           f"LR: {lr:.2e} | "
                           f"Time: {elapsed:.0f}s")
                 
-                # Save checkpoint
-                if self.global_step % train_cfg.save_interval == 0 and self.global_step > 0:
-                    self.save_checkpoint()
-            
             # End of epoch
             avg_epoch_loss = epoch_loss / num_batches
             print(f"\n📊 Epoch {epoch+1} completed. Average loss: {avg_epoch_loss:.4f}\n")
