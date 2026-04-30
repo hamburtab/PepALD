@@ -60,8 +60,9 @@ class CyclicCollator:
     
     def __call__(self, batch: List[Dict]) -> Dict:
         """Collate batch with padding and ring bond collection."""
-        # Get max sequence length in batch
-        max_len = max(len(item['token_ids']) for item in batch)
+        # HELMDataset already pads to max_seq_len; trim each batch to the
+        # longest real sequence so padded positions do not contribute to loss.
+        max_len = max(int(item['length']) for item in batch)
         
         batch_size = len(batch)
         token_ids = torch.full((batch_size, max_len), self.pad_id, dtype=torch.long)
@@ -70,9 +71,9 @@ class CyclicCollator:
         ring_bonds = []
         
         for i, item in enumerate(batch):
-            seq_len = len(item['token_ids'])
-            token_ids[i, :seq_len] = torch.tensor(item['token_ids'])
-            mask[i, :seq_len] = True
+            seq_len = int(item['length'])
+            token_ids[i, :seq_len] = item['token_ids'][:seq_len].long()
+            mask[i, :seq_len] = item['mask'][:seq_len].bool()
             ring_bonds.append(item.get('ring_bonds', []))
         
         return {

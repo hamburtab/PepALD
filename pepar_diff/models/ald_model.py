@@ -392,7 +392,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
             pos_weight = (num_neg / num_pos).clamp(max=50.0)
             position_loss = F.binary_cross_entropy_with_logits(
                 cat_logits, cat_labels,
-                pos_weight=torch.tensor(pos_weight, device=device)
+                pos_weight=pos_weight
             )
         else:
             position_loss = torch.tensor(0.0, device=device)

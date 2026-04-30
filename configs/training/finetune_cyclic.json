@@ -4,7 +4,7 @@
     "d_model": 512,
     "n_heads": 8,
     "context_layers": 6,
-    "denoiser_layers": 4,
+    "denoiser_layers": 6,
     "d_ff": 2048,
     "max_seq_len": 45,
     "dropout": 0.3,
@@ -17,7 +17,7 @@
     "num_ring_types": 4
   },
   "training": {
-    "train_data_file": "./data/processed/helm_sequences_cyclic.txt",
+    "train_data_file": "./data/processed/helm_sequences_cycpeptmpdb.txt",
     "vocab_file": "./data/processed/helm_vocab.json",
     "embeddings_dir": "./data/processed/unimol_embeddings",
     "data_dir": "./data/processed",
