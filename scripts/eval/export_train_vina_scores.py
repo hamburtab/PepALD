@@ -85,6 +85,11 @@ def main():
     vina_n_poses = int(dpo_cfg.get("vina_n_poses", 2))
     vina_show_progress = bool(dpo_cfg.get("vina_show_progress", True))
     dock_box_size = dpo_cfg.get("dock_box_size", 30.0)
+    dock_center = dpo_cfg.get("dock_center")
+    protein_pdbqt_path = dpo_cfg.get("protein_pdbqt_path")
+    ref_sdf_path = dpo_cfg.get("ref_sdf_path")
+    protein_pdbqt_path = str(resolve_path(protein_pdbqt_path)) if protein_pdbqt_path else None
+    ref_sdf_path = str(resolve_path(ref_sdf_path)) if ref_sdf_path else None
     dock_seed = int(dpo_cfg.get("dock_seed", 42))
     unidock_binary = str(dpo_cfg.get("unidock_binary", "unidock"))
     unidock_batch_size = int(dpo_cfg.get("unidock_batch_size", 64))
@@ -110,9 +115,17 @@ def main():
             f"Docking {len(missing_helms)} missing HELM sequences with Uni-Dock "
             f"(batch_size={unidock_batch_size}, search_mode={unidock_search_mode}, n_poses={vina_n_poses})"
         )
+        if protein_pdbqt_path or ref_sdf_path or dock_center:
+            print(f"Docking receptor: {protein_pdbqt_path or 'default'}")
+            print(f"Docking reference SDF: {ref_sdf_path or 'default'}")
+            print(f"Docking center: {dock_center if dock_center is not None else 'reference SDF centroid'}")
+            print(f"Docking box size: {dock_box_size}")
         docked_scores = np.asarray(
             dock_helms(
                 missing_helms,
+                protein_pdbqt_path=protein_pdbqt_path,
+                ref_sdf_path=ref_sdf_path,
+                dock_center=dock_center,
                 exhaustiveness=vina_exhaustiveness,
                 n_poses=vina_n_poses,
                 show_progress=vina_show_progress,

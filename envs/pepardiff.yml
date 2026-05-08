@@ -81,7 +81,7 @@ dependencies:
   - python=3.11.13
   - python-dateutil=2.9.0post0
   - python-tzdata=2025.2
-  - pytorch=2.5.1
+  - pytorch=2.6.0
   - pytz=2025.2
   - pyyaml=6.0.2
   - rdkit=2025.03.6
@@ -94,8 +94,8 @@ dependencies:
   - sqlite=3.50.2
   - sympy=1.13.3
   - tk=8.6.14
-  - torchaudio=2.5.1
-  - torchvision=0.20.1
+  - torchaudio=2.6.0
+  - torchvision=0.21.0
   - typing-extensions=4.12.2
   - typing_extensions=4.12.2
   - tzdata=2025b
@@ -110,13 +110,16 @@ dependencies:
       - fsspec==2025.7.0
       - hf-xet==1.1.5
       - huggingface-hub==0.34.0
+      - ipython==9.13.0
       - joblib==1.5.1
       - pandas==2.3.1
       - regex==2024.11.6
       - safetensors==0.5.3
       - scikit-learn==1.7.1
       - scipy==1.16.0
+      - SmilesPE==0.0.3
       - threadpoolctl==3.6.0
       - tokenizers==0.21.2
       - tqdm==4.67.1
       - transformers==4.53.3
+      - xgboost==3.0.5

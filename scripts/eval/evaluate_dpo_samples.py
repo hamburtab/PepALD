@@ -158,6 +158,12 @@ def main():
     print(f"Duplicate samples removed for docking: {len(raw_helms) - len(unique_helms)}")
     print(f"Vina score CSV: {vina_score_path}")
 
+    dock_center = dpo_cfg.get("dock_center")
+    protein_pdbqt_path = dpo_cfg.get("protein_pdbqt_path")
+    ref_sdf_path = dpo_cfg.get("ref_sdf_path")
+    protein_pdbqt_path = str(resolve_path(protein_pdbqt_path)) if protein_pdbqt_path else None
+    ref_sdf_path = str(resolve_path(ref_sdf_path)) if ref_sdf_path else None
+
     print("\n=== Full Metrics (eval_full_metrics style) ===")
     metrics = Metrics(
         prior_path=str(prior_path),
@@ -183,9 +189,17 @@ def main():
             f"search_mode={str(dpo_cfg.get('unidock_search_mode', 'fast'))}, "
             f"n_poses={int(dpo_cfg.get('vina_n_poses', 2))})"
         )
+        if protein_pdbqt_path or ref_sdf_path or dock_center:
+            print(f"Docking receptor: {protein_pdbqt_path or 'default'}")
+            print(f"Docking reference SDF: {ref_sdf_path or 'default'}")
+            print(f"Docking center: {dock_center if dock_center is not None else 'reference SDF centroid'}")
+            print(f"Docking box size: {dpo_cfg.get('dock_box_size', 30.0)}")
         docked_scores = np.asarray(
             dock_helms(
                 missing_helms,
+                protein_pdbqt_path=protein_pdbqt_path,
+                ref_sdf_path=ref_sdf_path,
+                dock_center=dock_center,
                 exhaustiveness=int(dpo_cfg.get("vina_exhaustiveness", 8)),
                 n_poses=int(dpo_cfg.get("vina_n_poses", 2)),
                 show_progress=bool(dpo_cfg.get("vina_show_progress", True)),

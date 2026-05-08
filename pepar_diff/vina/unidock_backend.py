@@ -180,6 +180,7 @@ def dock_helms_unidock(
     helm_list: List[str],
     protein_pdbqt_path: str | None = None,
     ref_sdf_path: str | None = None,
+    dock_center: Sequence[float] | None = None,
     unidock_binary: str = "unidock",
     batch_size: int = 64,
     scoring: str = "vina",
@@ -229,7 +230,13 @@ def dock_helms_unidock(
         if len(box_size) != 3:
             raise ValueError("box_size must be a float or a length-3 sequence")
 
-    center = _get_reference_center(str(ref_sdf_path))
+    if dock_center is None:
+        center = _get_reference_center(str(ref_sdf_path))
+    else:
+        center = [float(v) for v in dock_center]
+        if len(center) != 3:
+            raise ValueError("dock_center must be a length-3 sequence")
+
     scores = np.full(len(helm_list), INVALID_SCORE, dtype=np.float64)
     score_writer = ScoreLogWriter(score_log_path)
 

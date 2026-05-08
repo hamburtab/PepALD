@@ -95,9 +95,25 @@ def main():
         full_config = json.load(f)
     dpo_cfg = full_config.get("dpo", {})
 
-    sdf_path = resolve_path(args.sdf)
-    ref_sdf_path = resolve_path(args.ref_sdf) if args.ref_sdf else sdf_path
-    receptor_path = resolve_path(args.receptor)
+    cfg_ref_sdf = dpo_cfg.get("ref_sdf_path")
+    cfg_receptor = dpo_cfg.get("protein_pdbqt_path")
+
+    if args.sdf == str(DEFAULT_REF_SDF) and cfg_ref_sdf:
+        sdf_path = resolve_path(cfg_ref_sdf)
+    else:
+        sdf_path = resolve_path(args.sdf)
+
+    if args.ref_sdf:
+        ref_sdf_path = resolve_path(args.ref_sdf)
+    elif cfg_ref_sdf:
+        ref_sdf_path = resolve_path(cfg_ref_sdf)
+    else:
+        ref_sdf_path = sdf_path
+
+    if args.receptor == str(DEFAULT_RECEPTOR) and cfg_receptor:
+        receptor_path = resolve_path(cfg_receptor)
+    else:
+        receptor_path = resolve_path(args.receptor)
 
     if not sdf_path.exists():
         raise FileNotFoundError(f"Ligand SDF not found: {sdf_path}")
@@ -148,7 +164,15 @@ def main():
         if len(box_size) != 3:
             raise ValueError("dock_box_size must be a float or a length-3 sequence")
 
-    center = _get_reference_center(str(ref_sdf_path))
+    dock_center = dpo_cfg.get("dock_center")
+    if dock_center is None:
+        center = _get_reference_center(str(ref_sdf_path))
+        center_source = f"reference SDF centroid from {ref_sdf_path}"
+    else:
+        center = [float(v) for v in dock_center]
+        if len(center) != 3:
+            raise ValueError("dock_center must be a length-3 sequence")
+        center_source = "config dpo.dock_center"
 
     if args.keep_workdir:
         workdir = Path(tempfile.mkdtemp(prefix="unidock_gt_", dir="/tmp"))
@@ -194,6 +218,8 @@ def main():
         print(f"Groundtruth ligand: {sdf_path}")
         print(f"Reference center from: {ref_sdf_path}")
         print(f"Receptor: {receptor_path}")
+        print(f"Docking center: {center} ({center_source})")
+        print(f"Docking box size: {box_size}")
         print(
             f"Uni-Dock settings: binary={unidock_binary}, "
             f"search_mode={unidock_search_mode or 'manual'}, num_modes={vina_n_poses}"

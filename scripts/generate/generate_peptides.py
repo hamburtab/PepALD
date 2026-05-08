@@ -87,7 +87,7 @@ def parse_args():
 
 def is_explicit_dpo_config(config_file: Path, config_arg: str | None) -> bool:
     """Special-case DPO generation requests selected by --mode or --config."""
-    return config_file.name == "dpo.json"
+    return config_file.stem == "dpo" or config_file.stem.startswith("dpo_")
 
 
 def force_head_tail_cyclize_helm(helm_seq: str) -> str:

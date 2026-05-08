@@ -1,0 +1,47 @@
+# PepAR-Diff high-quality sample export
+# sample_file: /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_generate_data/helm_dpo_samples.txt
+# vina_file: /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_generate_data/dpo_generated_samples_score.csv
+# permeability_file: /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_generate_data/helm_dpo_samples.perm.csv
+# criteria: head-to-tail single cycle, vina_score < -8.1270, permeability above tier cutoff
+# denominator: 260 generated samples
+# head_tail_single_cycle_samples: 260
+# permeability is treated as higher-is-better
+#
+# Summary
+# permeability_cutoff	count	ratio	ratio_percent
+# > -6.0	15	0.05769231	5.7692%
+# > -5.5	4	0.01538462	1.5385%
+# > -5.0	1	0.00384615	0.3846%
+# > -4.5	0	0.00000000	0.0000%
+
+## permeability > -6.0
+helm	vina_score	permeability
+PEPTIDE1{meA.Me_dA.dPye.Mono7.Me_Nle.3Pal.Mono12}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.16500000	-5.84046994
+PEPTIDE1{dV.Mono34.meA.meA.Mono6.Mono1.Mono10}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.54000000	-5.82673260
+PEPTIDE1{meF.T.meV.I.Sar.Me_dL.L}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.22200000	-4.90072158
+PEPTIDE1{dP.F.Phe(4-CF3).Me_dL.meA.meL.L}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.53500000	-5.56697708
+PEPTIDE1{dF.meS.meF.Mono7.meA.meS.meS}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.22800000	-5.60719848
+PEPTIDE1{dF.Me_dL.meA.meL.Mono1.Me_Nle.meS}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.55100000	-5.50123744
+PEPTIDE1{meA.meS.D.L.meL.meL.Ala(5-Tet)}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.38100000	-5.77110667
+PEPTIDE1{meA.P.meL.Mono7.meL.3Pal.Mono12}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.26300000	-5.55822855
+PEPTIDE1{dP.T.3Pal.meI.meF.meL.Me_dL}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.45000000	-5.07270970
+PEPTIDE1{meA.Phe(4-CF3).Me_dNva.meS.dL.Mono1.dP}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.33800000	-5.82496417
+PEPTIDE1{Mono6.cHexCH2_Gly.Me_Nle.Asp_piperidide.3Pal.T.Mono34}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.14000000	-5.75429811
+PEPTIDE1{Pr_Gly.Mono6.meF.meA.Me_dA.Asp_piperidide.Me_dNva}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.46000000	-5.18694961
+PEPTIDE1{Mono6.Me_Phe(3-Cl).meL.F.Mono7.meL.Mono1}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.78300000	-5.98229937
+PEPTIDE1{dF.L.meF.meL.Aoc(2).dL.meS}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.39500000	-5.09567450
+PEPTIDE1{dV.meS.meL.dP.A.meF.meA}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.71500000	-5.72121278
+
+## permeability > -5.5
+helm	vina_score	permeability
+PEPTIDE1{meF.T.meV.I.Sar.Me_dL.L}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.22200000	-4.90072158
+PEPTIDE1{dP.T.3Pal.meI.meF.meL.Me_dL}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.45000000	-5.07270970
+PEPTIDE1{Pr_Gly.Mono6.meF.meA.Me_dA.Asp_piperidide.Me_dNva}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.46000000	-5.18694961
+PEPTIDE1{dF.L.meF.meL.Aoc(2).dL.meS}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.39500000	-5.09567450
+
+## permeability > -5.0
+helm	vina_score	permeability
+PEPTIDE1{meF.T.meV.I.Sar.Me_dL.L}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$	-8.22200000	-4.90072158
+
+## permeability > -4.5
+helm	vina_score	permeability
