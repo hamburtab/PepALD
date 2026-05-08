@@ -25,7 +25,9 @@ from pepar_diff.evaluation.permeability import Permeability
 
 
 DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
+# DEFAULT_INPUT = "outputs/samples/permeability1000_samples.txt"
 DEFAULT_OUTPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.perm.csv"
+# DEFAULT_OUTPUT = "outputs/samples/permeability1000_samples.perm.csv"
 
 
 def parse_args():

@@ -11,7 +11,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.utils.metrics import Metrics
 
 
-DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
+# DEFAULT_INPUT = "data/processed/helm_cpptop1000.txt"
+DEFAULT_INPUT = "outputs/samples/permeability1000_samples.txt"
 DEFAULT_PRIOR = "data/processed/prior_data.csv"
 
 
