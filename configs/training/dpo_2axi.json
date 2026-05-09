@@ -27,7 +27,7 @@
     "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_ce_only/latest.pt"
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_dpo_2axi/dpo_latest.pt",
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_top1000_ce_only/latest.pt",
     "num_samples": 1001,
     "max_length": 7,
     "min_length": 7,

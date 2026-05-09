@@ -1,7 +1,12 @@
 """
 Run multi-round DPO optimization for a configured target.
 
-Each round does:
+Round 0 is a bootstrap round:
+  1. Use only the candidate pool in outputs/samples/dpo_train_data.
+  2. Reuse or export permeability and Vina score CSVs for that pool.
+  3. Train DPO from the initial checkpoint.
+
+Rounds 1..N do:
   1. Generate HELM samples from the previous round checkpoint.
   2. Enforce head-tail single-cycle filtering.
   3. Merge samples into the round candidate pool.
@@ -44,14 +49,17 @@ def parse_args():
     parser.add_argument(
         "--start_round",
         type=int,
-        default=1,
-        help="First round index to run. Default: 1.",
+        default=0,
+        help="First round index to run. Default: 0 (bootstrap round).",
     )
     parser.add_argument(
         "--num_rounds",
         type=int,
         default=None,
-        help="Override dpo_rounds.num_rounds.",
+        help=(
+            "Override dpo_rounds.num_rounds. This is the last generated round index; "
+            "with --start_round 0, the script runs bootstrap round 0 plus rounds 1..N."
+        ),
     )
     parser.add_argument(
         "--dry_run",
@@ -283,6 +291,15 @@ def copy_seed_cache(seed_path: Path | None, target_path: Path, dry_run: bool = F
 
 
 def get_round_epochs(rounds_cfg: dict, round_idx: int) -> int:
+    if round_idx == 0:
+        bootstrap_epochs = rounds_cfg.get("bootstrap_num_epochs")
+        if bootstrap_epochs is not None:
+            return int(bootstrap_epochs)
+        schedule = rounds_cfg.get("epochs_per_round")
+        if isinstance(schedule, list) and schedule:
+            return int(schedule[0])
+        return int(rounds_cfg.get("max_epochs", 5))
+
     schedule = rounds_cfg.get("epochs_per_round")
     if isinstance(schedule, list) and schedule:
         index = min(round_idx - 1, len(schedule) - 1)
@@ -343,7 +360,9 @@ def main():
             f"{config_path} does not define a top-level dpo_rounds block."
         )
 
-    num_rounds = int(args.num_rounds or rounds_cfg.get("num_rounds", 1))
+    num_rounds = int(
+        args.num_rounds if args.num_rounds is not None else rounds_cfg.get("num_rounds", 1)
+    )
     if num_rounds < args.start_round:
         raise ValueError("num_rounds must be >= start_round")
 
@@ -375,11 +394,6 @@ def main():
             base_config.get("generation", {}).get("checkpoint_path"),
         )
     )
-    if not args.dry_run and not previous_checkpoint.exists():
-        raise FileNotFoundError(
-            f"Initial checkpoint not found: {previous_checkpoint}. "
-            "Run round 0 DPO first or set dpo_rounds.initial_checkpoint."
-        )
 
     base_merge_rounds = int(rounds_cfg.get("base_merge_rounds", 3))
     carry_forward = bool(rounds_cfg.get("carry_forward_previous_candidates", True))
@@ -392,7 +406,7 @@ def main():
     previous_perm: Path | None = None
 
     # Resuming from a later round needs the previous round artifacts.
-    if args.start_round > 1:
+    if args.start_round > 0:
         prev_idx = args.start_round - 1
         prev_dir = output_root / f"{run_name}_r{prev_idx}"
         previous_candidates = prev_dir / "candidates.txt"
@@ -403,6 +417,12 @@ def main():
             for path in (previous_candidates, previous_vina, previous_perm, previous_checkpoint):
                 if path is not None and not path.exists():
                     raise FileNotFoundError(f"Cannot resume; previous artifact missing: {path}")
+    elif not args.dry_run and not previous_checkpoint.exists():
+        raise FileNotFoundError(
+            f"Initial checkpoint not found: {previous_checkpoint}. "
+            "Set dpo_rounds.initial_checkpoint to an existing CE/pretrained checkpoint "
+            "before launching bootstrap round 0."
+        )
 
     for round_idx in range(args.start_round, num_rounds + 1):
         round_dir = output_root / f"{run_name}_r{round_idx}"
@@ -420,7 +440,13 @@ def main():
         epochs = get_round_epochs(rounds_cfg, round_idx)
 
         print("\n" + "=" * 80)
-        print(f"DPO round {round_idx}/{num_rounds}")
+        if round_idx == 0:
+            if num_rounds > 0:
+                print(f"DPO bootstrap round 0 (then generated rounds 1..{num_rounds})")
+            else:
+                print("DPO bootstrap round 0 (no generated rounds requested)")
+        else:
+            print(f"DPO generated round {round_idx}/{num_rounds}")
         print("=" * 80)
         print(f"Previous checkpoint: {previous_checkpoint}")
         print(f"Round directory:     {round_dir}")
@@ -443,31 +469,46 @@ def main():
         )
         print(f"Round config:        {round_config}")
 
-        run_command(
-            python_cmd + [
-                "scripts/generate/generate_peptides.py",
-                "--config", str(round_config),
-                "--output", str(generated_raw),
-            ],
-            log_path=log_path,
-            dry_run=args.dry_run,
-        )
-
-        if args.dry_run:
-            generated_helms = []
+        is_bootstrap_round = round_idx == 0
+        if is_bootstrap_round:
+            candidate_sources = [base_candidate_file]
+            generated_helms: list[str] = []
+            generated_filtered = None
+            generated_perm = None
+            generated_vina = None
+            print("Bootstrap round 0: using only the base candidate pool, no generation step.")
         else:
-            generated_helms = filter_head_tail_samples(generated_raw, generated_filtered)
+            run_command(
+                python_cmd + [
+                    "scripts/generate/generate_peptides.py",
+                    "--config", str(round_config),
+                    "--output", str(generated_raw),
+                ],
+                log_path=log_path,
+                dry_run=args.dry_run,
+            )
 
-        candidate_sources: list[Path] = []
-        if carry_forward and previous_candidates is not None:
-            candidate_sources.append(previous_candidates)
-        if round_idx <= base_merge_rounds:
-            candidate_sources.append(base_candidate_file)
-        candidate_sources.append(generated_filtered)
+            if args.dry_run:
+                generated_helms = []
+            else:
+                generated_helms = filter_head_tail_samples(generated_raw, generated_filtered)
+
+            candidate_sources = []
+            if carry_forward and previous_candidates is not None:
+                candidate_sources.append(previous_candidates)
+            if round_idx <= base_merge_rounds:
+                candidate_sources.append(base_candidate_file)
+            candidate_sources.append(generated_filtered)
 
         if not args.dry_run:
+            print("Candidate sources:")
+            for source in candidate_sources:
+                print(f"  - {source}")
             candidate_helms = merge_candidate_files(candidate_sources, candidates_path)
         else:
+            print("Candidate sources (dry-run):")
+            for source in candidate_sources:
+                print(f"  - {source}")
             candidate_helms = []
 
         if args.dry_run:
@@ -483,34 +524,52 @@ def main():
         elif score_file_covers(candidates_perm, candidate_helms, ["permeability", "perm_score", "score"]):
             print(f"Permeability cache already covers candidates: {candidates_perm}")
         else:
-            if not score_file_covers(generated_perm, generated_helms, ["permeability", "perm_score", "score"]):
-                run_command(
-                    perm_python_cmd + [
-                        "scripts/eval/evaluate_permeability_scores.py",
-                        "--input", str(generated_filtered),
-                        "--output", str(generated_perm),
-                    ],
-                    log_path=log_path,
-                    dry_run=False,
+            if is_bootstrap_round:
+                merged = merge_score_csvs(
+                    [base_perm_file],
+                    candidates_perm,
+                    candidate_helms,
                 )
+                if not merged or not score_file_covers(candidates_perm, candidate_helms, ["permeability", "perm_score", "score"]):
+                    print("Bootstrap permeability cache incomplete; scoring base candidate pool.")
+                    run_command(
+                        perm_python_cmd + [
+                            "scripts/eval/evaluate_permeability_scores.py",
+                            "--input", str(candidates_path),
+                            "--output", str(candidates_perm),
+                        ],
+                        log_path=log_path,
+                        dry_run=False,
+                    )
+            else:
+                if not score_file_covers(generated_perm, generated_helms, ["permeability", "perm_score", "score"]):
+                    run_command(
+                        perm_python_cmd + [
+                            "scripts/eval/evaluate_permeability_scores.py",
+                            "--input", str(generated_filtered),
+                            "--output", str(generated_perm),
+                        ],
+                        log_path=log_path,
+                        dry_run=False,
+                    )
 
-            seed_perm = previous_perm if previous_perm is not None else base_perm_file
-            merged = merge_score_csvs(
-                [seed_perm, generated_perm],
-                candidates_perm,
-                candidate_helms,
-            )
-            if not merged or not score_file_covers(candidates_perm, candidate_helms, ["permeability", "perm_score", "score"]):
-                print("Incremental permeability merge incomplete; scoring full candidate pool.")
-                run_command(
-                    perm_python_cmd + [
-                        "scripts/eval/evaluate_permeability_scores.py",
-                        "--input", str(candidates_path),
-                        "--output", str(candidates_perm),
-                    ],
-                    log_path=log_path,
-                    dry_run=False,
+                seed_perm = previous_perm if previous_perm is not None else base_perm_file
+                merged = merge_score_csvs(
+                    [seed_perm, generated_perm],
+                    candidates_perm,
+                    candidate_helms,
                 )
+                if not merged or not score_file_covers(candidates_perm, candidate_helms, ["permeability", "perm_score", "score"]):
+                    print("Incremental permeability merge incomplete; scoring full candidate pool.")
+                    run_command(
+                        perm_python_cmd + [
+                            "scripts/eval/evaluate_permeability_scores.py",
+                            "--input", str(candidates_path),
+                            "--output", str(candidates_perm),
+                        ],
+                        log_path=log_path,
+                        dry_run=False,
+                    )
 
         seed_vina = previous_vina if previous_vina is not None else base_vina_file
         copy_seed_cache(seed_vina, candidates_vina, dry_run=args.dry_run)
@@ -525,7 +584,7 @@ def main():
             dry_run=args.dry_run,
         )
 
-        if not args.dry_run:
+        if not is_bootstrap_round and not args.dry_run:
             write_subset_csv(candidates_perm, generated_perm, generated_helms)
             write_subset_csv(candidates_vina, generated_vina, generated_helms)
 
@@ -548,13 +607,15 @@ def main():
 
         summary = {
             "round": round_idx,
+            "mode": "bootstrap_base_only" if is_bootstrap_round else "generate_merge_train",
             "round_dir": str(round_dir),
             "round_config": str(round_config),
             "previous_checkpoint_for_generation": str(input_checkpoint),
             "checkpoint": str(previous_checkpoint),
-            "generated": str(generated_filtered),
-            "generated_perm": str(generated_perm),
-            "generated_vina": str(generated_vina),
+            "candidate_sources": [str(p) for p in candidate_sources],
+            "generated": None if generated_filtered is None else str(generated_filtered),
+            "generated_perm": None if generated_perm is None else str(generated_perm),
+            "generated_vina": None if generated_vina is None else str(generated_vina),
             "candidates": str(candidates_path),
             "candidates_perm": str(candidates_perm),
             "candidates_vina": str(candidates_vina),
