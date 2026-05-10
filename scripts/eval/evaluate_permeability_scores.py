@@ -40,6 +40,10 @@ def parse_args():
         "--output", default=DEFAULT_OUTPUT, type=str,
         help="Output CSV file with helm,permeability"
     )
+    parser.add_argument(
+        "--mode", default="all", choices=["all", "cyc"], type=str,
+        help="Evaluation mode. Use 'cyc' to keep only lines ending with $$$ but not $$$$."
+    )
     return parser.parse_args()
 
 
@@ -55,6 +59,10 @@ def load_helm_list(path: Path):
         return [line.strip() for line in f if line.strip()]
 
 
+def is_cyclic_helm(helm: str) -> bool:
+    return helm.endswith("$$$") and not helm.endswith("$$$$")
+
+
 def main():
     args = parse_args()
     input_path = resolve_path(args.input)
@@ -67,8 +75,16 @@ def main():
     if not helms:
         raise ValueError(f"No valid HELM sequences found in: {input_path}")
 
+    if args.mode == "cyc":
+        before_count = len(helms)
+        helms = [helm for helm in helms if is_cyclic_helm(helm)]
+        print(f"Cyclic filter (--mode cyc): {before_count} -> {len(helms)}")
+        if not helms:
+            raise ValueError(f"No cyclic HELM sequences found in: {input_path}")
+
     print(f"Using input:  {input_path}")
     print(f"Using output: {output_path}")
+    print(f"Using mode:   {args.mode}")
     print(f"Loaded {len(helms)} HELM sequences from {input_path}")
     predictor = Permeability()
     scores = predictor(helms)
