@@ -186,6 +186,7 @@ def main():
         print(
             f"\nDocking {len(missing_helms)} missing unique HELM sequences with Uni-Dock "
             f"(batch_size={int(dpo_cfg.get('unidock_batch_size', 64))}, "
+            f"prep_workers={int(dpo_cfg.get('unidock_prep_workers', 1))}, "
             f"search_mode={str(dpo_cfg.get('unidock_search_mode', 'fast'))}, "
             f"n_poses={int(dpo_cfg.get('vina_n_poses', 2))})"
         )
@@ -214,6 +215,7 @@ def main():
                 unidock_max_gpu_memory=int(dpo_cfg.get("unidock_max_gpu_memory", 0)),
                 unidock_keep_workdir=bool(dpo_cfg.get("unidock_keep_workdir", False)),
                 unidock_verbosity=int(dpo_cfg.get("unidock_verbosity", 0)),
+                unidock_prep_workers=int(dpo_cfg.get("unidock_prep_workers", 1)),
                 score_log_path=str(vina_score_path),
             ),
             dtype=np.float64,

@@ -83,6 +83,7 @@
     "vina_show_progress": true,
     "unidock_binary": "unidock",
     "unidock_batch_size": 1024,
+    "unidock_prep_workers": 20,
     "unidock_search_mode": "balance",
     "unidock_scoring": "vina",
     "unidock_refine_step": 3,

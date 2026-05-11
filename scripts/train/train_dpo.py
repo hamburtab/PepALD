@@ -194,6 +194,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     unidock_max_gpu_memory = int(dpo_cfg.get('unidock_max_gpu_memory', 0))
     unidock_keep_workdir = bool(dpo_cfg.get('unidock_keep_workdir', False))
     unidock_verbosity = int(dpo_cfg.get('unidock_verbosity', 0))
+    unidock_prep_workers = int(dpo_cfg.get('unidock_prep_workers', 1))
     vina_score_file = dpo_cfg.get('vina_score_file')
     perm_score_file = dpo_cfg.get('perm_score_file')
 
@@ -244,6 +245,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         try:
             print(
                 f"Docking runtime: Uni-Dock GPU, batch_size={unidock_batch_size}, "
+                f"prep_workers={unidock_prep_workers}, "
                 f"search_mode={unidock_search_mode}, exhaustiveness={vina_exhaustiveness}, "
                 f"n_poses={vina_n_poses}"
             )
@@ -277,6 +279,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
                     unidock_max_gpu_memory=unidock_max_gpu_memory,
                     unidock_keep_workdir=unidock_keep_workdir,
                     unidock_verbosity=unidock_verbosity,
+                    unidock_prep_workers=unidock_prep_workers,
                     score_log_path=vina_score_file,
                 ),
                 dtype=np.float64,

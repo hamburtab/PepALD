@@ -8,6 +8,7 @@ import platform
 import shutil
 import subprocess
 import tempfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
@@ -110,6 +111,60 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[b
     return True, "ok"
 
 
+def _prepare_ligand_entry(args: Tuple[int, str, str]) -> Tuple[int, str, str, str, str]:
+    """Worker-safe HELM -> prepared SDF conversion."""
+    idx, helm, inputs_dir_str = args
+    smiles = get_cycpep_smi_from_helm(helm)
+    if not smiles:
+        return idx, helm, "", "helm_to_smiles_failed", "empty_smiles"
+
+    ligand_path = Path(inputs_dir_str) / f"ligand_{idx:05d}.sdf"
+    ok, detail = _write_sdf_from_smiles(smiles, ligand_path, ligand_path.stem)
+    if ok:
+        return idx, helm, str(ligand_path), "ok", ""
+    return idx, helm, "", "prep_failed", detail
+
+
+def _prepare_ligands(
+    helm_list: List[str],
+    inputs_dir: Path,
+    score_writer: "ScoreLogWriter",
+    prep_workers: int,
+    show_progress: bool,
+) -> List[Tuple[int, str, Path]]:
+    valid_entries: List[Tuple[int, str, Path]] = []
+    worker_args = [(idx, helm, str(inputs_dir)) for idx, helm in enumerate(helm_list)]
+
+    if prep_workers <= 1:
+        prep_iter = (_prepare_ligand_entry(args) for args in worker_args)
+        if show_progress and tqdm is not None:
+            prep_iter = tqdm(prep_iter, total=len(worker_args), desc="Uni-Dock prep", unit="ligand")
+
+        for idx, helm, ligand_path, status, detail in prep_iter:
+            if status == "ok":
+                valid_entries.append((idx, helm, Path(ligand_path)))
+            else:
+                score_writer.write(helm, INVALID_SCORE, status, detail)
+        return valid_entries
+
+    print(f"  Uni-Dock prep workers: {prep_workers}")
+    with ProcessPoolExecutor(max_workers=prep_workers) as executor:
+        futures = [executor.submit(_prepare_ligand_entry, args) for args in worker_args]
+        future_iter = as_completed(futures)
+        if show_progress and tqdm is not None:
+            future_iter = tqdm(future_iter, total=len(futures), desc="Uni-Dock prep", unit="ligand")
+
+        for future in future_iter:
+            idx, helm, ligand_path, status, detail = future.result()
+            if status == "ok":
+                valid_entries.append((idx, helm, Path(ligand_path)))
+            else:
+                score_writer.write(helm, INVALID_SCORE, status, detail)
+
+    valid_entries.sort(key=lambda item: item[0])
+    return valid_entries
+
+
 def _read_first_score_from_result_sdf(result_path: Path) -> float:
     score_line = ""
     with open(result_path, "r") as f:
@@ -195,6 +250,7 @@ def dock_helms_unidock(
     max_gpu_memory: int = 0,
     show_progress: bool = True,
     keep_workdir: bool = False,
+    prep_workers: int = 1,
     score_log_path: str | Path | None = None,
 ) -> np.ndarray:
     """
@@ -253,23 +309,13 @@ def dock_helms_unidock(
         inputs_dir.mkdir(parents=True, exist_ok=True)
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
-        valid_entries: List[Tuple[int, str, Path]] = []
-        prep_iter = enumerate(helm_list)
-        if show_progress and tqdm is not None:
-            prep_iter = tqdm(prep_iter, total=len(helm_list), desc="Uni-Dock prep", unit="ligand")
-
-        for idx, helm in prep_iter:
-            smiles = get_cycpep_smi_from_helm(helm)
-            if not smiles:
-                score_writer.write(helm, INVALID_SCORE, "helm_to_smiles_failed", "empty_smiles")
-                continue
-
-            ligand_path = inputs_dir / f"ligand_{idx:05d}.sdf"
-            ok, detail = _write_sdf_from_smiles(smiles, ligand_path, ligand_path.stem)
-            if ok:
-                valid_entries.append((idx, helm, ligand_path))
-            else:
-                score_writer.write(helm, INVALID_SCORE, "prep_failed", detail)
+        valid_entries = _prepare_ligands(
+            helm_list=helm_list,
+            inputs_dir=inputs_dir,
+            score_writer=score_writer,
+            prep_workers=max(1, int(prep_workers)),
+            show_progress=show_progress,
+        )
 
         if len(valid_entries) == 0:
             return scores

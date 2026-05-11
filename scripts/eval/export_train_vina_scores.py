@@ -100,6 +100,7 @@ def main():
     unidock_max_gpu_memory = int(dpo_cfg.get("unidock_max_gpu_memory", 0))
     unidock_keep_workdir = bool(dpo_cfg.get("unidock_keep_workdir", False))
     unidock_verbosity = int(dpo_cfg.get("unidock_verbosity", 0))
+    unidock_prep_workers = int(dpo_cfg.get("unidock_prep_workers", 1))
 
     cache_path = resolve_path(vina_score_file)
     scores = np.full(len(all_helms), INVALID_SCORE, dtype=np.float64)
@@ -113,7 +114,8 @@ def main():
         missing_helms = [all_helms[i] for i in missing_indices]
         print(
             f"Docking {len(missing_helms)} missing HELM sequences with Uni-Dock "
-            f"(batch_size={unidock_batch_size}, search_mode={unidock_search_mode}, n_poses={vina_n_poses})"
+            f"(batch_size={unidock_batch_size}, prep_workers={unidock_prep_workers}, "
+            f"search_mode={unidock_search_mode}, n_poses={vina_n_poses})"
         )
         if protein_pdbqt_path or ref_sdf_path or dock_center:
             print(f"Docking receptor: {protein_pdbqt_path or 'default'}")
@@ -140,6 +142,7 @@ def main():
                 unidock_max_gpu_memory=unidock_max_gpu_memory,
                 unidock_keep_workdir=unidock_keep_workdir,
                 unidock_verbosity=unidock_verbosity,
+                unidock_prep_workers=unidock_prep_workers,
                 score_log_path=vina_score_file,
             ),
             dtype=np.float64,

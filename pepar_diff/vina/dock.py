@@ -37,6 +37,7 @@ def dock_helms(
     unidock_max_gpu_memory: int = 0,
     unidock_keep_workdir: bool = False,
     unidock_verbosity: int = 0,
+    unidock_prep_workers: int = 1,
     score_log_path: str | None = None,
 ) -> np.ndarray:
     """Dock HELM ligands with the GPU Uni-Dock backend and return Vina scores."""
@@ -47,7 +48,8 @@ def dock_helms(
 
     print(
         f"  Uni-Dock GPU scoring: binary={unidock_binary}, batch_size={unidock_batch_size}, "
-        f"search_mode={unidock_search_mode or 'manual'}, num_modes={n_poses}"
+        f"prep_workers={unidock_prep_workers}, search_mode={unidock_search_mode or 'manual'}, "
+        f"num_modes={n_poses}"
     )
 
     return dock_helms_unidock(
@@ -69,5 +71,6 @@ def dock_helms(
         max_gpu_memory=int(unidock_max_gpu_memory),
         show_progress=bool(show_progress),
         keep_workdir=bool(unidock_keep_workdir),
+        prep_workers=max(int(unidock_prep_workers), 1),
         score_log_path=score_log_path,
     )
