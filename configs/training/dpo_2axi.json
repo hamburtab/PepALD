@@ -24,10 +24,10 @@
     "checkpoint_dir": "/root/autodl-tmp/checkpoints/ald_dpo_2axi",
     "device": "cuda",
     "num_workers": 4,
-    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_cyclic_6layer/checkpoint_epoch_40.pt"
+    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_cyclic_6layer/checkpoint_epoch_40.pt",
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
     "num_samples": 1001,
     "max_length": 7,
     "min_length": 7,
@@ -53,9 +53,7 @@
     "lr": 1e-5,
     "num_epochs": 10,
     "freeze_mode": "all",
-    "sample_files": [
-      "./outputs/samples/dpo_train_data_case2/case2_samples_r1r2_cyclized.txt"
-    ],
+    "sample_files": [],
     "protein_pdbqt_path": "./data/docking2/2axi_receptor.pdbqt",
     "ref_sdf_path": "./data/docking2/2axi_cyclicpep.sdf",
     "dock_center": [
@@ -68,12 +66,12 @@
       30.0,
       30.0
     ],
-    "vina_score_file": "./outputs/samples/dpo_train_data_case2/case2_samples_r1r2_cyclized.2axi.vina.csv",
+    "vina_score_file": null,
     "perm_score_file": null,
     "top_ratio": 0.2,
     "bottom_ratio": 0.2,
-    "winner_pool_ratio": 0.3,
-    "loser_pool_ratio": 0.3,
+    "winner_pool_ratio": 0.5,
+    "loser_pool_ratio": 0.5,
     "winner_diversity_lambda": 0.45,
     "loser_diversity_lambda": 0.2,
     "pair_strategy": "nearest_hard_negative",
@@ -84,7 +82,7 @@
     "vina_n_poses": 4,
     "vina_show_progress": true,
     "unidock_binary": "unidock",
-    "unidock_batch_size": 64,
+    "unidock_batch_size": 1024,
     "unidock_search_mode": "balance",
     "unidock_scoring": "vina",
     "unidock_refine_step": 3,
@@ -96,7 +94,7 @@
     "reward_w_vina": 1.0,
     "reward_w_perm": 0.0,
     "reward_w_chemistry": 0.0,
-    "winner_mse_reg_alpha": 0.1,
+    "winner_mse_reg_alpha": 0.05,
     "chemistry_target_length": 7,
     "log_interval": 5,
     "save_interval_epochs": 1
@@ -106,14 +104,15 @@
     "output_root": "./outputs/samples/dpo_rounds",
     "run_name": "2axi_vina_only_full",
     "checkpoint_root": "/root/autodl-tmp/checkpoints/dpo_rounds",
-    "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_cyclic_6layer/checkpoint_epoch_40.pt",
-    "base_candidate_file": "./outputs/samples/dpo_train_data_case2/case2_samples_r1r2_cyclized.txt",
-    "base_vina_score_file": "./outputs/samples/dpo_train_data_case2/case2_samples_r1r2_cyclized.2axi.vina.csv",
+    "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
+    "bootstrap_generate": true,
+    "base_candidate_file": null,
+    "base_vina_score_file": null,
     "base_perm_score_file": null,
     "base_merge_rounds": 0,
     "carry_forward_previous_candidates": false,
     "generated_postprocess": "force_r1r2_cyclize",
-    "num_samples_per_round": 8000,
+    "num_samples_per_round": 50000,
     "epochs_per_round": [
       10,
       10,

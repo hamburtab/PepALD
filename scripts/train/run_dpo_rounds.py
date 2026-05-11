@@ -424,6 +424,7 @@ def main():
     perm_python_cmd = command_prefix(rounds_cfg.get("permeability_python", rounds_cfg.get("python")))
     use_permeability = float(dpo_cfg.get("reward_w_perm", 0.5)) > 0.0
     generated_postprocess = str(rounds_cfg.get("generated_postprocess", "filter_head_tail"))
+    bootstrap_generate = bool(rounds_cfg.get("bootstrap_generate", False))
 
     output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/dpo_rounds"))
     run_name = str(rounds_cfg.get("run_name", "2axi"))
@@ -434,12 +435,19 @@ def main():
         )
     )
 
-    base_candidate_file = resolve_path(
-        rounds_cfg.get(
-            "base_candidate_file",
-            (dpo_cfg.get("sample_files") or [dpo_cfg.get("sample_file")])[0],
-        )
-    )
+    base_candidate_raw = rounds_cfg.get("base_candidate_file")
+    if base_candidate_raw:
+        base_candidate_file = resolve_path(base_candidate_raw)
+    elif bootstrap_generate:
+        base_candidate_file = None
+    else:
+        sample_files = dpo_cfg.get("sample_files") or [dpo_cfg.get("sample_file")]
+        if not sample_files or sample_files[0] is None:
+            raise ValueError(
+                "Round 0 needs dpo_rounds.base_candidate_file unless "
+                "dpo_rounds.bootstrap_generate=true."
+            )
+        base_candidate_file = resolve_path(sample_files[0])
     base_perm_raw = rounds_cfg.get("base_perm_score_file", dpo_cfg.get("perm_score_file"))
     base_perm_file = resolve_path(base_perm_raw) if base_perm_raw else None
     base_vina_raw = rounds_cfg.get("base_vina_score_file", dpo_cfg.get("vina_score_file"))
@@ -517,6 +525,7 @@ def main():
         print(f"Epochs this round:   {epochs}")
         print(f"Permeability reward: {'enabled' if use_permeability else 'disabled'}")
         print(f"Generated postproc:  {generated_postprocess}")
+        print(f"Bootstrap generate:  {'enabled' if bootstrap_generate else 'disabled'}")
         input_checkpoint = previous_checkpoint
 
         round_config = build_round_config(
@@ -535,7 +544,8 @@ def main():
         print(f"Round config:        {round_config}")
 
         is_bootstrap_round = round_idx == 0
-        if is_bootstrap_round:
+        generates_this_round = (not is_bootstrap_round) or bootstrap_generate
+        if is_bootstrap_round and not bootstrap_generate:
             candidate_sources = [base_candidate_file]
             generated_helms: list[str] = []
             generated_filtered = None
@@ -568,7 +578,7 @@ def main():
             candidate_sources = []
             if carry_forward and previous_candidates is not None:
                 candidate_sources.append(previous_candidates)
-            if round_idx <= base_merge_rounds:
+            if base_candidate_file is not None and round_idx <= base_merge_rounds:
                 candidate_sources.append(base_candidate_file)
             candidate_sources.append(generated_filtered)
 
@@ -658,7 +668,7 @@ def main():
             dry_run=args.dry_run,
         )
 
-        if not is_bootstrap_round and not args.dry_run:
+        if generates_this_round and not args.dry_run:
             if use_permeability:
                 write_subset_csv(candidates_perm, generated_perm, generated_helms)
             write_subset_csv(candidates_vina, generated_vina, generated_helms)
@@ -682,7 +692,9 @@ def main():
 
         summary = {
             "round": round_idx,
-            "mode": "bootstrap_base_only" if is_bootstrap_round else "generate_merge_train",
+            "mode": "bootstrap_generate_train" if is_bootstrap_round and bootstrap_generate else (
+                "bootstrap_base_only" if is_bootstrap_round else "generate_merge_train"
+            ),
             "round_dir": str(round_dir),
             "round_config": str(round_config),
             "previous_checkpoint_for_generation": str(input_checkpoint),

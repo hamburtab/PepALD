@@ -1,17 +1,17 @@
 {
   "round": 0,
-  "mode": "bootstrap_base_only",
+  "mode": "bootstrap_generate_train",
   "round_dir": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0",
   "round_config": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/dpo_2axi_round0.json",
-  "previous_checkpoint_for_generation": "/root/autodl-tmp/checkpoints/ald_cyclic_6layer/checkpoint_epoch_40.pt",
+  "previous_checkpoint_for_generation": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
   "checkpoint": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r0/dpo_latest.pt",
   "candidate_sources": [
-    "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_train_data_case2/case2_samples_r1r2_cyclized.txt"
+    "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated_r1r2_cyclized.txt"
   ],
-  "generated": null,
+  "generated": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated_r1r2_cyclized.txt",
   "generated_postprocess": "force_r1r2_cyclize",
   "generated_perm": null,
-  "generated_vina": null,
+  "generated_vina": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated.2axi.vina.csv",
   "candidates": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt",
   "candidates_perm": null,
   "candidates_vina": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
