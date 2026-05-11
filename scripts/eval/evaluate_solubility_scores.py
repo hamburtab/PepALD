@@ -24,8 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.evaluation.solubility import PepTuneSolubility
 
 
-DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
-DEFAULT_OUTPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.solubility.csv"
+# DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
+DEFAULT_INPUT = "outputs/samples/permeability1000_samples.txt"
+# DEFAULT_OUTPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.solubility.csv"
+DEFAULT_OUTPUT = "outputs/samples/permeability1000_samples.perm.csv"
 
 
 def parse_args():

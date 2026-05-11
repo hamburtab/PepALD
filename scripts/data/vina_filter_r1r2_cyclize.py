@@ -1,5 +1,6 @@
 import csv
 import re
+import argparse
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -59,10 +60,10 @@ def cyclize_if_valid(helm_line: str, rgroups: dict[str, set[str]]) -> str | None
     return f"{peptide}$PEPTIDE1,PEPTIDE1,1:R1-{len(tokens)}:R2$$$"
 
 
-def main() -> None:
-    rgroups = load_rgroup_table(DATA_DIR / "monomer_library.csv")
+def cyclize_file(input_file: Path, output_file: Path, monomer_library: Path) -> tuple[int, int]:
+    rgroups = load_rgroup_table(monomer_library)
 
-    with SAMPLE_FILE.open("r") as f:
+    with input_file.open("r") as f:
         lines = [line.strip() for line in f if line.strip()]
 
     cyclized = []
@@ -71,14 +72,35 @@ def main() -> None:
         if converted is not None:
             cyclized.append(converted)
 
-    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with OUTPUT_FILE.open("w") as f:
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    with output_file.open("w") as f:
         for line in cyclized:
             f.write(line + "\n")
 
-    print(f"总样本数: {len(lines)}")
-    print(f"保留并成环: {len(cyclized)}")
-    print(f"输出文件: {OUTPUT_FILE}")
+    return len(lines), len(cyclized)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Force valid HELM peptides into 1:R1-N:R2 head-tail cycles."
+    )
+    parser.add_argument("--input", type=Path, default=SAMPLE_FILE, help="Input HELM txt file")
+    parser.add_argument("--output", type=Path, default=OUTPUT_FILE, help="Output HELM txt file")
+    parser.add_argument(
+        "--monomer_library",
+        type=Path,
+        default=DATA_DIR / "monomer_library.csv",
+        help="Monomer library CSV with R-group availability",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    args = parse_args()
+    total, kept = cyclize_file(args.input, args.output, args.monomer_library)
+    print(f"总样本数: {total}")
+    print(f"保留并成环: {kept}")
+    print(f"输出文件: {args.output}")
 
 
 if __name__ == "__main__":

@@ -8,9 +8,9 @@ Round 0 is a bootstrap round:
 
 Rounds 1..N do:
   1. Generate HELM samples from the previous round checkpoint.
-  2. Enforce head-tail single-cycle filtering.
+  2. Enforce the configured generated-sample post-processing.
   3. Merge samples into the round candidate pool.
-  4. Export permeability and Vina score CSVs.
+  4. Export enabled reward score CSVs.
   5. Train DPO with reward/pair construction handled by train_dpo.py.
 
 The round settings are read from the top-level `dpo_rounds` block in the config.
@@ -149,6 +149,60 @@ def filter_head_tail_samples(raw_path: Path, filtered_path: Path) -> list[str]:
     if not filtered:
         raise RuntimeError(f"No head-tail single-cycle samples survived filtering: {raw_path}")
     return filtered
+
+
+def force_r1r2_cyclize_samples(
+    raw_path: Path,
+    filtered_path: Path,
+    python_cmd: Sequence[str],
+    log_path: Path,
+    dry_run: bool = False,
+) -> list[str]:
+    run_command(
+        list(python_cmd) + [
+            "scripts/data/vina_filter_r1r2_cyclize.py",
+            "--input", str(raw_path),
+            "--output", str(filtered_path),
+        ],
+        log_path=log_path,
+        dry_run=dry_run,
+    )
+    if dry_run:
+        return []
+
+    raw_count = len(load_helm_list(raw_path))
+    cyclized = deduplicate_preserve_order(load_helm_list(filtered_path))
+    write_helm_list(cyclized, filtered_path)
+    print(
+        f"R1/R2 cyclizer: {raw_count} raw -> "
+        f"{len(cyclized)} unique forced head-tail cycles"
+    )
+    if not cyclized:
+        raise RuntimeError(f"No samples survived R1/R2 head-tail cyclization: {raw_path}")
+    return cyclized
+
+
+def postprocess_generated_samples(
+    mode: str,
+    raw_path: Path,
+    filtered_path: Path,
+    python_cmd: Sequence[str],
+    log_path: Path,
+    dry_run: bool = False,
+) -> list[str]:
+    if mode == "force_r1r2_cyclize":
+        return force_r1r2_cyclize_samples(
+            raw_path,
+            filtered_path,
+            python_cmd=python_cmd,
+            log_path=log_path,
+            dry_run=dry_run,
+        )
+    if mode == "filter_head_tail":
+        if dry_run:
+            return []
+        return filter_head_tail_samples(raw_path, filtered_path)
+    raise ValueError(f"Unknown generated_postprocess mode: {mode}")
 
 
 def merge_candidate_files(paths: Sequence[Path], output_path: Path) -> list[str]:
@@ -321,7 +375,7 @@ def build_round_config(
     previous_checkpoint: Path,
     generated_path: Path,
     candidates_path: Path,
-    perm_score_file: Path,
+    perm_score_file: Path | None,
     vina_score_file: Path,
     epochs: int,
     num_samples: int | None,
@@ -340,7 +394,7 @@ def build_round_config(
         cfg["generation"]["num_samples"] = int(num_samples)
 
     cfg["dpo"]["sample_files"] = [str(candidates_path)]
-    cfg["dpo"]["perm_score_file"] = str(perm_score_file)
+    cfg["dpo"]["perm_score_file"] = None if perm_score_file is None else str(perm_score_file)
     cfg["dpo"]["vina_score_file"] = str(vina_score_file)
     cfg["dpo"]["num_epochs"] = int(epochs)
 
@@ -368,6 +422,8 @@ def main():
 
     python_cmd = command_prefix(rounds_cfg.get("python"))
     perm_python_cmd = command_prefix(rounds_cfg.get("permeability_python", rounds_cfg.get("python")))
+    use_permeability = float(dpo_cfg.get("reward_w_perm", 0.5)) > 0.0
+    generated_postprocess = str(rounds_cfg.get("generated_postprocess", "filter_head_tail"))
 
     output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/dpo_rounds"))
     run_name = str(rounds_cfg.get("run_name", "2axi"))
@@ -411,10 +467,13 @@ def main():
         prev_dir = output_root / f"{run_name}_r{prev_idx}"
         previous_candidates = prev_dir / "candidates.txt"
         previous_vina = prev_dir / "candidates.2axi.vina.csv"
-        previous_perm = prev_dir / "candidates.perm.csv"
+        previous_perm = prev_dir / "candidates.perm.csv" if use_permeability else None
         previous_checkpoint = checkpoint_root / f"{run_name}_r{prev_idx}" / "dpo_latest.pt"
         if not args.dry_run:
-            for path in (previous_candidates, previous_vina, previous_perm, previous_checkpoint):
+            required_paths = [previous_candidates, previous_vina, previous_checkpoint]
+            if use_permeability:
+                required_paths.append(previous_perm)
+            for path in required_paths:
                 if path is not None and not path.exists():
                     raise FileNotFoundError(f"Cannot resume; previous artifact missing: {path}")
     elif not args.dry_run and not previous_checkpoint.exists():
@@ -431,11 +490,15 @@ def main():
 
         checkpoint_dir = checkpoint_root / f"{run_name}_r{round_idx}"
         generated_raw = round_dir / "generated.txt"
-        generated_filtered = round_dir / "generated_head_tail.txt"
+        generated_filtered = (
+            round_dir / "generated_r1r2_cyclized.txt"
+            if generated_postprocess == "force_r1r2_cyclize"
+            else round_dir / "generated_head_tail.txt"
+        )
         candidates_path = round_dir / "candidates.txt"
-        candidates_perm = round_dir / "candidates.perm.csv"
+        candidates_perm = round_dir / "candidates.perm.csv" if use_permeability else None
         candidates_vina = round_dir / "candidates.2axi.vina.csv"
-        generated_perm = round_dir / "generated.perm.csv"
+        generated_perm = round_dir / "generated.perm.csv" if use_permeability else None
         generated_vina = round_dir / "generated.2axi.vina.csv"
         epochs = get_round_epochs(rounds_cfg, round_idx)
 
@@ -452,6 +515,8 @@ def main():
         print(f"Round directory:     {round_dir}")
         print(f"Checkpoint dir:      {checkpoint_dir}")
         print(f"Epochs this round:   {epochs}")
+        print(f"Permeability reward: {'enabled' if use_permeability else 'disabled'}")
+        print(f"Generated postproc:  {generated_postprocess}")
         input_checkpoint = previous_checkpoint
 
         round_config = build_round_config(
@@ -491,7 +556,14 @@ def main():
             if args.dry_run:
                 generated_helms = []
             else:
-                generated_helms = filter_head_tail_samples(generated_raw, generated_filtered)
+                generated_helms = postprocess_generated_samples(
+                    generated_postprocess,
+                    generated_raw,
+                    generated_filtered,
+                    python_cmd=python_cmd,
+                    log_path=log_path,
+                    dry_run=False,
+                )
 
             candidate_sources = []
             if carry_forward and previous_candidates is not None:
@@ -511,7 +583,9 @@ def main():
                 print(f"  - {source}")
             candidate_helms = []
 
-        if args.dry_run:
+        if not use_permeability:
+            print("Permeability reward disabled (reward_w_perm=0); skipping permeability scoring.")
+        elif args.dry_run:
             run_command(
                 perm_python_cmd + [
                     "scripts/eval/evaluate_permeability_scores.py",
@@ -585,7 +659,8 @@ def main():
         )
 
         if not is_bootstrap_round and not args.dry_run:
-            write_subset_csv(candidates_perm, generated_perm, generated_helms)
+            if use_permeability:
+                write_subset_csv(candidates_perm, generated_perm, generated_helms)
             write_subset_csv(candidates_vina, generated_vina, generated_helms)
 
         run_command(
@@ -603,7 +678,7 @@ def main():
 
         previous_candidates = candidates_path
         previous_vina = candidates_vina
-        previous_perm = candidates_perm
+        previous_perm = candidates_perm if use_permeability else None
 
         summary = {
             "round": round_idx,
@@ -614,10 +689,11 @@ def main():
             "checkpoint": str(previous_checkpoint),
             "candidate_sources": [str(p) for p in candidate_sources],
             "generated": None if generated_filtered is None else str(generated_filtered),
+            "generated_postprocess": generated_postprocess,
             "generated_perm": None if generated_perm is None else str(generated_perm),
             "generated_vina": None if generated_vina is None else str(generated_vina),
             "candidates": str(candidates_path),
-            "candidates_perm": str(candidates_perm),
+            "candidates_perm": None if candidates_perm is None else str(candidates_perm),
             "candidates_vina": str(candidates_vina),
             "epochs": epochs,
         }

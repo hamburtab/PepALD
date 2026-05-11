@@ -47,6 +47,7 @@ class DPOTrainer:
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
         freeze_mode: str = 'denoiser_only',
+        winner_mse_reg_alpha: float = 0.0,
         checkpoint_dir: str = '/root/autodl-tmp/checkpoints/ald_dpo',
         device: str = 'cuda',
     ):
@@ -54,6 +55,7 @@ class DPOTrainer:
         self.train_loader = train_loader
         self.beta_dpo = beta_dpo
         self.max_grad_norm = max_grad_norm
+        self.winner_mse_reg_alpha = float(winner_mse_reg_alpha)
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
         # ── ref_model: 冻结的 pretrained 副本, 永不更新 ──
@@ -213,11 +215,13 @@ class DPOTrainer:
         mse_ref_l = scatter_mean(mse_per_pos_ref_l, sample_idx_l, Bz, self.device)      # [Bz]
 
         # ── Step 6: DPO loss ──
-        loss, margin = compute_diffusion_dpo_loss(
+        dpo_loss, margin = compute_diffusion_dpo_loss(
             mse_theta_w, mse_ref_w,
             mse_theta_l, mse_ref_l,
             beta=self.beta_dpo,
         )
+        winner_mse_reg = mse_theta_w.mean()
+        loss = dpo_loss + self.winner_mse_reg_alpha * winner_mse_reg
 
         # ── Backward ──
         self.optimizer.zero_grad()
@@ -229,15 +233,24 @@ class DPOTrainer:
 
         return {
             'loss': loss.item(),
+            'dpo_loss': dpo_loss.item(),
             'margin': margin.item(),
             'mse_w': mse_theta_w.mean().item(),
             'mse_l': mse_theta_l.mean().item(),
+            'winner_mse_reg': winner_mse_reg.item(),
         }
 
     def train_epoch(self, log_interval: int = 10) -> Dict[str, float]:
         """Run one epoch of DPO training."""
         self.epoch += 1
-        epoch_metrics = {'loss': 0.0, 'margin': 0.0, 'mse_w': 0.0, 'mse_l': 0.0}
+        epoch_metrics = {
+            'loss': 0.0,
+            'dpo_loss': 0.0,
+            'margin': 0.0,
+            'mse_w': 0.0,
+            'mse_l': 0.0,
+            'winner_mse_reg': 0.0,
+        }
         n_steps = 0
         t_start = time.time()
 
@@ -254,7 +267,8 @@ class DPOTrainer:
                 elapsed = time.time() - t_start
                 print(
                     f"  [Epoch {self.epoch}] Step {batch_idx+1}/{len(self.train_loader)} | "
-                    f"loss={metrics['loss']:.4f} margin={metrics['margin']:.4f} "
+                    f"loss={metrics['loss']:.4f} dpo={metrics['dpo_loss']:.4f} "
+                    f"margin={metrics['margin']:.4f} "
                     f"mse_w={metrics['mse_w']:.4f} mse_l={metrics['mse_l']:.4f} "
                     f"({elapsed:.1f}s)"
                 )
@@ -266,7 +280,8 @@ class DPOTrainer:
         elapsed = time.time() - t_start
         print(
             f"[Epoch {self.epoch}] Done in {elapsed:.1f}s | "
-            f"avg_loss={epoch_metrics['loss']:.4f} avg_margin={epoch_metrics['margin']:.4f} "
+            f"avg_loss={epoch_metrics['loss']:.4f} avg_dpo={epoch_metrics['dpo_loss']:.4f} "
+            f"avg_margin={epoch_metrics['margin']:.4f} "
             f"avg_mse_w={epoch_metrics['mse_w']:.4f} avg_mse_l={epoch_metrics['mse_l']:.4f}"
         )
 
@@ -284,6 +299,7 @@ class DPOTrainer:
             'global_step': self.global_step,
             'epoch': self.epoch,
             'beta_dpo': self.beta_dpo,
+            'winner_mse_reg_alpha': self.winner_mse_reg_alpha,
             'vocab': self.model.vocab,
         }
 

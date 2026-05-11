@@ -1,0 +1,6 @@
+
+[2026-05-11 16:32:33] $ conda run --no-capture-output -n base python scripts/generate/generate_peptides.py --config /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/dpo_2axi_round1.json --output /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/generated.txt
+
+[2026-05-11 16:32:33] $ conda run --no-capture-output -n base python scripts/eval/export_train_vina_scores.py --config /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/dpo_2axi_round1.json --sample_file /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/candidates.txt --vina_score_file /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/candidates.2axi.vina.csv
+
+[2026-05-11 16:32:33] $ conda run --no-capture-output -n base python scripts/train/train_dpo.py --config /Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/dpo_2axi_round1.json
