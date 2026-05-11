@@ -49,7 +49,7 @@
     "seed": null
   },
   "dpo": {
-    "beta_dpo": 0.1,
+    "beta_dpo": 1.0,
     "lr": 1e-5,
     "num_epochs": 10,
     "freeze_mode": "all",
@@ -70,8 +70,8 @@
     ],
     "vina_score_file": "./outputs/samples/dpo_train_data_case2/case2_samples_r1r2_cyclized.2axi.vina.csv",
     "perm_score_file": null,
-    "top_ratio": 0.1,
-    "bottom_ratio": 0.1,
+    "top_ratio": 0.2,
+    "bottom_ratio": 0.2,
     "winner_pool_ratio": 0.3,
     "loser_pool_ratio": 0.3,
     "winner_diversity_lambda": 0.45,
