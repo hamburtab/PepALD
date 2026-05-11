@@ -343,7 +343,6 @@ def main():
     is_dpo_config = is_explicit_dpo_config(config_file, args.config)
     cyclization_mode = getattr(gen_cfg, "cyclization_mode", "predict_ring")
     force_head_tail_cycle = is_dpo_config and cyclization_mode == "force_head_tail"
-    filter_to_head_tail_cycle = is_dpo_config and cyclization_mode == "predict_ring"
     
     # Override from command line args
     if args.num_samples:
@@ -385,14 +384,6 @@ def main():
         model, config, vocab, device,
         force_head_tail_cycle=force_head_tail_cycle,
     )
-
-    if filter_to_head_tail_cycle:
-        filtered_sequences = filter_head_tail_single_cycle_sequences(helm_sequences)
-        removed = len(helm_sequences) - len(filtered_sequences)
-        print("\n Head-tail single-cycle filtering (dpo.json + predict_ring):")
-        print(f"   Kept head-tail single cycles: {len(filtered_sequences)}")
-        print(f"   Removed linear / non-head-tail samples: {removed}")
-        helm_sequences = filtered_sequences
 
     # Save if output file specified
     if gen_cfg.output_file:
