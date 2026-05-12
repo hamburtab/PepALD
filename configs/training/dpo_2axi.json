@@ -85,8 +85,7 @@
     "unidock_gpu_ids": [
       0,
       1,
-      2,
-      3
+      2
     ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
@@ -122,8 +121,7 @@
     "generation_gpu_ids": [
       0,
       1,
-      2,
-      3
+      2
     ],
     "num_samples_per_round": 50000,
     "epochs_per_round": [
