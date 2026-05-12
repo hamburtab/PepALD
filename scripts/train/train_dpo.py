@@ -871,7 +871,7 @@ def main():
         weight_decay=config.training.weight_decay,
         max_grad_norm=config.training.max_grad_norm,
         freeze_mode=dpo_cfg.get('freeze_mode', 'denoiser_only'),
-        winner_mse_reg_alpha=dpo_cfg.get('winner_mse_reg_alpha', 0.0),
+        dpop_winner_reg_alpha=dpo_cfg.get('dpop_winner_reg_alpha', 0.0),
         checkpoint_dir=config.training.checkpoint_dir,
         device=str(device),
     )
@@ -893,7 +893,7 @@ def main():
     print(f"  batch_size:     {config.training.batch_size}")
     print(f"  lr:             {dpo_cfg.get('lr', 1e-5)}")
     print(f"  freeze_mode:    {dpo_cfg.get('freeze_mode', 'denoiser_only')}")
-    print(f"  mse_w_reg_alpha:{dpo_cfg.get('winner_mse_reg_alpha', 0.0)}")
+    print(f"  dpop_w_reg_alpha:{dpo_cfg.get('dpop_winner_reg_alpha', 0.0)}")
     print(f"  dataset_size:   {len(dataset)}")
     print(f"  steps/epoch:    {len(dataloader)}")
     print(f"{'='*60}\n")

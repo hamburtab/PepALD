@@ -6,7 +6,7 @@ Training flow per step:
     2. 共享 t 和 noise, 对好/差样本加噪
     3. 4 次 noise prediction (model×w, model×l, ref×w, ref×l)
     4. per-position MSE → scatter_mean → per-sample MSE [Bz]
-    5. DPO loss = -log σ(β · margin), 反向传播
+    5. DPO loss + optional DPOP winner penalty, 反向传播
 """
 
 import math
@@ -47,7 +47,7 @@ class DPOTrainer:
         weight_decay: float = 0.01,
         max_grad_norm: float = 1.0,
         freeze_mode: str = 'denoiser_only',
-        winner_mse_reg_alpha: float = 0.0,
+        dpop_winner_reg_alpha: float = 0.0,
         checkpoint_dir: str = '/root/autodl-tmp/checkpoints/ald_dpo',
         device: str = 'cuda',
     ):
@@ -55,7 +55,7 @@ class DPOTrainer:
         self.train_loader = train_loader
         self.beta_dpo = beta_dpo
         self.max_grad_norm = max_grad_norm
-        self.winner_mse_reg_alpha = float(winner_mse_reg_alpha)
+        self.dpop_winner_reg_alpha = float(dpop_winner_reg_alpha)
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
         # ── ref_model: 冻结的 pretrained 副本, 永不更新 ──
@@ -220,8 +220,14 @@ class DPOTrainer:
             mse_theta_l, mse_ref_l,
             beta=self.beta_dpo,
         )
-        winner_mse_reg = mse_theta_w.mean()
-        loss = dpo_loss + self.winner_mse_reg_alpha * winner_mse_reg
+
+        # DPOP-style conservative term:
+        # Only penalize the policy when it makes winners harder to denoise than
+        # the frozen reference model. Unlike the previous raw mse_w penalty, this
+        # is zero whenever the winner likelihood is no worse than reference.
+        winner_mse_delta = mse_theta_w - mse_ref_w
+        dpop_winner_reg = torch.relu(winner_mse_delta).mean()
+        loss = dpo_loss + self.dpop_winner_reg_alpha * dpop_winner_reg
 
         # ── Backward ──
         self.optimizer.zero_grad()
@@ -237,7 +243,10 @@ class DPOTrainer:
             'margin': margin.item(),
             'mse_w': mse_theta_w.mean().item(),
             'mse_l': mse_theta_l.mean().item(),
-            'winner_mse_reg': winner_mse_reg.item(),
+            'mse_ref_w': mse_ref_w.mean().item(),
+            'mse_ref_l': mse_ref_l.mean().item(),
+            'winner_mse_delta': winner_mse_delta.mean().item(),
+            'dpop_winner_reg': dpop_winner_reg.item(),
         }
 
     def train_epoch(self, log_interval: int = 10) -> Dict[str, float]:
@@ -249,7 +258,10 @@ class DPOTrainer:
             'margin': 0.0,
             'mse_w': 0.0,
             'mse_l': 0.0,
-            'winner_mse_reg': 0.0,
+            'mse_ref_w': 0.0,
+            'mse_ref_l': 0.0,
+            'winner_mse_delta': 0.0,
+            'dpop_winner_reg': 0.0,
         }
         n_steps = 0
         t_start = time.time()
@@ -270,6 +282,7 @@ class DPOTrainer:
                     f"loss={metrics['loss']:.4f} dpo={metrics['dpo_loss']:.4f} "
                     f"margin={metrics['margin']:.4f} "
                     f"mse_w={metrics['mse_w']:.4f} mse_l={metrics['mse_l']:.4f} "
+                    f"dpop={metrics['dpop_winner_reg']:.4f} "
                     f"({elapsed:.1f}s)"
                 )
 
@@ -282,7 +295,8 @@ class DPOTrainer:
             f"[Epoch {self.epoch}] Done in {elapsed:.1f}s | "
             f"avg_loss={epoch_metrics['loss']:.4f} avg_dpo={epoch_metrics['dpo_loss']:.4f} "
             f"avg_margin={epoch_metrics['margin']:.4f} "
-            f"avg_mse_w={epoch_metrics['mse_w']:.4f} avg_mse_l={epoch_metrics['mse_l']:.4f}"
+            f"avg_mse_w={epoch_metrics['mse_w']:.4f} avg_mse_l={epoch_metrics['mse_l']:.4f} "
+            f"avg_dpop={epoch_metrics['dpop_winner_reg']:.4f}"
         )
 
         return epoch_metrics
@@ -299,7 +313,7 @@ class DPOTrainer:
             'global_step': self.global_step,
             'epoch': self.epoch,
             'beta_dpo': self.beta_dpo,
-            'winner_mse_reg_alpha': self.winner_mse_reg_alpha,
+            'dpop_winner_reg_alpha': self.dpop_winner_reg_alpha,
             'vocab': self.model.vocab,
         }
 
