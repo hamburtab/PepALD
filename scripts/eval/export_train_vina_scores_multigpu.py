@@ -23,6 +23,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 DEFAULT_FIELDNAMES = ["helm", "vina_score", "status", "detail"]
+INVALID_SCORE = 0.0
 
 
 def resolve_path(path_str: str | Path) -> Path:
@@ -225,6 +226,64 @@ def write_merged_cache(cache_path: Path, all_helms: Sequence[str], source_csvs: 
     os.replace(tmp_path, cache_path)
 
 
+def print_vina_summary_from_cache(helms: Sequence[str], cache_path: Path) -> None:
+    fieldnames, rows = read_score_rows(cache_path)
+    if not fieldnames:
+        print("\n=== Vina Summary ===")
+        print(f"  Unique samples scored:   {len(helms)}")
+        print("  Valid docking scores:    0")
+        print(f"  Invalid / failed scores: {len(helms)}")
+        print("  No valid Vina scores were produced.")
+        return
+
+    field_map = {name.strip().lower(): name for name in fieldnames if name}
+    score_key = field_map.get("vina_score") or field_map.get("score")
+    if score_key is None:
+        raise ValueError(f"Vina cache lacks a vina_score/score column: {cache_path}")
+
+    scores = []
+    for helm in helms:
+        row = rows.get(helm, {})
+        try:
+            score = float((row.get(score_key) or "").strip())
+        except ValueError:
+            score = INVALID_SCORE
+        scores.append(score)
+
+    valid_pairs = [(idx, score) for idx, score in enumerate(scores) if score != INVALID_SCORE]
+    invalid_count = len(scores) - len(valid_pairs)
+
+    print("\n=== Vina Summary ===")
+    print(f"  Unique samples scored:   {len(helms)}")
+    print(f"  Valid docking scores:    {len(valid_pairs)}")
+    print(f"  Invalid / failed scores: {invalid_count}")
+
+    if not valid_pairs:
+        print("  No valid Vina scores were produced.")
+        return
+
+    valid_scores = [score for _, score in valid_pairs]
+    best_idx, best_score = min(valid_pairs, key=lambda item: item[1])
+    top_k = min(10, len(valid_scores))
+    top_mean = sum(sorted(valid_scores)[:top_k]) / top_k
+
+    mean_score = sum(valid_scores) / len(valid_scores)
+    sorted_scores = sorted(valid_scores)
+    mid = len(sorted_scores) // 2
+    if len(sorted_scores) % 2:
+        median_score = sorted_scores[mid]
+    else:
+        median_score = (sorted_scores[mid - 1] + sorted_scores[mid]) / 2.0
+    std_score = (sum((score - mean_score) ** 2 for score in valid_scores) / len(valid_scores)) ** 0.5
+
+    print(f"  Mean Vina:               {mean_score:.4f}")
+    print(f"  Median Vina:             {median_score:.4f}")
+    print(f"  Std Vina:                {std_score:.4f}")
+    print(f"  Best Vina:               {best_score:.4f}")
+    print(f"  Best HELM:               {helms[best_idx]}")
+    print(f"  Top-{top_k} mean Vina:        {top_mean:.4f}")
+
+
 def main():
     args = parse_args()
 
@@ -269,6 +328,7 @@ def main():
     _, missing_indices, _ = load_cached_vina_scores(all_helms, str(cache_path))
     if not missing_indices:
         print("All candidate HELM sequences already have cached Vina scores; nothing to dock.")
+        print_vina_summary_from_cache(all_helms, cache_path)
         return
 
     missing_helms = [all_helms[i] for i in missing_indices]
@@ -353,6 +413,7 @@ def main():
     print(f"Merged multi-GPU Vina cache: {cache_path}")
 
     load_cached_vina_scores(all_helms, str(cache_path))
+    print_vina_summary_from_cache(all_helms, cache_path)
     print("\nDone. (Multi-GPU Vina scoring cache exported / resumed.)")
 
 

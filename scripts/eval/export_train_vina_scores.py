@@ -47,6 +47,33 @@ def parse_args():
     return parser.parse_args()
 
 
+def print_vina_summary(helms: list[str], scores: np.ndarray) -> None:
+    valid_mask = scores != INVALID_SCORE
+    valid_scores = scores[valid_mask]
+    invalid_count = int(np.sum(~valid_mask))
+
+    print("\n=== Vina Summary ===")
+    print(f"  Unique samples scored:   {len(helms)}")
+    print(f"  Valid docking scores:    {len(valid_scores)}")
+    print(f"  Invalid / failed scores: {invalid_count}")
+
+    if len(valid_scores) == 0:
+        print("  No valid Vina scores were produced.")
+        return
+
+    valid_indices = np.flatnonzero(valid_mask)
+    best_idx = int(valid_indices[np.argmin(valid_scores)])
+    top_k = min(10, len(valid_scores))
+    top_mean = float(np.mean(np.sort(valid_scores)[:top_k]))
+
+    print(f"  Mean Vina:               {valid_scores.mean():.4f}")
+    print(f"  Median Vina:             {np.median(valid_scores):.4f}")
+    print(f"  Std Vina:                {valid_scores.std():.4f}")
+    print(f"  Best Vina:               {scores[best_idx]:.4f}")
+    print(f"  Best HELM:               {helms[best_idx]}")
+    print(f"  Top-{top_k} mean Vina:        {top_mean:.4f}")
+
+
 def main():
     args = parse_args()
 
@@ -157,17 +184,9 @@ def main():
     else:
         print("All candidate HELM sequences already have cached Vina scores; nothing to dock.")
 
-    valid_scores = scores[scores != INVALID_SCORE]
-    invalid_count = int(np.sum(scores == INVALID_SCORE))
     print(f"\nVina cache summary: {cache_path}")
     print(f"  Total sequences: {len(all_helms)}")
-    print(f"  Valid docking scores: {len(valid_scores)}")
-    print(f"  Invalid / failed scores: {invalid_count}")
-    if len(valid_scores) > 0:
-        print(f"  Mean Vina: {valid_scores.mean():.4f}")
-        print(f"  Std Vina:  {valid_scores.std():.4f}")
-        print(f"  Min Vina:  {valid_scores.min():.4f}")
-        print(f"  Max Vina:  {valid_scores.max():.4f}")
+    print_vina_summary(all_helms, scores)
     print("\nDone. (This script only exports / resumes Vina scoring, no DPO training started.)")
 
 
