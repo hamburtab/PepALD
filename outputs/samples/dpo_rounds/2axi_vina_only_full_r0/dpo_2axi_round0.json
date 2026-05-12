@@ -44,7 +44,7 @@
     "mapping_top_p": 0.95,
     "mapping_temperature": 0.85,
     "mapping_frequency_penalty": 0.35,
-    "output_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated.txt",
+    "output_file": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated.txt",
     "verbose": true,
     "seed": null
   },
@@ -54,7 +54,7 @@
     "num_epochs": 10,
     "freeze_mode": "all",
     "sample_files": [
-      "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt"
+      "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt"
     ],
     "protein_pdbqt_path": "./data/docking2/2axi_receptor.pdbqt",
     "ref_sdf_path": "./data/docking2/2axi_cyclicpep.sdf",
@@ -68,12 +68,12 @@
       30.0,
       30.0
     ],
-    "vina_score_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
+    "vina_score_file": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
     "perm_score_file": null,
     "top_ratio": 0.2,
     "bottom_ratio": 0.2,
-    "winner_pool_ratio": 0.5,
-    "loser_pool_ratio": 0.5,
+    "winner_pool_ratio": 0.1,
+    "loser_pool_ratio": 0.1,
     "winner_diversity_lambda": 0.45,
     "loser_diversity_lambda": 0.2,
     "pair_strategy": "nearest_hard_negative",
@@ -81,9 +81,15 @@
     "preserve_pairing": true,
     "dock_seed": 42,
     "vina_exhaustiveness": 8,
-    "vina_n_poses": 4,
+    "vina_n_poses": 1,
     "vina_show_progress": true,
     "unidock_binary": "unidock",
+    "unidock_gpu_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
     "unidock_search_mode": "balance",
@@ -115,6 +121,12 @@
     "base_merge_rounds": 0,
     "carry_forward_previous_candidates": false,
     "generated_postprocess": "force_r1r2_cyclize",
+    "generation_gpu_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
     "num_samples_per_round": 50000,
     "epochs_per_round": [
       10,

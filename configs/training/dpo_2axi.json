@@ -70,8 +70,8 @@
     "perm_score_file": null,
     "top_ratio": 0.2,
     "bottom_ratio": 0.2,
-    "winner_pool_ratio": 0.5,
-    "loser_pool_ratio": 0.5,
+    "winner_pool_ratio": 0.1,
+    "loser_pool_ratio": 0.1,
     "winner_diversity_lambda": 0.45,
     "loser_diversity_lambda": 0.2,
     "pair_strategy": "nearest_hard_negative",
@@ -79,9 +79,15 @@
     "preserve_pairing": true,
     "dock_seed": 42,
     "vina_exhaustiveness": 8,
-    "vina_n_poses": 4,
+    "vina_n_poses": 1,
     "vina_show_progress": true,
     "unidock_binary": "unidock",
+    "unidock_gpu_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
     "unidock_search_mode": "balance",
@@ -113,6 +119,12 @@
     "base_merge_rounds": 0,
     "carry_forward_previous_candidates": false,
     "generated_postprocess": "force_r1r2_cyclize",
+    "generation_gpu_ids": [
+      0,
+      1,
+      2,
+      3
+    ],
     "num_samples_per_round": 50000,
     "epochs_per_round": [
       10,

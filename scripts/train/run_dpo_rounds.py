@@ -95,6 +95,14 @@ def command_prefix(value) -> list[str]:
     return shlex.split(str(value))
 
 
+def parse_gpu_ids(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
 def format_cmd(cmd: Sequence[str]) -> str:
     return " ".join(shlex.quote(str(part)) for part in cmd)
 
@@ -425,6 +433,13 @@ def main():
     use_permeability = float(dpo_cfg.get("reward_w_perm", 0.5)) > 0.0
     generated_postprocess = str(rounds_cfg.get("generated_postprocess", "filter_head_tail"))
     bootstrap_generate = bool(rounds_cfg.get("bootstrap_generate", False))
+    generation_gpu_ids = parse_gpu_ids(
+        rounds_cfg.get(
+            "generation_gpu_ids",
+            base_config.get("generation", {}).get("gpu_ids", dpo_cfg.get("unidock_gpu_ids")),
+        )
+    )
+    unidock_gpu_ids = parse_gpu_ids(dpo_cfg.get("unidock_gpu_ids"))
 
     output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/dpo_rounds"))
     run_name = str(rounds_cfg.get("run_name", "2axi"))
@@ -526,6 +541,14 @@ def main():
         print(f"Permeability reward: {'enabled' if use_permeability else 'disabled'}")
         print(f"Generated postproc:  {generated_postprocess}")
         print(f"Bootstrap generate:  {'enabled' if bootstrap_generate else 'disabled'}")
+        print(
+            "Generation GPUs:     "
+            + (", ".join(generation_gpu_ids) if len(generation_gpu_ids) > 1 else "single-process")
+        )
+        print(
+            "Uni-Dock GPUs:       "
+            + (", ".join(unidock_gpu_ids) if len(unidock_gpu_ids) > 1 else "single-process")
+        )
         input_checkpoint = previous_checkpoint
 
         round_config = build_round_config(
@@ -553,12 +576,20 @@ def main():
             generated_vina = None
             print("Bootstrap round 0: using only the base candidate pool, no generation step.")
         else:
+            generation_script = (
+                "scripts/generate/generate_peptides_multigpu.py"
+                if len(generation_gpu_ids) > 1
+                else "scripts/generate/generate_peptides.py"
+            )
+            generation_cmd = python_cmd + [
+                generation_script,
+                "--config", str(round_config),
+                "--output", str(generated_raw),
+            ]
+            if len(generation_gpu_ids) > 1:
+                generation_cmd.extend(["--gpu_ids", ",".join(generation_gpu_ids)])
             run_command(
-                python_cmd + [
-                    "scripts/generate/generate_peptides.py",
-                    "--config", str(round_config),
-                    "--output", str(generated_raw),
-                ],
+                generation_cmd,
                 log_path=log_path,
                 dry_run=args.dry_run,
             )
@@ -657,13 +688,21 @@ def main():
 
         seed_vina = previous_vina if previous_vina is not None else base_vina_file
         copy_seed_cache(seed_vina, candidates_vina, dry_run=args.dry_run)
+        vina_export_script = (
+            "scripts/eval/export_train_vina_scores_multigpu.py"
+            if len(unidock_gpu_ids) > 1
+            else "scripts/eval/export_train_vina_scores.py"
+        )
+        vina_export_cmd = python_cmd + [
+            vina_export_script,
+            "--config", str(round_config),
+            "--sample_file", str(candidates_path),
+            "--vina_score_file", str(candidates_vina),
+        ]
+        if len(unidock_gpu_ids) > 1:
+            vina_export_cmd.extend(["--gpu_ids", ",".join(unidock_gpu_ids)])
         run_command(
-            python_cmd + [
-                "scripts/eval/export_train_vina_scores.py",
-                "--config", str(round_config),
-                "--sample_file", str(candidates_path),
-                "--vina_score_file", str(candidates_vina),
-            ],
+            vina_export_cmd,
             log_path=log_path,
             dry_run=args.dry_run,
         )
