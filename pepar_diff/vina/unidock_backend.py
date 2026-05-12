@@ -85,9 +85,10 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[b
     if mol is None:
         return False, "invalid_smiles"
 
-    mol = Chem.AddHs(mol)
     if mol.GetNumAtoms() > MAX_UNIDOCK_ATOMS:
         return False, f"atom_count_exceeded:{mol.GetNumAtoms()}>{MAX_UNIDOCK_ATOMS}"
+
+    mol = Chem.AddHs(mol)
 
     embed_status = AllChem.EmbedMolecule(mol, randomSeed=42)
     if embed_status == -1:
@@ -103,6 +104,10 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[b
         AllChem.MMFFOptimizeMolecule(mol, maxIters=500)
     except Exception:
         pass
+
+    mol = Chem.RemoveHs(mol)
+    if mol.GetNumAtoms() > MAX_UNIDOCK_ATOMS:
+        return False, f"atom_count_exceeded:{mol.GetNumAtoms()}>{MAX_UNIDOCK_ATOMS}"
 
     mol.SetProp("_Name", name)
     writer = Chem.SDWriter(str(output_path))

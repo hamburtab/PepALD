@@ -207,6 +207,7 @@ results/
 !outputs/
 !outputs/samples/
 !outputs/samples/**
+outputs/analysis/
 outputs/checkpoints/
 outputs/logs/
 
