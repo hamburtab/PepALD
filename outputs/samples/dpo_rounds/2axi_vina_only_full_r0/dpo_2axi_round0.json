@@ -44,7 +44,7 @@
     "mapping_top_p": 0.95,
     "mapping_temperature": 0.85,
     "mapping_frequency_penalty": 0.35,
-    "output_file": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated.txt",
+    "output_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/generated.txt",
     "verbose": true,
     "seed": null
   },
@@ -54,7 +54,7 @@
     "num_epochs": 10,
     "freeze_mode": "all",
     "sample_files": [
-      "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt"
+      "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt"
     ],
     "protein_pdbqt_path": "./data/docking2/2axi_receptor.pdbqt",
     "ref_sdf_path": "./data/docking2/2axi_cyclicpep.sdf",
@@ -68,7 +68,7 @@
       30.0,
       30.0
     ],
-    "vina_score_file": "/Users/tab/Documents/GitHub/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
+    "vina_score_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
     "perm_score_file": null,
     "top_ratio": 0.2,
     "bottom_ratio": 0.2,
