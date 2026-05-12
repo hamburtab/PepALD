@@ -100,7 +100,7 @@
     "reward_w_vina": 1.0,
     "reward_w_perm": 0.0,
     "reward_w_chemistry": 0.0,
-    "dpop_winner_reg_alpha": 0.05,
+    "dpop_winner_reg_alpha": 0.5,
     "chemistry_target_length": 7,
     "log_interval": 5,
     "save_interval_epochs": 1
