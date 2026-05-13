@@ -76,6 +76,14 @@ def resolve_path(path_str: str | Path) -> Path:
     return path
 
 
+def get_round_checkpoint_override(rounds_cfg: dict, round_idx: int) -> Path | None:
+    overrides = rounds_cfg.get("start_round_checkpoint_overrides") or {}
+    if not isinstance(overrides, dict):
+        raise ValueError("dpo_rounds.start_round_checkpoint_overrides must be an object mapping round index to checkpoint path.")
+    value = overrides.get(str(round_idx), overrides.get(round_idx))
+    return resolve_path(value) if value else None
+
+
 def load_json(path: Path) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -491,7 +499,10 @@ def main():
         previous_candidates = prev_dir / "candidates.txt"
         previous_vina = prev_dir / "candidates.2axi.vina.csv"
         previous_perm = prev_dir / "candidates.perm.csv" if use_permeability else None
-        previous_checkpoint = checkpoint_root / f"{run_name}_r{prev_idx}" / "dpo_latest.pt"
+        previous_checkpoint = (
+            get_round_checkpoint_override(rounds_cfg, args.start_round)
+            or checkpoint_root / f"{run_name}_r{prev_idx}" / "dpo_latest.pt"
+        )
         if not args.dry_run:
             required_paths = [previous_candidates, previous_vina, previous_checkpoint]
             if use_permeability:
@@ -687,6 +698,8 @@ def main():
                     )
 
         seed_vina = previous_vina if previous_vina is not None else base_vina_file
+        if not bool(rounds_cfg.get("seed_vina_cache", True)):
+            seed_vina = None
         copy_seed_cache(seed_vina, candidates_vina, dry_run=args.dry_run)
         vina_export_script = (
             "scripts/eval/export_train_vina_scores_multigpu.py"
