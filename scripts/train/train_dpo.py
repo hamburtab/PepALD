@@ -872,6 +872,7 @@ def main():
         max_grad_norm=config.training.max_grad_norm,
         freeze_mode=dpo_cfg.get('freeze_mode', 'denoiser_only'),
         dpop_winner_reg_alpha=dpo_cfg.get('dpop_winner_reg_alpha', 0.0),
+        dpop_winner_reg_mode=dpo_cfg.get('dpop_winner_reg_mode', 'external_reg'),
         checkpoint_dir=config.training.checkpoint_dir,
         device=str(device),
     )
@@ -894,6 +895,7 @@ def main():
     print(f"  lr:             {dpo_cfg.get('lr', 1e-5)}")
     print(f"  freeze_mode:    {dpo_cfg.get('freeze_mode', 'denoiser_only')}")
     print(f"  dpop_w_reg_alpha:{dpo_cfg.get('dpop_winner_reg_alpha', 0.0)}")
+    print(f"  dpop_w_reg_mode: {dpo_cfg.get('dpop_winner_reg_mode', 'external_reg')}")
     print(f"  dataset_size:   {len(dataset)}")
     print(f"  steps/epoch:    {len(dataloader)}")
     print(f"{'='*60}\n")
