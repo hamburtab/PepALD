@@ -76,7 +76,7 @@
     "loser_pool_ratio": 0.1,
     "winner_diversity_lambda": 0.45,
     "loser_diversity_lambda": 0.2,
-    "pair_strategy": "nearest_hard_negative",
+    "pair_strategy": "random",
     "min_reward_gap": 0.5,
     "preserve_pairing": true,
     "dock_seed": 42,

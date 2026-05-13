@@ -74,7 +74,7 @@
     "loser_pool_ratio": 0.1,
     "winner_diversity_lambda": 0.45,
     "loser_diversity_lambda": 0.2,
-    "pair_strategy": "nearest_hard_negative",
+    "pair_strategy": "random",
     "min_reward_gap": 0.5,
     "preserve_pairing": true,
     "dock_seed": 42,
@@ -102,7 +102,7 @@
     "reward_w_vina": 1.0,
     "reward_w_perm": 0.0,
     "reward_w_chemistry": 0.0,
-    "dpop_winner_reg_alpha": 0.5,
+    "dpop_winner_reg_alpha": 0.8,
     "dpop_winner_reg_mode": "external_reg",
     "chemistry_target_length": 7,
     "log_interval": 5,
@@ -139,8 +139,10 @@
     "python": "conda run --no-capture-output -n base python",
     "permeability_python": "conda run --no-capture-output -n perm_env python",
     "start_round_checkpoint_overrides": {
-      "1": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r0/dpo_epoch_15.pt"
+      "1": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r0/dpo_epoch_15.pt",
+      "2": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r1/dpo_epoch_20.pt"
     },
-    "seed_vina_cache": false
+    "seed_vina_cache": false,
+    "resume_dpo_training": true
   }
 }

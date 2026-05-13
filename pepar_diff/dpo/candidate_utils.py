@@ -300,7 +300,12 @@ def pair_winners_with_losers(
 
     if strategy == "random":
         pair_count = min(len(winner_indices), len(loser_indices))
-        return list(zip(winner_indices[:pair_count], loser_indices[:pair_count]))
+        rng = np.random.default_rng(42)
+        winners = list(winner_indices)
+        losers = list(loser_indices)
+        rng.shuffle(winners)
+        rng.shuffle(losers)
+        return list(zip(winners[:pair_count], losers[:pair_count]))
 
     winners = sorted(winner_indices, key=lambda idx: records[idx].reward, reverse=True)
     available_losers = list(loser_indices)

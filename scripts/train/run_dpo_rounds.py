@@ -725,11 +725,15 @@ def main():
                 write_subset_csv(candidates_perm, generated_perm, generated_helms)
             write_subset_csv(candidates_vina, generated_vina, generated_helms)
 
+        train_cmd = python_cmd + [
+            "scripts/train/train_dpo.py",
+            "--config", str(round_config),
+        ]
+        if round_idx > 0 and bool(rounds_cfg.get("resume_dpo_training", True)):
+            train_cmd.extend(["--resume", str(input_checkpoint)])
+
         run_command(
-            python_cmd + [
-                "scripts/train/train_dpo.py",
-                "--config", str(round_config),
-            ],
+            train_cmd,
             log_path=log_path,
             dry_run=args.dry_run,
         )
