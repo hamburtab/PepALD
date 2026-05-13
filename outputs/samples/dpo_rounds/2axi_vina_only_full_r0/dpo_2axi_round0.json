@@ -87,7 +87,9 @@
     "unidock_gpu_ids": [
       0,
       1,
-      2
+      2,
+      3,
+      4
     ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
@@ -103,6 +105,7 @@
     "reward_w_perm": 0.0,
     "reward_w_chemistry": 0.0,
     "dpop_winner_reg_alpha": 0.5,
+    "dpop_winner_reg_mode": "external_reg",
     "chemistry_target_length": 7,
     "log_interval": 5,
     "save_interval_epochs": 1
@@ -123,7 +126,9 @@
     "generation_gpu_ids": [
       0,
       1,
-      2
+      2,
+      3,
+      4
     ],
     "num_samples_per_round": 50000,
     "epochs_per_round": [

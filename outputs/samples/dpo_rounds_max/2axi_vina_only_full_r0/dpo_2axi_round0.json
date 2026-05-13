@@ -105,7 +105,7 @@
     "reward_w_perm": 0.0,
     "reward_w_chemistry": 0.0,
     "dpop_winner_reg_alpha": 0.5,
-    "dpop_winner_reg_mode": "margin_max",
+    "dpop_winner_reg_mode": "external_reg",
     "chemistry_target_length": 7,
     "log_interval": 5,
     "save_interval_epochs": 1
@@ -117,7 +117,7 @@
     "checkpoint_root": "/root/autodl-tmp/checkpoints/dpo_rounds_max",
     "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
     "bootstrap_generate": false,
-    "base_candidate_file": "./outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt",
+    "base_candidate_file": "./outputs/samples/dpo_rounds_max/2axi_vina_only_full_r0/candidates.txt",
     "base_vina_score_file": null,
     "base_perm_score_file": null,
     "base_merge_rounds": 0,
