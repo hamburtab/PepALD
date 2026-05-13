@@ -21,14 +21,14 @@
     "batch_size": 8,
     "weight_decay": 0.01,
     "max_grad_norm": 1.0,
-    "checkpoint_dir": "/root/autodl-tmp/checkpoints/ald_dpo_2axi",
+    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r1",
     "device": "cuda",
     "num_workers": 4,
-    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
+    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r0/dpo_epoch_15.pt"
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r1/dpo_epoch_10.pt",
-    "num_samples": 4007,
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r0/dpo_epoch_15.pt",
+    "num_samples": 8000,
     "max_length": 7,
     "min_length": 7,
     "use_ddim": true,
@@ -44,9 +44,9 @@
     "mapping_top_p": 0.95,
     "mapping_temperature": 0.85,
     "mapping_frequency_penalty": 0.35,
-    "output_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated.txt",
+    "output_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/generated.multigpu_shards/shard_03_gpu3.txt",
     "verbose": false,
-    "seed": null
+    "seed": 778656525
   },
   "dpo": {
     "beta_dpo": 1.0,
@@ -54,7 +54,7 @@
     "num_epochs": 10,
     "freeze_mode": "all",
     "sample_files": [
-      "/root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.txt"
+      "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/candidates.txt"
     ],
     "protein_pdbqt_path": "./data/docking2/2axi_receptor.pdbqt",
     "ref_sdf_path": "./data/docking2/2axi_cyclicpep.sdf",
@@ -68,10 +68,10 @@
       30.0,
       30.0
     ],
-    "vina_score_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.csv",
+    "vina_score_file": "/root/New-HELM-Diffusion/outputs/samples/dpo_rounds/2axi_vina_only_full_r1/candidates.2axi.vina.csv",
     "perm_score_file": null,
-    "top_ratio": 0.2,
-    "bottom_ratio": 0.2,
+    "top_ratio": 0.1,
+    "bottom_ratio": 0.1,
     "winner_pool_ratio": 0.1,
     "loser_pool_ratio": 0.1,
     "winner_diversity_lambda": 0.45,
@@ -88,7 +88,8 @@
       0,
       1,
       2,
-      3
+      3,
+      4
     ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
@@ -103,20 +104,21 @@
     "reward_w_vina": 1.0,
     "reward_w_perm": 0.0,
     "reward_w_chemistry": 0.0,
-    "winner_mse_reg_alpha": 0.05,
+    "dpop_winner_reg_alpha": 0.5,
+    "dpop_winner_reg_mode": "external_reg",
     "chemistry_target_length": 7,
     "log_interval": 5,
     "save_interval_epochs": 1
   },
   "dpo_rounds": {
-    "num_rounds": 5,
+    "num_rounds": 0,
     "output_root": "./outputs/samples/dpo_rounds",
     "run_name": "2axi_vina_only_full",
     "checkpoint_root": "/root/autodl-tmp/checkpoints/dpo_rounds",
     "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
-    "bootstrap_generate": true,
-    "base_candidate_file": null,
-    "base_vina_score_file": null,
+    "bootstrap_generate": false,
+    "base_candidate_file": "./outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt",
+    "base_vina_score_file": "./outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
     "base_perm_score_file": null,
     "base_merge_rounds": 0,
     "carry_forward_previous_candidates": false,
@@ -125,9 +127,10 @@
       0,
       1,
       2,
-      3
+      3,
+      4
     ],
-    "num_samples_per_round": 50000,
+    "num_samples_per_round": 40000,
     "epochs_per_round": [
       10,
       10,
@@ -136,6 +139,10 @@
       10
     ],
     "python": "conda run --no-capture-output -n base python",
-    "permeability_python": "conda run --no-capture-output -n perm_env python"
+    "permeability_python": "conda run --no-capture-output -n perm_env python",
+    "start_round_checkpoint_overrides": {
+      "1": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r0/dpo_epoch_15.pt"
+    },
+    "seed_vina_cache": false
   }
 }
