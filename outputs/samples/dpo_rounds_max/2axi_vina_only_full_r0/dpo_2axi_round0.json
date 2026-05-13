@@ -87,7 +87,9 @@
     "unidock_gpu_ids": [
       0,
       1,
-      2
+      2,
+      3,
+      4
     ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
@@ -116,7 +118,7 @@
     "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
     "bootstrap_generate": false,
     "base_candidate_file": "./outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.txt",
-    "base_vina_score_file": "./outputs/samples/dpo_rounds/2axi_vina_only_full_r0/candidates.2axi.vina.csv",
+    "base_vina_score_file": null,
     "base_perm_score_file": null,
     "base_merge_rounds": 0,
     "carry_forward_previous_candidates": false,
@@ -124,7 +126,9 @@
     "generation_gpu_ids": [
       0,
       1,
-      2
+      2,
+      3,
+      4
     ],
     "num_samples_per_round": 50000,
     "epochs_per_round": [
