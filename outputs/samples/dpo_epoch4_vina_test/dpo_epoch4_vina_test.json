@@ -27,8 +27,8 @@
     "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r1/dpo_epoch_10.pt",
-    "num_samples": 4007,
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/2axi_vina_only_full_r1/dpo_epoch_20.pt",
+    "num_samples": 2007,
     "max_length": 7,
     "min_length": 7,
     "use_ddim": true,
