@@ -659,3 +659,200 @@ Vina cache summary: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_tes
   Top-10 mean Vina:        -11.5795
 
 Done. (This script only exports / resumes Vina scoring, no DPO training started.)
+
+CUDA_VISIBLE_DEVICES=1 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/eval/export_train_vina_scores.py --config outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json --sample_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Shard HELM count: 229
+Loading config from: outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json
+Loaded 229 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+candidate files dedup: no duplicates found
+Using candidate set from: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+Loaded 229 unique HELM sequences from 1 file(s)
+Loaded cached Vina scores for 0/229 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Docking 229 missing HELM sequences with Uni-Dock (batch_size=1024, prep_workers=20, search_mode=balance, n_poses=1)
+Docking receptor: /root/New-HELM-Diffusion/data/docking2/2axi_receptor.pdbqt
+Docking reference SDF: /root/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf
+Docking center: [3.683, 10.322, -5.274]
+Docking box size: [30.0, 30.0, 30.0]
+  Uni-Dock GPU scoring: binary=unidock, batch_size=1024, prep_workers=20, search_mode=balance, num_modes=1
+  Uni-Dock prep workers: 20
+Uni-Dock prep:   0%|          | 0/229 [00:00<?, ?ligand/s]Uni-Dock prep:   0%|          | 1/229 [00:00<02:09,  1.76ligand/s]Uni-Dock prep:   2%|▏         | 4/229 [00:00<00:30,  7.42ligand/s]Uni-Dock prep:   3%|▎         | 7/229 [00:00<00:18, 12.27ligand/s]Uni-Dock prep:   5%|▍         | 11/229 [00:00<00:11, 18.45ligand/s]Uni-Dock prep:   7%|▋         | 15/229 [00:00<00:08, 23.80ligand/s]Uni-Dock prep:   8%|▊         | 19/229 [00:01<00:10, 20.29ligand/s]Uni-Dock prep:  10%|▉         | 22/229 [00:01<00:10, 19.97ligand/s]Uni-Dock prep:  12%|█▏        | 27/229 [00:01<00:08, 24.04ligand/s]Uni-Dock prep:  14%|█▎        | 31/229 [00:01<00:07, 26.10ligand/s]Uni-Dock prep:  15%|█▍        | 34/229 [00:01<00:07, 25.60ligand/s]Uni-Dock prep:  16%|█▌        | 37/229 [00:01<00:07, 26.29ligand/s]Uni-Dock prep:  18%|█▊        | 41/229 [00:02<00:07, 25.89ligand/s]Uni-Dock prep:  19%|█▉        | 44/229 [00:02<00:06, 26.71ligand/s]Uni-Dock prep:  21%|██        | 48/229 [00:02<00:06, 29.22ligand/s]Uni-Dock prep:  23%|██▎       | 52/229 [00:02<00:06, 28.42ligand/s]Uni-Dock prep:  24%|██▍       | 55/229 [00:02<00:07, 22.68ligand/s]Uni-Dock prep:  25%|██▌       | 58/229 [00:02<00:07, 22.47ligand/s]Uni-Dock prep:  28%|██▊       | 64/229 [00:02<00:06, 26.28ligand/s]Uni-Dock prep:  30%|██▉       | 68/229 [00:03<00:06, 25.50ligand/s]Uni-Dock prep:  31%|███       | 71/229 [00:03<00:07, 19.89ligand/s]Uni-Dock prep:  32%|███▏      | 74/229 [00:03<00:07, 21.04ligand/s]Uni-Dock prep:  34%|███▎      | 77/229 [00:03<00:06, 22.43ligand/s]Uni-Dock prep:  35%|███▍      | 80/229 [00:03<00:06, 22.49ligand/s]Uni-Dock prep:  37%|███▋      | 84/229 [00:03<00:06, 20.82ligand/s]Uni-Dock prep:  38%|███▊      | 87/229 [00:04<00:06, 21.75ligand/s]Uni-Dock prep:  41%|████      | 93/229 [00:04<00:05, 25.47ligand/s]Uni-Dock prep:  42%|████▏     | 96/229 [00:04<00:05, 25.65ligand/s]Uni-Dock prep:  43%|████▎     | 99/229 [00:04<00:05, 24.48ligand/s]Uni-Dock prep:  45%|████▍     | 102/229 [00:04<00:05, 23.84ligand/s]Uni-Dock prep:  46%|████▌     | 105/229 [00:04<00:06, 19.90ligand/s]Uni-Dock prep:  49%|████▉     | 112/229 [00:04<00:03, 29.93ligand/s]Uni-Dock prep:  51%|█████     | 116/229 [00:05<00:04, 25.68ligand/s]Uni-Dock prep:  52%|█████▏    | 119/229 [00:05<00:05, 21.45ligand/s]Uni-Dock prep:  55%|█████▍    | 125/229 [00:05<00:04, 24.82ligand/s]Uni-Dock prep:  56%|█████▌    | 128/229 [00:05<00:04, 23.62ligand/s]Uni-Dock prep:  57%|█████▋    | 131/229 [00:05<00:04, 21.34ligand/s]Uni-Dock prep:  59%|█████▉    | 135/229 [00:06<00:03, 24.81ligand/s]Uni-Dock prep:  60%|██████    | 138/229 [00:06<00:03, 25.34ligand/s]Uni-Dock prep:  62%|██████▏   | 142/229 [00:06<00:03, 28.39ligand/s]Uni-Dock prep:  64%|██████▍   | 146/229 [00:06<00:03, 23.31ligand/s]Uni-Dock prep:  66%|██████▌   | 151/229 [00:06<00:02, 27.43ligand/s]Uni-Dock prep:  68%|██████▊   | 155/229 [00:06<00:03, 24.58ligand/s]Uni-Dock prep:  69%|██████▉   | 158/229 [00:06<00:02, 24.80ligand/s]Uni-Dock prep:  70%|███████   | 161/229 [00:07<00:02, 24.92ligand/s]Uni-Dock prep:  72%|███████▏  | 165/229 [00:07<00:02, 26.78ligand/s]Uni-Dock prep:  73%|███████▎  | 168/229 [00:07<00:02, 24.18ligand/s]Uni-Dock prep:  75%|███████▍  | 171/229 [00:07<00:02, 24.57ligand/s]Uni-Dock prep:  76%|███████▌  | 174/229 [00:07<00:02, 18.95ligand/s]Uni-Dock prep:  79%|███████▊  | 180/229 [00:07<00:02, 24.49ligand/s]Uni-Dock prep:  80%|████████  | 184/229 [00:07<00:01, 27.23ligand/s]Uni-Dock prep:  82%|████████▏ | 187/229 [00:08<00:01, 27.28ligand/s]Uni-Dock prep:  83%|████████▎ | 190/229 [00:08<00:02, 16.95ligand/s]Uni-Dock prep:  85%|████████▍ | 194/229 [00:08<00:01, 20.34ligand/s]Uni-Dock prep:  86%|████████▌ | 197/229 [00:08<00:01, 21.09ligand/s]Uni-Dock prep:  87%|████████▋ | 200/229 [00:08<00:01, 18.30ligand/s]Uni-Dock prep:  89%|████████▊ | 203/229 [00:08<00:01, 20.42ligand/s]Uni-Dock prep:  90%|████████▉ | 206/229 [00:09<00:01, 22.16ligand/s]Uni-Dock prep:  92%|█████████▏| 210/229 [00:09<00:00, 23.42ligand/s]Uni-Dock prep:  93%|█████████▎| 213/229 [00:09<00:00, 23.53ligand/s]Uni-Dock prep:  94%|█████████▍| 216/229 [00:09<00:00, 20.26ligand/s]Uni-Dock prep:  96%|█████████▌| 219/229 [00:09<00:00, 18.63ligand/s]Uni-Dock prep:  97%|█████████▋| 222/229 [00:09<00:00, 17.40ligand/s]Uni-Dock prep:  98%|█████████▊| 225/229 [00:10<00:00, 18.65ligand/s]Uni-Dock prep:  99%|█████████▉| 227/229 [00:10<00:00, 13.10ligand/s]Uni-Dock prep: 100%|██████████| 229/229 [00:11<00:00,  4.84ligand/s]Uni-Dock prep: 100%|██████████| 229/229 [00:11<00:00, 19.63ligand/s]
+Uni-Dock batches:   0%|          | 0/1 [00:00<?, ?batch/s]Uni-Dock batches: 100%|██████████| 1/1 [00:22<00:00, 22.99s/batch]Uni-Dock batches: 100%|██████████| 1/1 [00:22<00:00, 22.99s/batch]
+  Uni-Dock done: 229/229 valid, avg=-9.69
+Updated Vina cache: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+
+Vina cache summary: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+  Total sequences: 229
+
+=== Vina Summary ===
+  Unique samples scored:   229
+  Valid docking scores:    229
+  Invalid / failed scores: 0
+  Mean Vina:               -9.6919
+  Median Vina:             -9.6900
+  Std Vina:                0.7015
+  Best Vina:               -12.7060
+  Best HELM:               PEPTIDE1{F.pentyl_Gly.Mono84.Mono86.P.L.3Pal}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$
+  Top-10 mean Vina:        -11.4414
+
+Done. (This script only exports / resumes Vina scoring, no DPO training started.)
+
+CUDA_VISIBLE_DEVICES=1 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/eval/export_train_vina_scores.py --config outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json --sample_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Shard HELM count: 233
+Loading config from: outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json
+Loaded 233 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+candidate files dedup: no duplicates found
+Using candidate set from: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+Loaded 233 unique HELM sequences from 1 file(s)
+Loaded cached Vina scores for 0/233 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Docking 233 missing HELM sequences with Uni-Dock (batch_size=1024, prep_workers=20, search_mode=balance, n_poses=1)
+Docking receptor: /root/New-HELM-Diffusion/data/docking2/2axi_receptor.pdbqt
+Docking reference SDF: /root/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf
+Docking center: [3.683, 10.322, -5.274]
+Docking box size: [30.0, 30.0, 30.0]
+  Uni-Dock GPU scoring: binary=unidock, batch_size=1024, prep_workers=20, search_mode=balance, num_modes=1
+  Uni-Dock prep workers: 20
+Uni-Dock prep:   0%|          | 0/233 [00:00<?, ?ligand/s]Uni-Dock prep:   0%|          | 1/233 [00:00<01:48,  2.14ligand/s]Uni-Dock prep:   1%|▏         | 3/233 [00:00<00:38,  5.96ligand/s]Uni-Dock prep:   2%|▏         | 5/233 [00:00<00:25,  8.83ligand/s]Uni-Dock prep:   4%|▍         | 10/233 [00:00<00:13, 16.76ligand/s]Uni-Dock prep:   6%|▌         | 13/233 [00:00<00:11, 19.80ligand/s]Uni-Dock prep:   7%|▋         | 17/233 [00:01<00:08, 24.21ligand/s]Uni-Dock prep:   9%|▉         | 21/233 [00:01<00:08, 24.97ligand/s]Uni-Dock prep:  10%|█         | 24/233 [00:01<00:08, 25.88ligand/s]Uni-Dock prep:  12%|█▏        | 28/233 [00:01<00:07, 28.41ligand/s]Uni-Dock prep:  13%|█▎        | 31/233 [00:01<00:08, 24.59ligand/s]Uni-Dock prep:  15%|█▌        | 35/233 [00:01<00:07, 25.57ligand/s]Uni-Dock prep:  17%|█▋        | 40/233 [00:01<00:06, 28.69ligand/s]Uni-Dock prep:  18%|█▊        | 43/233 [00:02<00:09, 20.05ligand/s]Uni-Dock prep:  21%|██        | 48/233 [00:02<00:07, 24.10ligand/s]Uni-Dock prep:  22%|██▏       | 51/233 [00:02<00:07, 23.85ligand/s]Uni-Dock prep:  24%|██▎       | 55/233 [00:02<00:06, 25.93ligand/s]Uni-Dock prep:  25%|██▍       | 58/233 [00:02<00:06, 25.62ligand/s]Uni-Dock prep:  26%|██▌       | 61/233 [00:02<00:08, 19.72ligand/s]Uni-Dock prep:  27%|██▋       | 64/233 [00:03<00:09, 18.23ligand/s]Uni-Dock prep:  30%|███       | 71/233 [00:03<00:06, 25.99ligand/s]Uni-Dock prep:  32%|███▏      | 74/233 [00:03<00:06, 24.44ligand/s]Uni-Dock prep:  34%|███▍      | 79/233 [00:03<00:05, 28.34ligand/s]Uni-Dock prep:  36%|███▌      | 83/233 [00:03<00:05, 28.34ligand/s]Uni-Dock prep:  37%|███▋      | 86/233 [00:03<00:05, 26.02ligand/s]Uni-Dock prep:  38%|███▊      | 89/233 [00:04<00:06, 21.30ligand/s]Uni-Dock prep:  40%|████      | 94/233 [00:04<00:05, 27.09ligand/s]Uni-Dock prep:  42%|████▏     | 98/233 [00:04<00:05, 26.01ligand/s]Uni-Dock prep:  43%|████▎     | 101/233 [00:04<00:06, 20.69ligand/s]Uni-Dock prep:  44%|████▍     | 102/233 [00:04<00:05, 22.03ligand/s]
+
+CUDA_VISIBLE_DEVICES=1 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/eval/export_train_vina_scores.py --config outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json --sample_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Shard HELM count: 233
+Loading config from: outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json
+Loaded 233 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+candidate files dedup: no duplicates found
+Using candidate set from: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+Loaded 233 unique HELM sequences from 1 file(s)
+Loaded cached Vina scores for 0/233 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Docking 233 missing HELM sequences with Uni-Dock (batch_size=1024, prep_workers=20, search_mode=balance, n_poses=1)
+Docking receptor: /root/New-HELM-Diffusion/data/docking2/2axi_receptor.pdbqt
+Docking reference SDF: /root/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf
+Docking center: [3.683, 10.322, -5.274]
+Docking box size: [30.0, 30.0, 30.0]
+  Uni-Dock GPU scoring: binary=unidock, batch_size=1024, prep_workers=20, search_mode=balance, num_modes=1
+  Uni-Dock prep workers: 20
+Uni-Dock prep:   0%|          | 0/233 [00:00<?, ?ligand/s]Uni-Dock prep:   0%|          | 1/233 [00:00<01:47,  2.16ligand/s]Uni-Dock prep:   1%|▏         | 3/233 [00:00<00:36,  6.27ligand/s]Uni-Dock prep:   2%|▏         | 5/233 [00:00<00:26,  8.57ligand/s]Uni-Dock prep:   5%|▍         | 11/233 [00:00<00:10, 20.57ligand/s]Uni-Dock prep:   6%|▌         | 14/233 [00:00<00:11, 19.82ligand/s]Uni-Dock prep:   8%|▊         | 18/233 [00:01<00:08, 24.52ligand/s]Uni-Dock prep:   9%|▉         | 22/233 [00:01<00:08, 24.98ligand/s]Uni-Dock prep:  11%|█         | 25/233 [00:01<00:07, 26.13ligand/s]Uni-Dock prep:  12%|█▏        | 28/233 [00:01<00:07, 26.96ligand/s]Uni-Dock prep:  13%|█▎        | 31/233 [00:01<00:08, 24.85ligand/s]Uni-Dock prep:  15%|█▌        | 35/233 [00:01<00:07, 25.44ligand/s]Uni-Dock prep:  17%|█▋        | 40/233 [00:01<00:06, 30.23ligand/s]Uni-Dock prep:  19%|█▉        | 44/233 [00:02<00:09, 19.64ligand/s]Uni-Dock prep:  22%|██▏       | 51/233 [00:02<00:07, 24.75ligand/s]Uni-Dock prep:  23%|██▎       | 54/233 [00:02<00:07, 22.80ligand/s]Uni-Dock prep:  25%|██▍       | 58/233 [00:02<00:07, 22.64ligand/s]Uni-Dock prep:  26%|██▌       | 61/233 [00:02<00:08, 20.06ligand/s]Uni-Dock prep:  28%|██▊       | 65/233 [00:03<00:07, 21.90ligand/s]Uni-Dock prep:  30%|███       | 70/233 [00:03<00:06, 26.51ligand/s]Uni-Dock prep:  31%|███▏      | 73/233 [00:03<00:06, 24.51ligand/s]Uni-Dock prep:  33%|███▎      | 77/233 [00:03<00:05, 27.72ligand/s]Uni-Dock prep:  35%|███▍      | 81/233 [00:03<00:06, 24.53ligand/s]Uni-Dock prep:  36%|███▋      | 85/233 [00:03<00:06, 24.09ligand/s]Uni-Dock prep:  38%|███▊      | 89/233 [00:03<00:05, 26.85ligand/s]Uni-Dock prep:  39%|███▉      | 92/233 [00:04<00:05, 26.10ligand/s]Uni-Dock prep:  41%|████      | 95/233 [00:04<00:05, 23.49ligand/s]Uni-Dock prep:  42%|████▏     | 99/233 [00:04<00:05, 23.42ligand/s]Uni-Dock prep:  44%|████▍     | 102/233 [00:04<00:06, 21.20ligand/s]Uni-Dock prep:  46%|████▌     | 107/233 [00:04<00:04, 26.31ligand/s]Uni-Dock prep:  47%|████▋     | 110/233 [00:04<00:05, 22.26ligand/s]Uni-Dock prep:  48%|████▊     | 113/233 [00:05<00:05, 21.65ligand/s]Uni-Dock prep:  50%|████▉     | 116/233 [00:05<00:05, 21.14ligand/s]Uni-Dock prep:  51%|█████     | 119/233 [00:05<00:05, 22.38ligand/s]Uni-Dock prep:  55%|█████▍    | 127/233 [00:05<00:02, 35.51ligand/s]Uni-Dock prep:  57%|█████▋    | 132/233 [00:05<00:04, 23.29ligand/s]Uni-Dock prep:  58%|█████▊    | 136/233 [00:05<00:04, 23.51ligand/s]Uni-Dock prep:  60%|█████▉    | 139/233 [00:06<00:03, 24.11ligand/s]Uni-Dock prep:  61%|██████▏   | 143/233 [00:06<00:03, 25.51ligand/s]Uni-Dock prep:  63%|██████▎   | 146/233 [00:06<00:03, 24.29ligand/s]Uni-Dock prep:  64%|██████▍   | 149/233 [00:06<00:03, 24.69ligand/s]Uni-Dock prep:  66%|██████▌   | 153/233 [00:06<00:03, 25.56ligand/s]Uni-Dock prep:  68%|██████▊   | 159/233 [00:06<00:02, 31.01ligand/s]Uni-Dock prep:  70%|██████▉   | 163/233 [00:07<00:03, 22.07ligand/s]Uni-Dock prep:  71%|███████   | 166/233 [00:07<00:03, 20.25ligand/s]Uni-Dock prep:  73%|███████▎  | 171/233 [00:07<00:02, 24.73ligand/s]Uni-Dock prep:  75%|███████▌  | 175/233 [00:07<00:02, 26.79ligand/s]Uni-Dock prep:  77%|███████▋  | 179/233 [00:07<00:02, 26.02ligand/s]Uni-Dock prep:  78%|███████▊  | 182/233 [00:07<00:02, 22.38ligand/s]Uni-Dock prep:  79%|███████▉  | 185/233 [00:08<00:02, 22.46ligand/s]Uni-Dock prep:  82%|████████▏ | 191/233 [00:08<00:01, 22.62ligand/s]Uni-Dock prep:  83%|████████▎ | 194/233 [00:08<00:01, 19.70ligand/s]Uni-Dock prep:  85%|████████▍ | 197/233 [00:08<00:01, 21.37ligand/s]Uni-Dock prep:  86%|████████▋ | 201/233 [00:08<00:01, 25.03ligand/s]Uni-Dock prep:  88%|████████▊ | 204/233 [00:08<00:01, 20.59ligand/s]Uni-Dock prep:  89%|████████▉ | 207/233 [00:09<00:01, 20.67ligand/s]Uni-Dock prep:  91%|█████████▏| 213/233 [00:09<00:00, 27.72ligand/s]Uni-Dock prep:  93%|█████████▎| 217/233 [00:09<00:00, 20.21ligand/s]Uni-Dock prep:  95%|█████████▌| 222/233 [00:09<00:00, 25.27ligand/s]Uni-Dock prep:  97%|█████████▋| 226/233 [00:09<00:00, 21.71ligand/s]Uni-Dock prep:  99%|█████████▊| 230/233 [00:10<00:00, 19.01ligand/s]Uni-Dock prep: 100%|██████████| 233/233 [00:10<00:00, 16.37ligand/s]Uni-Dock prep: 100%|██████████| 233/233 [00:10<00:00, 22.41ligand/s]
+Uni-Dock batches:   0%|          | 0/1 [00:00<?, ?batch/s]Uni-Dock batches: 100%|██████████| 1/1 [00:23<00:00, 23.71s/batch]Uni-Dock batches: 100%|██████████| 1/1 [00:23<00:00, 23.71s/batch]
+  Uni-Dock done: 233/233 valid, avg=-9.67
+Updated Vina cache: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+
+Vina cache summary: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+  Total sequences: 233
+
+=== Vina Summary ===
+  Unique samples scored:   233
+  Valid docking scores:    233
+  Invalid / failed scores: 0
+  Mean Vina:               -9.6663
+  Median Vina:             -9.6160
+  Std Vina:                0.6119
+  Best Vina:               -11.4050
+  Best HELM:               PEPTIDE1{A.cHexCH2_Gly.Mono38.dP.P.meL.Mono84}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$
+  Top-10 mean Vina:        -11.1650
+
+Done. (This script only exports / resumes Vina scoring, no DPO training started.)
+
+CUDA_VISIBLE_DEVICES=1 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/eval/export_train_vina_scores.py --config outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json --sample_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Shard HELM count: 232
+Loading config from: outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json
+Loaded 232 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+candidate files dedup: no duplicates found
+Using candidate set from: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+Loaded 232 unique HELM sequences from 1 file(s)
+Loaded cached Vina scores for 0/232 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Docking 232 missing HELM sequences with Uni-Dock (batch_size=1024, prep_workers=20, search_mode=balance, n_poses=1)
+Docking receptor: /root/New-HELM-Diffusion/data/docking2/2axi_receptor.pdbqt
+Docking reference SDF: /root/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf
+Docking center: [3.683, 10.322, -5.274]
+Docking box size: [30.0, 30.0, 30.0]
+  Uni-Dock GPU scoring: binary=unidock, batch_size=1024, prep_workers=20, search_mode=balance, num_modes=1
+  Uni-Dock prep workers: 20
+Uni-Dock prep:   0%|          | 0/232 [00:00<?, ?ligand/s]Uni-Dock prep:   0%|          | 1/232 [00:00<02:00,  1.91ligand/s]Uni-Dock prep:   2%|▏         | 5/232 [00:00<00:23,  9.67ligand/s]Uni-Dock prep:   4%|▍         | 9/232 [00:00<00:13, 16.04ligand/s]Uni-Dock prep:   6%|▌         | 13/232 [00:00<00:10, 21.40ligand/s]Uni-Dock prep:   7%|▋         | 17/232 [00:01<00:12, 17.30ligand/s]Uni-Dock prep:   9%|▊         | 20/232 [00:01<00:11, 18.32ligand/s]Uni-Dock prep:  10%|▉         | 23/232 [00:01<00:11, 18.89ligand/s]Uni-Dock prep:  12%|█▎        | 29/232 [00:01<00:08, 23.56ligand/s]Uni-Dock prep:  14%|█▍        | 33/232 [00:01<00:08, 23.58ligand/s]Uni-Dock prep:  16%|█▌        | 36/232 [00:01<00:07, 24.72ligand/s]Uni-Dock prep:  17%|█▋        | 39/232 [00:02<00:08, 23.30ligand/s]Uni-Dock prep:  19%|█▉        | 44/232 [00:02<00:07, 26.44ligand/s]Uni-Dock prep:  20%|██        | 47/232 [00:02<00:06, 27.24ligand/s]Uni-Dock prep:  22%|██▏       | 50/232 [00:02<00:08, 20.65ligand/s]Uni-Dock prep:  24%|██▎       | 55/232 [00:02<00:07, 24.93ligand/s]Uni-Dock prep:  25%|██▌       | 58/232 [00:02<00:06, 24.90ligand/s]Uni-Dock prep:  27%|██▋       | 63/232 [00:02<00:05, 28.92ligand/s]Uni-Dock prep:  29%|██▉       | 68/232 [00:03<00:05, 30.11ligand/s]Uni-Dock prep:  31%|███       | 72/232 [00:03<00:07, 21.86ligand/s]Uni-Dock prep:  33%|███▎      | 77/232 [00:03<00:06, 24.84ligand/s]Uni-Dock prep:  35%|███▍      | 81/232 [00:03<00:06, 24.27ligand/s]Uni-Dock prep:  37%|███▋      | 85/232 [00:03<00:06, 21.24ligand/s]Uni-Dock prep:  38%|███▊      | 88/232 [00:04<00:06, 21.31ligand/s]Uni-Dock prep:  40%|███▉      | 92/232 [00:04<00:05, 24.26ligand/s]Uni-Dock prep:  41%|████▏     | 96/232 [00:04<00:04, 27.36ligand/s]Uni-Dock prep:  43%|████▎     | 100/232 [00:04<00:05, 22.11ligand/s]Uni-Dock prep:  45%|████▍     | 104/232 [00:04<00:05, 25.49ligand/s]Uni-Dock prep:  46%|████▌     | 107/232 [00:04<00:05, 21.83ligand/s]Uni-Dock prep:  47%|████▋     | 110/232 [00:05<00:05, 22.39ligand/s]Uni-Dock prep:  50%|█████     | 117/232 [00:05<00:03, 32.00ligand/s]Uni-Dock prep:  52%|█████▏    | 121/232 [00:05<00:04, 26.29ligand/s]Uni-Dock prep:  54%|█████▍    | 125/232 [00:05<00:04, 24.49ligand/s]Uni-Dock prep:  56%|█████▌    | 129/232 [00:05<00:04, 24.01ligand/s]Uni-Dock prep:  58%|█████▊    | 135/232 [00:05<00:03, 30.52ligand/s]Uni-Dock prep:  60%|█████▉    | 139/232 [00:06<00:03, 27.07ligand/s]Uni-Dock prep:  62%|██████▏   | 143/232 [00:06<00:03, 26.07ligand/s]Uni-Dock prep:  63%|██████▎   | 146/232 [00:06<00:03, 21.55ligand/s]Uni-Dock prep:  65%|██████▌   | 151/232 [00:06<00:03, 22.39ligand/s]Uni-Dock prep:  66%|██████▋   | 154/232 [00:06<00:03, 21.46ligand/s]Uni-Dock prep:  68%|██████▊   | 157/232 [00:06<00:03, 21.22ligand/s]Uni-Dock prep:  69%|██████▉   | 161/232 [00:07<00:03, 23.60ligand/s]Uni-Dock prep:  71%|███████   | 164/232 [00:07<00:02, 23.85ligand/s]Uni-Dock prep:  72%|███████▏  | 167/232 [00:07<00:02, 23.79ligand/s]Uni-Dock prep:  74%|███████▎  | 171/232 [00:07<00:02, 26.20ligand/s]Uni-Dock prep:  76%|███████▌  | 176/232 [00:07<00:01, 29.21ligand/s]Uni-Dock prep:  77%|███████▋  | 179/232 [00:07<00:02, 25.09ligand/s]Uni-Dock prep:  78%|███████▊  | 182/232 [00:07<00:02, 24.58ligand/s]Uni-Dock prep:  80%|███████▉  | 185/232 [00:08<00:02, 21.96ligand/s]Uni-Dock prep:  81%|████████▏ | 189/232 [00:08<00:01, 24.63ligand/s]Uni-Dock prep:  83%|████████▎ | 192/232 [00:08<00:01, 23.37ligand/s]Uni-Dock prep:  84%|████████▍ | 195/232 [00:08<00:01, 20.69ligand/s]Uni-Dock prep:  85%|████████▌ | 198/232 [00:08<00:01, 20.73ligand/s]Uni-Dock prep:  87%|████████▋ | 201/232 [00:08<00:01, 21.06ligand/s]Uni-Dock prep:  88%|████████▊ | 205/232 [00:08<00:01, 25.03ligand/s]Uni-Dock prep:  90%|█████████ | 209/232 [00:09<00:00, 25.25ligand/s]Uni-Dock prep:  91%|█████████▏| 212/232 [00:09<00:00, 25.63ligand/s]Uni-Dock prep:  93%|█████████▎| 215/232 [00:09<00:00, 20.63ligand/s]Uni-Dock prep:  94%|█████████▍| 218/232 [00:09<00:00, 22.02ligand/s]Uni-Dock prep:  95%|█████████▌| 221/232 [00:09<00:00, 18.37ligand/s]Uni-Dock prep:  98%|█████████▊| 227/232 [00:09<00:00, 25.93ligand/s]Uni-Dock prep: 100%|█████████▉| 231/232 [00:10<00:00, 15.58ligand/s]Uni-Dock prep: 100%|██████████| 232/232 [00:10<00:00, 22.36ligand/s]
+Uni-Dock batches:   0%|          | 0/1 [00:00<?, ?batch/s]Uni-Dock batches: 100%|██████████| 1/1 [00:22<00:00, 22.53s/batch]Uni-Dock batches: 100%|██████████| 1/1 [00:22<00:00, 22.53s/batch]
+  Uni-Dock done: 232/232 valid, avg=-9.67
+Updated Vina cache: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+
+Vina cache summary: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+  Total sequences: 232
+
+=== Vina Summary ===
+  Unique samples scored:   232
+  Valid docking scores:    232
+  Invalid / failed scores: 0
+  Mean Vina:               -9.6750
+  Median Vina:             -9.5995
+  Std Vina:                0.6635
+  Best Vina:               -11.9330
+  Best HELM:               PEPTIDE1{dF.pentyl_Gly.Mono84.L.A.Ser(tBu).P}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$
+  Top-10 mean Vina:        -11.2568
+
+Done. (This script only exports / resumes Vina scoring, no DPO training started.)
+
+CUDA_VISIBLE_DEVICES=1 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/eval/export_train_vina_scores.py --config outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json --sample_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Shard HELM count: 228
+Loading config from: outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json
+Loaded 228 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+candidate files dedup: no duplicates found
+Using candidate set from: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+Loaded 228 unique HELM sequences from 1 file(s)
+Loaded cached Vina scores for 0/228 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Docking 228 missing HELM sequences with Uni-Dock (batch_size=1024, prep_workers=20, search_mode=balance, n_poses=1)
+Docking receptor: /root/New-HELM-Diffusion/data/docking2/2axi_receptor.pdbqt
+Docking reference SDF: /root/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf
+Docking center: [3.683, 10.322, -5.274]
+Docking box size: [30.0, 30.0, 30.0]
+  Uni-Dock GPU scoring: binary=unidock, batch_size=1024, prep_workers=20, search_mode=balance, num_modes=1
+  Uni-Dock prep workers: 20
+Uni-Dock prep:   0%|          | 0/228 [00:00<?, ?ligand/s]Uni-Dock prep:   0%|          | 1/228 [00:00<01:42,  2.22ligand/s]Uni-Dock prep:   1%|          | 2/228 [00:00<00:57,  3.90ligand/s]Uni-Dock prep:   2%|▏         | 5/228 [00:00<00:21, 10.30ligand/s]Uni-Dock prep:   6%|▌         | 13/228 [00:00<00:07, 27.93ligand/s]Uni-Dock prep:   7%|▋         | 17/228 [00:00<00:06, 30.79ligand/s]Uni-Dock prep:   9%|▉         | 21/228 [00:01<00:11, 18.81ligand/s]Uni-Dock prep:  11%|█         | 24/228 [00:01<00:09, 20.67ligand/s]Uni-Dock prep:  12%|█▏        | 27/228 [00:01<00:09, 20.96ligand/s]Uni-Dock prep:  15%|█▍        | 34/228 [00:01<00:06, 29.50ligand/s]Uni-Dock prep:  17%|█▋        | 38/228 [00:01<00:06, 29.52ligand/s]Uni-Dock prep:  18%|█▊        | 42/228 [00:02<00:10, 17.17ligand/s]Uni-Dock prep:  21%|██        | 47/228 [00:02<00:08, 21.51ligand/s]Uni-Dock prep:  22%|██▏       | 51/228 [00:02<00:08, 21.11ligand/s]Uni-Dock prep:  24%|██▎       | 54/228 [00:02<00:08, 19.34ligand/s]Uni-Dock prep:  26%|██▋       | 60/228 [00:02<00:06, 24.38ligand/s]Uni-Dock prep:  28%|██▊       | 63/228 [00:03<00:06, 25.27ligand/s]Uni-Dock prep:  29%|██▉       | 67/228 [00:03<00:05, 27.13ligand/s]Uni-Dock prep:  31%|███       | 71/228 [00:03<00:06, 25.12ligand/s]Uni-Dock prep:  32%|███▏      | 74/228 [00:03<00:08, 19.01ligand/s]Uni-Dock prep:  34%|███▍      | 78/228 [00:03<00:06, 22.60ligand/s]Uni-Dock prep:  36%|███▋      | 83/228 [00:03<00:05, 28.13ligand/s]Uni-Dock prep:  38%|███▊      | 87/228 [00:03<00:05, 28.07ligand/s]Uni-Dock prep:  40%|███▉      | 91/228 [00:04<00:05, 26.47ligand/s]Uni-Dock prep:  41%|████      | 94/228 [00:04<00:05, 23.72ligand/s]Uni-Dock prep:  43%|████▎     | 97/228 [00:04<00:05, 24.87ligand/s]Uni-Dock prep:  44%|████▍     | 100/228 [00:04<00:06, 20.26ligand/s]Uni-Dock prep:  45%|████▌     | 103/228 [00:04<00:05, 22.14ligand/s]Uni-Dock prep:  47%|████▋     | 108/228 [00:04<00:04, 26.92ligand/s]Uni-Dock prep:  50%|████▉     | 113/228 [00:04<00:03, 32.07ligand/s]Uni-Dock prep:  51%|█████▏    | 117/228 [00:05<00:04, 22.35ligand/s]Uni-Dock prep:  53%|█████▎    | 120/228 [00:05<00:04, 23.10ligand/s]Uni-Dock prep:  55%|█████▍    | 125/228 [00:05<00:03, 26.07ligand/s]Uni-Dock prep:  56%|█████▌    | 128/228 [00:05<00:04, 23.54ligand/s]Uni-Dock prep:  57%|█████▋    | 131/228 [00:05<00:04, 23.27ligand/s]Uni-Dock prep:  59%|█████▉    | 134/228 [00:05<00:03, 24.16ligand/s]Uni-Dock prep:  61%|██████    | 138/228 [00:06<00:03, 27.03ligand/s]Uni-Dock prep:  62%|██████▏   | 141/228 [00:06<00:04, 21.26ligand/s]Uni-Dock prep:  64%|██████▍   | 146/228 [00:06<00:03, 25.32ligand/s]Uni-Dock prep:  65%|██████▌   | 149/228 [00:06<00:03, 23.87ligand/s]Uni-Dock prep:  67%|██████▋   | 152/228 [00:06<00:03, 21.09ligand/s]Uni-Dock prep:  68%|██████▊   | 156/228 [00:06<00:03, 22.93ligand/s]Uni-Dock prep:  70%|███████   | 160/228 [00:07<00:02, 24.88ligand/s]Uni-Dock prep:  72%|███████▏  | 165/228 [00:07<00:02, 28.39ligand/s]Uni-Dock prep:  75%|███████▍  | 170/228 [00:07<00:02, 25.27ligand/s]Uni-Dock prep:  76%|███████▌  | 173/228 [00:07<00:02, 22.53ligand/s]Uni-Dock prep:  77%|███████▋  | 176/228 [00:07<00:02, 23.79ligand/s]Uni-Dock prep:  80%|███████▉  | 182/228 [00:07<00:01, 27.37ligand/s]Uni-Dock prep:  81%|████████  | 185/228 [00:07<00:01, 26.01ligand/s]Uni-Dock prep:  83%|████████▎ | 190/228 [00:08<00:01, 27.21ligand/s]Uni-Dock prep:  85%|████████▍ | 193/228 [00:08<00:01, 26.79ligand/s]Uni-Dock prep:  87%|████████▋ | 199/228 [00:08<00:01, 26.84ligand/s]Uni-Dock prep:  89%|████████▉ | 204/228 [00:08<00:00, 28.25ligand/s]Uni-Dock prep:  91%|█████████ | 207/228 [00:08<00:00, 24.46ligand/s]Uni-Dock prep:  93%|█████████▎| 212/228 [00:08<00:00, 28.16ligand/s]Uni-Dock prep:  96%|█████████▌| 218/228 [00:09<00:00, 30.02ligand/s]Uni-Dock prep:  97%|█████████▋| 222/228 [00:09<00:00, 28.83ligand/s]Uni-Dock prep:  99%|█████████▊| 225/228 [00:09<00:00, 21.30ligand/s]Uni-Dock prep: 100%|██████████| 228/228 [00:09<00:00, 15.47ligand/s]Uni-Dock prep: 100%|██████████| 228/228 [00:09<00:00, 22.95ligand/s]
+Uni-Dock batches:   0%|          | 0/1 [00:00<?, ?batch/s]Uni-Dock batches: 100%|██████████| 1/1 [00:19<00:00, 19.39s/batch]Uni-Dock batches: 100%|██████████| 1/1 [00:19<00:00, 19.39s/batch]
+  Uni-Dock done: 228/228 valid, avg=-9.64
+Updated Vina cache: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+
+Vina cache summary: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+  Total sequences: 228
+
+=== Vina Summary ===
+  Unique samples scored:   228
+  Valid docking scores:    228
+  Invalid / failed scores: 0
+  Mean Vina:               -9.6397
+  Median Vina:             -9.5500
+  Std Vina:                0.6741
+  Best Vina:               -11.9030
+  Best HELM:               PEPTIDE1{dF.pentyl_Gly.Mono84.L.cHexCH2_Gly.Me_Nle.P}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$
+  Top-10 mean Vina:        -11.4489
+
+Done. (This script only exports / resumes Vina scoring, no DPO training started.)
+
+CUDA_VISIBLE_DEVICES=1 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/eval/export_train_vina_scores.py --config outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json --sample_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Shard HELM count: 236
+Loading config from: outputs/samples/dpo_epoch4_vina_test/dpo_epoch4_vina_test.json
+Loaded 236 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+candidate files dedup: no duplicates found
+Using candidate set from: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.txt
+Loaded 236 unique HELM sequences from 1 file(s)
+Loaded cached Vina scores for 0/236 HELM sequences from /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+Docking 236 missing HELM sequences with Uni-Dock (batch_size=1024, prep_workers=20, search_mode=balance, n_poses=1)
+Docking receptor: /root/New-HELM-Diffusion/data/docking2/2axi_receptor.pdbqt
+Docking reference SDF: /root/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf
+Docking center: [3.683, 10.322, -5.274]
+Docking box size: [30.0, 30.0, 30.0]
+  Uni-Dock GPU scoring: binary=unidock, batch_size=1024, prep_workers=20, search_mode=balance, num_modes=1
+  Uni-Dock prep workers: 20
+Uni-Dock prep:   0%|          | 0/236 [00:00<?, ?ligand/s]Uni-Dock prep:   0%|          | 1/236 [00:00<01:50,  2.14ligand/s]Uni-Dock prep:   2%|▏         | 5/236 [00:00<00:26,  8.82ligand/s]Uni-Dock prep:   5%|▌         | 12/236 [00:00<00:10, 21.03ligand/s]Uni-Dock prep:   7%|▋         | 16/236 [00:00<00:09, 24.11ligand/s]Uni-Dock prep:   8%|▊         | 20/236 [00:01<00:10, 20.70ligand/s]Uni-Dock prep:  10%|▉         | 23/236 [00:01<00:09, 22.24ligand/s]Uni-Dock prep:  11%|█▏        | 27/236 [00:01<00:08, 24.81ligand/s]Uni-Dock prep:  13%|█▎        | 30/236 [00:01<00:09, 21.80ligand/s]Uni-Dock prep:  14%|█▍        | 33/236 [00:01<00:10, 19.89ligand/s]Uni-Dock prep:  16%|█▌        | 37/236 [00:01<00:09, 21.06ligand/s]Uni-Dock prep:  17%|█▋        | 41/236 [00:02<00:07, 24.42ligand/s]Uni-Dock prep:  19%|█▊        | 44/236 [00:02<00:08, 22.57ligand/s]Uni-Dock prep:  20%|██        | 48/236 [00:02<00:07, 25.73ligand/s]Uni-Dock prep:  22%|██▏       | 51/236 [00:02<00:07, 26.12ligand/s]Uni-Dock prep:  23%|██▎       | 54/236 [00:02<00:07, 25.32ligand/s]Uni-Dock prep:  24%|██▍       | 57/236 [00:02<00:08, 20.38ligand/s]Uni-Dock prep:  26%|██▌       | 61/236 [00:02<00:07, 24.38ligand/s]Uni-Dock prep:  27%|██▋       | 64/236 [00:02<00:06, 24.91ligand/s]Uni-Dock prep:  29%|██▉       | 68/236 [00:03<00:05, 28.45ligand/s]Uni-Dock prep:  31%|███       | 72/236 [00:03<00:06, 24.90ligand/s]Uni-Dock prep:  32%|███▏      | 75/236 [00:03<00:06, 25.28ligand/s]Uni-Dock prep:  33%|███▎      | 79/236 [00:03<00:05, 26.51ligand/s]Uni-Dock prep:  35%|███▍      | 82/236 [00:03<00:06, 24.91ligand/s]Uni-Dock prep:  36%|███▋      | 86/236 [00:03<00:05, 25.75ligand/s]Uni-Dock prep:  38%|███▊      | 90/236 [00:03<00:05, 27.73ligand/s]Uni-Dock prep:  39%|███▉      | 93/236 [00:04<00:06, 23.18ligand/s]Uni-Dock prep:  41%|████      | 96/236 [00:04<00:05, 23.43ligand/s]Uni-Dock prep:  42%|████▏     | 100/236 [00:04<00:05, 24.02ligand/s]Uni-Dock prep:  44%|████▎     | 103/236 [00:04<00:05, 22.49ligand/s]Uni-Dock prep:  45%|████▍     | 106/236 [00:04<00:05, 23.68ligand/s]Uni-Dock prep:  47%|████▋     | 110/236 [00:04<00:05, 22.80ligand/s]Uni-Dock prep:  49%|████▊     | 115/236 [00:04<00:04, 27.40ligand/s]Uni-Dock prep:  50%|█████     | 119/236 [00:05<00:04, 27.80ligand/s]Uni-Dock prep:  52%|█████▏    | 122/236 [00:05<00:04, 24.82ligand/s]Uni-Dock prep:  53%|█████▎    | 125/236 [00:05<00:04, 25.51ligand/s]Uni-Dock prep:  55%|█████▍    | 129/236 [00:05<00:03, 26.85ligand/s]Uni-Dock prep:  56%|█████▋    | 133/236 [00:05<00:03, 29.97ligand/s]Uni-Dock prep:  58%|█████▊    | 137/236 [00:05<00:03, 25.47ligand/s]Uni-Dock prep:  59%|█████▉    | 140/236 [00:05<00:03, 25.44ligand/s]Uni-Dock prep:  61%|██████    | 143/236 [00:06<00:04, 22.87ligand/s]Uni-Dock prep:  62%|██████▏   | 147/236 [00:06<00:03, 26.18ligand/s]Uni-Dock prep:  64%|██████▍   | 152/236 [00:06<00:02, 30.72ligand/s]Uni-Dock prep:  66%|██████▌   | 156/236 [00:06<00:03, 26.27ligand/s]Uni-Dock prep:  67%|██████▋   | 159/236 [00:06<00:03, 25.61ligand/s]Uni-Dock prep:  70%|██████▉   | 165/236 [00:06<00:02, 28.30ligand/s]Uni-Dock prep:  71%|███████   | 168/236 [00:06<00:02, 27.37ligand/s]Uni-Dock prep:  73%|███████▎  | 172/236 [00:07<00:02, 26.70ligand/s]Uni-Dock prep:  74%|███████▍  | 175/236 [00:07<00:02, 25.35ligand/s]Uni-Dock prep:  75%|███████▌  | 178/236 [00:07<00:02, 25.24ligand/s]Uni-Dock prep:  78%|███████▊  | 183/236 [00:07<00:01, 30.01ligand/s]Uni-Dock prep:  79%|███████▉  | 187/236 [00:07<00:01, 27.36ligand/s]Uni-Dock prep:  81%|████████  | 191/236 [00:07<00:01, 30.24ligand/s]Uni-Dock prep:  83%|████████▎ | 195/236 [00:07<00:01, 32.48ligand/s]Uni-Dock prep:  84%|████████▍ | 199/236 [00:08<00:01, 27.84ligand/s]Uni-Dock prep:  86%|████████▌ | 203/236 [00:08<00:01, 27.95ligand/s]Uni-Dock prep:  87%|████████▋ | 206/236 [00:08<00:01, 25.49ligand/s]Uni-Dock prep:  89%|████████▉ | 211/236 [00:08<00:00, 28.78ligand/s]Uni-Dock prep:  91%|█████████ | 214/236 [00:08<00:00, 28.69ligand/s]Uni-Dock prep:  92%|█████████▏| 217/236 [00:08<00:00, 27.77ligand/s]Uni-Dock prep:  93%|█████████▎| 220/236 [00:08<00:00, 26.14ligand/s]Uni-Dock prep:  94%|█████████▍| 223/236 [00:08<00:00, 26.09ligand/s]Uni-Dock prep:  96%|█████████▌| 226/236 [00:09<00:00, 22.64ligand/s]Uni-Dock prep:  97%|█████████▋| 230/236 [00:09<00:00, 26.22ligand/s]Uni-Dock prep:  99%|█████████▊| 233/236 [00:09<00:00, 13.49ligand/s]Uni-Dock prep: 100%|██████████| 236/236 [00:11<00:00,  5.00ligand/s]Uni-Dock prep: 100%|██████████| 236/236 [00:11<00:00, 20.78ligand/s]
+Uni-Dock batches:   0%|          | 0/1 [00:00<?, ?batch/s]Uni-Dock batches: 100%|██████████| 1/1 [00:25<00:00, 25.03s/batch]Uni-Dock batches: 100%|██████████| 1/1 [00:25<00:00, 25.03s/batch]
+  Uni-Dock done: 236/236 valid, avg=-9.52
+Updated Vina cache: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+
+Vina cache summary: /root/New-HELM-Diffusion/outputs/samples/dpo_epoch4_vina_test/generated_r1r2_cyclized.2axi.vina.multigpu_shards/shard_01_gpu1.vina.csv
+  Total sequences: 236
+
+=== Vina Summary ===
+  Unique samples scored:   236
+  Valid docking scores:    236
+  Invalid / failed scores: 0
+  Mean Vina:               -9.5152
+  Median Vina:             -9.4850
+  Std Vina:                0.6028
+  Best Vina:               -11.3650
+  Best HELM:               PEPTIDE1{Mono6.P.P.T.L.meL.Me_dL}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$
+  Top-10 mean Vina:        -10.9410
+
+Done. (This script only exports / resumes Vina scoring, no DPO training started.)
