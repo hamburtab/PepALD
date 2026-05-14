@@ -39,6 +39,7 @@ def dock_helms(
     unidock_verbosity: int = 0,
     unidock_prep_workers: int = 1,
     score_log_path: str | None = None,
+    docking_mode: str = "flexible",
 ) -> np.ndarray:
     """Dock HELM ligands with the GPU Uni-Dock backend and return Vina scores."""
     if protein_pdbqt_path is None:
@@ -49,7 +50,7 @@ def dock_helms(
     print(
         f"  Uni-Dock GPU scoring: binary={unidock_binary}, batch_size={unidock_batch_size}, "
         f"prep_workers={unidock_prep_workers}, search_mode={unidock_search_mode or 'manual'}, "
-        f"num_modes={n_poses}"
+        f"num_modes={n_poses}, docking_mode={docking_mode}"
     )
 
     return dock_helms_unidock(
@@ -73,4 +74,5 @@ def dock_helms(
         keep_workdir=bool(unidock_keep_workdir),
         prep_workers=max(int(unidock_prep_workers), 1),
         score_log_path=score_log_path,
+        docking_mode=docking_mode,
     )

@@ -9,11 +9,14 @@ Usage:
     python scripts/eval/export_train_vina_scores.py --config configs/training/dpo.json
     python scripts/eval/export_train_vina_scores.py --sample_file outputs/samples/case1/train_candidates/candidates.txt
     python scripts/eval/export_train_vina_scores.py --vina_score_file outputs/samples/case1/train_candidates/candidates.case1.vina.csv
+    python scripts/eval/export_train_vina_scores.py --docking_mode rigid --vina_score_file outputs/samples/case1/generated/rigid.vina.csv
 """
 
 import argparse
+import csv
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -21,9 +24,102 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.train.train_dpo import load_cached_vina_scores, load_candidate_helms, resolve_path
+from scripts.train.train_dpo import load_candidate_helms, resolve_path
 from pepar_diff.vina.constants import INVALID_SCORE
 from pepar_diff.vina.dock import dock_helms
+
+
+def detect_delimiter(header_line: str, path: Path) -> str:
+    if path.suffix.lower() == ".tsv":
+        return "\t"
+    if "\t" in header_line and "," not in header_line:
+        return "\t"
+    return ","
+
+
+def load_cached_vina_scores_for_mode(all_helms: list[str], score_file: str, docking_mode: str):
+    """Load only cache rows that match the requested rigid/flexible mode."""
+    score_path = resolve_path(score_file)
+    scores = np.full(len(all_helms), INVALID_SCORE, dtype=np.float64)
+    missing_indices = list(range(len(all_helms)))
+    status_counter = Counter()
+
+    if not score_path.exists():
+        print(f"Vina cache not found yet: {score_path}")
+        return scores, missing_indices, status_counter
+
+    with open(score_path, "r", newline="", encoding="utf-8") as f:
+        header_line = f.readline()
+        if not header_line:
+            print(f"Vina cache exists but is empty: {score_path}")
+            return scores, missing_indices, status_counter
+        delimiter = detect_delimiter(header_line, score_path)
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
+        if reader.fieldnames is None:
+            raise ValueError("Vina score file must contain a header row.")
+
+        field_map = {name.strip().lower(): name for name in reader.fieldnames if name}
+        helm_key = field_map.get("helm")
+        score_key = field_map.get("vina_score") or field_map.get("score")
+        status_key = field_map.get("status")
+        mode_key = field_map.get("docking_mode")
+        if helm_key is None or score_key is None:
+            raise ValueError("Vina score file must contain 'helm' and 'vina_score' columns.")
+
+        if mode_key is None:
+            print(
+                f"Vina cache has no docking_mode column, so it will not be reused for "
+                f"{docking_mode} scoring: {score_path}"
+            )
+            return scores, missing_indices, status_counter
+
+        score_by_helm = {}
+        status_by_helm = {}
+        mismatched_rows = 0
+        duplicate_rows = 0
+        for row in reader:
+            row_mode = (row.get(mode_key) or "").strip().lower()
+            if row_mode != docking_mode:
+                mismatched_rows += 1
+                continue
+            helm = (row.get(helm_key) or "").strip()
+            if not helm:
+                continue
+            raw_score = (row.get(score_key) or "").strip()
+            try:
+                score = float(raw_score)
+            except ValueError:
+                score = INVALID_SCORE
+
+            if helm in score_by_helm:
+                duplicate_rows += 1
+            score_by_helm[helm] = score
+            status_by_helm[helm] = (row.get(status_key) or "unknown").strip() if status_key else "unknown"
+
+    missing_indices = []
+    for idx, helm in enumerate(all_helms):
+        if helm not in score_by_helm:
+            missing_indices.append(idx)
+            continue
+        scores[idx] = score_by_helm[helm]
+        status_counter[status_by_helm.get(helm, "unknown")] += 1
+
+    cached = len(all_helms) - len(missing_indices)
+    suffix = []
+    if mismatched_rows:
+        suffix.append(f"{mismatched_rows} rows from other docking_mode ignored")
+    if duplicate_rows:
+        suffix.append(f"{duplicate_rows} duplicate rows overwritten by last occurrence")
+    print(
+        f"Loaded cached {docking_mode} Vina scores for {cached}/{len(all_helms)} "
+        f"HELM sequences from {score_path}"
+        + (f" ({'; '.join(suffix)})" if suffix else "")
+    )
+    if status_counter:
+        status_text = ", ".join(f"{k}={v}" for k, v in sorted(status_counter.items()))
+        print(f"  Cached docking status breakdown: {status_text}")
+    return scores, missing_indices, status_counter
 
 
 def parse_args():
@@ -43,6 +139,15 @@ def parse_args():
     parser.add_argument(
         "--max_samples", type=int, default=None,
         help="Only score the first N deduplicated HELM sequences."
+    )
+    parser.add_argument(
+        "--docking_mode",
+        choices=["flexible", "rigid"],
+        default=None,
+        help=(
+            "Ligand docking mode. flexible writes Uni-Dock torsion fields; "
+            "rigid writes a single rigid fragment. Defaults to dpo.docking_mode or flexible."
+        )
     )
     return parser.parse_args()
 
@@ -128,12 +233,19 @@ def main():
     unidock_keep_workdir = bool(dpo_cfg.get("unidock_keep_workdir", False))
     unidock_verbosity = int(dpo_cfg.get("unidock_verbosity", 0))
     unidock_prep_workers = int(dpo_cfg.get("unidock_prep_workers", 1))
+    docking_mode = args.docking_mode or str(dpo_cfg.get("docking_mode", "flexible")).lower()
+    if docking_mode not in {"flexible", "rigid"}:
+        raise ValueError(f"docking_mode must be flexible or rigid, got: {docking_mode}")
 
     cache_path = resolve_path(vina_score_file)
     scores = np.full(len(all_helms), INVALID_SCORE, dtype=np.float64)
     missing_indices = list(range(len(all_helms)))
     if cache_path.exists():
-        scores, missing_indices, _ = load_cached_vina_scores(all_helms, vina_score_file)
+        scores, missing_indices, _ = load_cached_vina_scores_for_mode(
+            all_helms,
+            vina_score_file,
+            docking_mode,
+        )
     else:
         print(f"Vina cache will be created at: {cache_path}")
 
@@ -142,7 +254,8 @@ def main():
         print(
             f"Docking {len(missing_helms)} missing HELM sequences with Uni-Dock "
             f"(batch_size={unidock_batch_size}, prep_workers={unidock_prep_workers}, "
-            f"search_mode={unidock_search_mode}, n_poses={vina_n_poses})"
+            f"search_mode={unidock_search_mode}, n_poses={vina_n_poses}, "
+            f"docking_mode={docking_mode})"
         )
         if protein_pdbqt_path or ref_sdf_path or dock_center:
             print(f"Docking receptor: {protein_pdbqt_path or 'default'}")
@@ -171,6 +284,7 @@ def main():
                 unidock_verbosity=unidock_verbosity,
                 unidock_prep_workers=unidock_prep_workers,
                 score_log_path=vina_score_file,
+                docking_mode=docking_mode,
             ),
             dtype=np.float64,
         )

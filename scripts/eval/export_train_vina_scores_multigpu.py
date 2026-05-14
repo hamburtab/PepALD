@@ -22,7 +22,7 @@ from typing import Sequence
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-DEFAULT_FIELDNAMES = ["helm", "vina_score", "status", "detail"]
+DEFAULT_FIELDNAMES = ["helm", "vina_score", "status", "detail", "docking_mode"]
 INVALID_SCORE = 0.0
 
 
@@ -54,6 +54,14 @@ def parse_args():
     parser.add_argument(
         "--max_samples", type=int, default=None,
         help="Only score the first N deduplicated HELM sequences."
+    )
+    parser.add_argument(
+        "--docking_mode",
+        choices=["flexible", "rigid"],
+        default=None,
+        help=(
+            "Ligand docking mode passed to each shard. Defaults to dpo.docking_mode or flexible."
+        )
     )
     return parser.parse_args()
 
@@ -151,7 +159,11 @@ def read_score_rows(path: Path) -> tuple[list[str], dict[str, dict]]:
     return fieldnames, rows
 
 
-def load_cached_vina_scores(all_helms: Sequence[str], score_file: str | Path):
+def load_cached_vina_scores(
+    all_helms: Sequence[str],
+    score_file: str | Path,
+    docking_mode: str | None = None,
+):
     score_path = resolve_path(score_file)
     missing_indices = list(range(len(all_helms)))
     status_counter = Counter()
@@ -167,17 +179,33 @@ def load_cached_vina_scores(all_helms: Sequence[str], score_file: str | Path):
 
     field_map = {name.strip().lower(): name for name in fieldnames if name}
     status_key = field_map.get("status")
+    mode_key = field_map.get("docking_mode")
+    if docking_mode is not None and mode_key is None:
+        print(
+            f"Vina cache has no docking_mode column, so it will not be reused for "
+            f"{docking_mode} scoring: {score_path}"
+        )
+        return None, missing_indices, status_counter
 
     missing_indices = []
+    mismatched_rows = 0
     for idx, helm in enumerate(all_helms):
         row = rows.get(helm)
         if row is None:
             missing_indices.append(idx)
             continue
+        if docking_mode is not None:
+            row_mode = (row.get(mode_key) or "").strip().lower()
+            if row_mode != docking_mode:
+                mismatched_rows += 1
+                missing_indices.append(idx)
+                continue
         status_counter[(row.get(status_key) or "unknown").strip() if status_key else "unknown"] += 1
 
     cached = len(all_helms) - len(missing_indices)
-    print(f"Loaded cached Vina scores for {cached}/{len(all_helms)} HELM sequences from {score_path}")
+    mode_text = f" {docking_mode}" if docking_mode else ""
+    extra = f" ({mismatched_rows} rows from other docking_mode ignored)" if mismatched_rows else ""
+    print(f"Loaded cached{mode_text} Vina scores for {cached}/{len(all_helms)} HELM sequences from {score_path}{extra}")
     if status_counter:
         status_text = ", ".join(f"{k}={v}" for k, v in sorted(status_counter.items()))
         print(f"  Cached docking status breakdown: {status_text}")
@@ -193,13 +221,14 @@ def write_helm_file(helms: Sequence[str], path: Path) -> None:
 
 
 def write_merged_cache(cache_path: Path, all_helms: Sequence[str], source_csvs: Sequence[Path]) -> None:
-    fieldnames = None
+    fieldnames = list(DEFAULT_FIELDNAMES)
     rows_by_helm: dict[str, dict] = {}
 
     for source_csv in source_csvs:
         source_fields, rows = read_score_rows(source_csv)
-        if source_fields and fieldnames is None:
-            fieldnames = source_fields
+        for field in source_fields:
+            if field not in fieldnames:
+                fieldnames.append(field)
         rows_by_helm.update(rows)
 
     missing = [helm for helm in all_helms if helm not in rows_by_helm]
@@ -208,9 +237,6 @@ def write_merged_cache(cache_path: Path, all_helms: Sequence[str], source_csvs: 
             f"Merged Vina cache is still missing {len(missing)} HELM sequences. "
             f"First missing: {missing[0]}"
         )
-
-    if fieldnames is None:
-        fieldnames = DEFAULT_FIELDNAMES
 
     tmp_path = cache_path.with_name(cache_path.name + ".tmp")
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,7 +252,11 @@ def write_merged_cache(cache_path: Path, all_helms: Sequence[str], source_csvs: 
     os.replace(tmp_path, cache_path)
 
 
-def print_vina_summary_from_cache(helms: Sequence[str], cache_path: Path) -> None:
+def print_vina_summary_from_cache(
+    helms: Sequence[str],
+    cache_path: Path,
+    docking_mode: str | None = None,
+) -> None:
     fieldnames, rows = read_score_rows(cache_path)
     if not fieldnames:
         print("\n=== Vina Summary ===")
@@ -240,10 +270,16 @@ def print_vina_summary_from_cache(helms: Sequence[str], cache_path: Path) -> Non
     score_key = field_map.get("vina_score") or field_map.get("score")
     if score_key is None:
         raise ValueError(f"Vina cache lacks a vina_score/score column: {cache_path}")
+    mode_key = field_map.get("docking_mode")
 
     scores = []
     for helm in helms:
         row = rows.get(helm, {})
+        if docking_mode is not None:
+            row_mode = (row.get(mode_key) or "").strip().lower() if mode_key else ""
+            if row_mode != docking_mode:
+                scores.append(INVALID_SCORE)
+                continue
         try:
             score = float((row.get(score_key) or "").strip())
         except ValueError:
@@ -253,7 +289,8 @@ def print_vina_summary_from_cache(helms: Sequence[str], cache_path: Path) -> Non
     valid_pairs = [(idx, score) for idx, score in enumerate(scores) if score != INVALID_SCORE]
     invalid_count = len(scores) - len(valid_pairs)
 
-    print("\n=== Vina Summary ===")
+    title_suffix = f" ({docking_mode})" if docking_mode else ""
+    print(f"\n=== Vina Summary{title_suffix} ===")
     print(f"  Unique samples scored:   {len(helms)}")
     print(f"  Valid docking scores:    {len(valid_pairs)}")
     print(f"  Invalid / failed scores: {invalid_count}")
@@ -312,10 +349,14 @@ def main():
         or dpo_cfg.get("vina_score_file")
         or "outputs/samples/case1/train_candidates/candidates.case1.vina.csv"
     )
+    docking_mode = args.docking_mode or str(dpo_cfg.get("docking_mode", "flexible")).lower()
+    if docking_mode not in {"flexible", "rigid"}:
+        raise ValueError(f"docking_mode must be flexible or rigid, got: {docking_mode}")
     cache_path = resolve_path(vina_score_file)
 
     print(f"Loading config from: {args.config}")
     print(f"Multi-GPU Uni-Dock GPUs: {', '.join(gpu_ids)}")
+    print(f"Docking mode: {docking_mode}")
     all_helms, source_labels, sample_paths = load_candidate_helms(sample_files)
     print(f"Using candidate set from: {', '.join(str(p) for p in sample_paths)}")
     print(f"Loaded {len(all_helms)} unique HELM sequences from {len(sample_paths)} file(s)")
@@ -325,10 +366,14 @@ def main():
         source_labels = source_labels[:args.max_samples]
         print(f"Using first {args.max_samples} unique HELM sequences")
 
-    _, missing_indices, _ = load_cached_vina_scores(all_helms, str(cache_path))
+    _, missing_indices, _ = load_cached_vina_scores(
+        all_helms,
+        str(cache_path),
+        docking_mode=docking_mode,
+    )
     if not missing_indices:
         print("All candidate HELM sequences already have cached Vina scores; nothing to dock.")
-        print_vina_summary_from_cache(all_helms, cache_path)
+        print_vina_summary_from_cache(all_helms, cache_path, docking_mode=docking_mode)
         return
 
     missing_helms = [all_helms[i] for i in missing_indices]
@@ -361,6 +406,7 @@ def main():
                 "--config", str(args.config),
                 "--sample_file", str(sample_path),
                 "--vina_score_file", str(score_path),
+                "--docking_mode", docking_mode,
             ]
             env = os.environ.copy()
             env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
@@ -412,8 +458,8 @@ def main():
     write_merged_cache(cache_path, all_helms, source_csvs)
     print(f"Merged multi-GPU Vina cache: {cache_path}")
 
-    load_cached_vina_scores(all_helms, str(cache_path))
-    print_vina_summary_from_cache(all_helms, cache_path)
+    load_cached_vina_scores(all_helms, str(cache_path), docking_mode=docking_mode)
+    print_vina_summary_from_cache(all_helms, cache_path, docking_mode=docking_mode)
     print("\nDone. (Multi-GPU Vina scoring cache exported / resumed.)")
 
 

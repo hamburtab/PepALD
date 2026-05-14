@@ -27,7 +27,60 @@ except Exception:
 
 
 MAX_UNIDOCK_ATOMS = 150
-REQUIRED_UNIDOCK_SDF_FIELDS = ("fragInfo", "torsionInfo", "atomInfo")
+VALID_DOCKING_MODES = ("flexible", "rigid")
+REQUIRED_UNIDOCK_SDF_FIELDS = ("fragInfo", "atomInfo")
+REQUIRED_FLEXIBLE_UNIDOCK_SDF_FIELDS = REQUIRED_UNIDOCK_SDF_FIELDS + ("torsionInfo",)
+SCORE_LOG_FIELDNAMES = ["helm", "vina_score", "status", "detail", "docking_mode"]
+
+
+def _detect_score_log_delimiter(header_line: str, path: Path) -> str:
+    if path.suffix.lower() == ".tsv":
+        return "\t"
+    if "\t" in header_line and "," not in header_line:
+        return "\t"
+    return ","
+
+
+def _ensure_score_log_schema(path: Path, required_fieldnames: Sequence[str]) -> Tuple[List[str], bool]:
+    if not path.exists() or path.stat().st_size == 0:
+        return list(required_fieldnames), True
+
+    with open(path, "r", newline="", encoding="utf-8") as f:
+        header_line = f.readline()
+        if not header_line:
+            return list(required_fieldnames), True
+        delimiter = _detect_score_log_delimiter(header_line, path)
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
+        existing_fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    normalized = {field.strip().lower() for field in existing_fieldnames if field}
+    missing_required = [
+        field for field in required_fieldnames
+        if field.strip().lower() not in normalized
+    ]
+    if not missing_required:
+        return existing_fieldnames, False
+
+    upgraded_fieldnames = list(existing_fieldnames)
+    for field in required_fieldnames:
+        if field.strip().lower() not in normalized:
+            upgraded_fieldnames.append(field)
+            normalized.add(field.strip().lower())
+
+    tmp_path = path.with_name(path.name + ".schema_tmp")
+    with open(tmp_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=upgraded_fieldnames)
+        writer.writeheader()
+        for row in rows:
+            upgraded_row = dict(row)
+            for field in upgraded_fieldnames:
+                upgraded_row.setdefault(field, "")
+            writer.writerow({field: upgraded_row.get(field, "") for field in upgraded_fieldnames})
+
+    os.replace(tmp_path, path)
+    return upgraded_fieldnames, False
 
 
 @lru_cache(maxsize=1)
@@ -48,17 +101,19 @@ def _get_topology_builder():
 class ScoreLogWriter:
     """Append-only CSV writer for per-sequence docking results."""
 
-    fieldnames = ["helm", "vina_score", "status", "detail"]
+    fieldnames = SCORE_LOG_FIELDNAMES
 
-    def __init__(self, path: str | Path | None):
+    def __init__(self, path: str | Path | None, docking_mode: str = "flexible"):
         self.path = None if path is None else Path(path)
+        self.docking_mode = str(docking_mode).lower()
+        self.fieldnames = list(SCORE_LOG_FIELDNAMES)
         self.handle = None
         self.writer = None
         if self.path is None:
             return
 
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        write_header = (not self.path.exists()) or self.path.stat().st_size == 0
+        self.fieldnames, write_header = _ensure_score_log_schema(self.path, SCORE_LOG_FIELDNAMES)
         self.handle = open(self.path, "a", newline="", encoding="utf-8")
         self.writer = csv.DictWriter(self.handle, fieldnames=self.fieldnames)
         if write_header:
@@ -74,6 +129,7 @@ class ScoreLogWriter:
                 "vina_score": f"{float(score):.8f}",
                 "status": status,
                 "detail": detail,
+                "docking_mode": self.docking_mode,
             }
         )
         self.handle.flush()
@@ -101,7 +157,12 @@ def _write_unidock_prepared_sdf(
     mol: Chem.Mol,
     output_path: Path,
     name: str | None = None,
+    docking_mode: str = "flexible",
 ) -> Tuple[bool, str]:
+    docking_mode = str(docking_mode).lower()
+    if docking_mode not in VALID_DOCKING_MODES:
+        return False, f"invalid_docking_mode:{docking_mode}"
+
     mol = Chem.RemoveHs(mol)
     if name:
         mol.SetProp("_Name", name)
@@ -110,7 +171,10 @@ def _write_unidock_prepared_sdf(
     try:
         topology_builder = topology_builder_cls(mol)
         topology_builder.build_molecular_graph()
-        topology_builder.write_sdf_file(str(output_path), do_rigid_docking=False)
+        topology_builder.write_sdf_file(
+            str(output_path),
+            do_rigid_docking=(docking_mode == "rigid"),
+        )
     except Exception as exc:
         return False, f"ligandprep_failed:{type(exc).__name__}:{str(exc).strip()[:180]}"
 
@@ -119,17 +183,27 @@ def _write_unidock_prepared_sdf(
     except OSError as exc:
         return False, f"ligandprep_readback_failed:{type(exc).__name__}:{str(exc).strip()[:180]}"
 
+    required_fields = (
+        REQUIRED_FLEXIBLE_UNIDOCK_SDF_FIELDS
+        if docking_mode == "flexible"
+        else REQUIRED_UNIDOCK_SDF_FIELDS
+    )
     missing_fields = [
-        field for field in REQUIRED_UNIDOCK_SDF_FIELDS
+        field for field in required_fields
         if f"<{field}>" not in sdf_text
     ]
     if missing_fields:
-        return False, f"ligandprep_missing_unidock_fields:{','.join(missing_fields)}"
+        return False, f"ligandprep_missing_{docking_mode}_unidock_fields:{','.join(missing_fields)}"
 
     return True, "ok"
 
 
-def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[bool, str]:
+def _write_sdf_from_smiles(
+    smiles: str,
+    output_path: Path,
+    name: str,
+    docking_mode: str = "flexible",
+) -> Tuple[bool, str]:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         return False, "invalid_smiles"
@@ -158,18 +232,23 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[b
     if mol.GetNumAtoms() > MAX_UNIDOCK_ATOMS:
         return False, f"atom_count_exceeded:{mol.GetNumAtoms()}>{MAX_UNIDOCK_ATOMS}"
 
-    return _write_unidock_prepared_sdf(mol, output_path, name)
+    return _write_unidock_prepared_sdf(mol, output_path, name, docking_mode=docking_mode)
 
 
-def _prepare_ligand_entry(args: Tuple[int, str, str]) -> Tuple[int, str, str, str, str]:
+def _prepare_ligand_entry(args: Tuple[int, str, str, str]) -> Tuple[int, str, str, str, str]:
     """Worker-safe HELM -> prepared SDF conversion."""
-    idx, helm, inputs_dir_str = args
+    idx, helm, inputs_dir_str, docking_mode = args
     smiles = get_cycpep_smi_from_helm(helm)
     if not smiles:
         return idx, helm, "", "helm_to_smiles_failed", "empty_smiles"
 
     ligand_path = Path(inputs_dir_str) / f"ligand_{idx:05d}.sdf"
-    ok, detail = _write_sdf_from_smiles(smiles, ligand_path, ligand_path.stem)
+    ok, detail = _write_sdf_from_smiles(
+        smiles,
+        ligand_path,
+        ligand_path.stem,
+        docking_mode=docking_mode,
+    )
     if ok:
         return idx, helm, str(ligand_path), "ok", ""
     return idx, helm, "", "prep_failed", detail
@@ -181,9 +260,10 @@ def _prepare_ligands(
     score_writer: "ScoreLogWriter",
     prep_workers: int,
     show_progress: bool,
+    docking_mode: str,
 ) -> List[Tuple[int, str, Path]]:
     valid_entries: List[Tuple[int, str, Path]] = []
-    worker_args = [(idx, helm, str(inputs_dir)) for idx, helm in enumerate(helm_list)]
+    worker_args = [(idx, helm, str(inputs_dir), docking_mode) for idx, helm in enumerate(helm_list)]
 
     if prep_workers <= 1:
         prep_iter = (_prepare_ligand_entry(args) for args in worker_args)
@@ -302,6 +382,7 @@ def dock_helms_unidock(
     keep_workdir: bool = False,
     prep_workers: int = 1,
     score_log_path: str | Path | None = None,
+    docking_mode: str = "flexible",
 ) -> np.ndarray:
     """
     Dock HELM ligands with Uni-Dock GPU backend.
@@ -314,6 +395,10 @@ def dock_helms_unidock(
         protein_pdbqt_path = DEFAULT_RECEPTOR
     if ref_sdf_path is None:
         ref_sdf_path = DEFAULT_REF_SDF
+
+    docking_mode = str(docking_mode).lower()
+    if docking_mode not in VALID_DOCKING_MODES:
+        raise ValueError(f"docking_mode must be one of {VALID_DOCKING_MODES}, got: {docking_mode}")
 
     current_platform = platform.system()
     if current_platform.lower() != "linux":
@@ -345,7 +430,7 @@ def dock_helms_unidock(
             raise ValueError("dock_center must be a length-3 sequence")
 
     scores = np.full(len(helm_list), INVALID_SCORE, dtype=np.float64)
-    score_writer = ScoreLogWriter(score_log_path)
+    score_writer = ScoreLogWriter(score_log_path, docking_mode=docking_mode)
 
     temp_ctx = None
     if keep_workdir:
@@ -366,6 +451,7 @@ def dock_helms_unidock(
             score_writer=score_writer,
             prep_workers=max(1, int(prep_workers)),
             show_progress=show_progress,
+            docking_mode=docking_mode,
         )
 
         if len(valid_entries) == 0:
