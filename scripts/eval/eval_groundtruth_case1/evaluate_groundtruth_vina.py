@@ -25,7 +25,7 @@ from pathlib import Path
 
 from rdkit import Chem
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from pepar_diff.vina.constants import DEFAULT_RECEPTOR, DEFAULT_REF_SDF, INVALID_SCORE
@@ -33,6 +33,7 @@ from pepar_diff.vina.unidock_backend import (
     MAX_UNIDOCK_ATOMS,
     _build_unidock_cmd,
     _get_reference_center,
+    _write_unidock_prepared_sdf,
     _read_first_score_from_result_sdf,
 )
 
@@ -188,9 +189,9 @@ def main():
         outputs_dir.mkdir(parents=True, exist_ok=True)
 
         ligand_path = inputs_dir / "groundtruth_00000.sdf"
-        writer = Chem.SDWriter(str(ligand_path))
-        writer.write(ligand)
-        writer.close()
+        ok, detail = _write_unidock_prepared_sdf(ligand, ligand_path, ligand_path.stem)
+        if not ok:
+            raise RuntimeError(f"Failed to prepare Uni-Dock ligand SDF: {detail}")
 
         ligand_index_path = workdir / "ligand_index_0000.txt"
         with open(ligand_index_path, "w") as f:

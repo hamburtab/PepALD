@@ -1,2 +1,0 @@
-source_sdf,mol_index,smiles,permeability,status
-/Users/tab/Documents/GitHub/New-HELM-Diffusion/data/docking2/2axi_cyclicpep.sdf,0,CC(C)CC1NC(=O)C(Cc2c[nH]c3cc(Cl)ccc23)NC(=O)C(CCC(=O)[O-])NC(=O)C(Cc2ccccc2)NC(=O)C2CCCN2C(=O)C2CCCN2C(=O)C(Cc2ccccc2)NC(=O)C(CCC(=O)[O-])NC(=O)C(Cc2c[nH]c3ccccc23)NC(=O)C(CC(=O)[O-])NC1=O,-6.94383470,ok

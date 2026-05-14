@@ -1,12 +1,12 @@
 """评估阶段"""
-"""从helm_chembl32only_samples.txt中提取环肽样本（以$$$结尾而非$$$$）。"""
+"""从预训练生成样本中提取环肽样本（以$$$结尾而非$$$$）。"""
 
 from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-INPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "helm_chembl32only_samples.txt"
-OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "cyclic_samples.txt"
+INPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "pretrain" / "helm_chembl32only_samples.txt"
+OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "pretrain" / "cyclic_samples.txt"
 
 with open(INPUT_FILE) as f:
     cyclic = [l for l in f if l.strip().endswith("$$$") and not l.strip().endswith("$$$$")]

@@ -23,7 +23,7 @@ data/raw/              Source datasets
 data/processed/        Processed HELM data, vocab, Uni-Mol embeddings
 data/models/           Auxiliary predictive models
 data/docking/          Docking receptor and reference ligand assets
-outputs/samples/       Example/generated sequence outputs and cached scores
+outputs/samples/       Generated samples, organized by case under case1/ and case2/
 deprecated/            Archived legacy scripts and historical artifacts
 ```
 
@@ -122,14 +122,11 @@ python scripts/train/train_finetune.py --config configs/training/finetune_permea
 
 ### DPO training
 
-Permeability scoring should be exported first in `pepardiff-perm`, then consumed by DPO training in `pepardiff`.
+Case1 now uses the same Vina-only DPO logic as case2. The candidate pool is kept under
+`outputs/samples/case1/train_candidates/`, and old case1 Vina caches are intentionally
+not reused so Uni-Dock can rescore the pool.
 
 ```bash
-conda activate pepardiff-perm
-python scripts/eval/evaluate_permeability_scores.py \
-  --input outputs/samples/dpo_train_data/combined_candidates.txt \
-  --output outputs/samples/dpo_train_data/combined_candidates.perm.csv
-
 conda activate pepardiff
 python scripts/train/train_dpo.py --config configs/training/dpo.json
 ```
@@ -165,8 +162,8 @@ Generated sequences and score caches are written under [`outputs/samples`](./out
 ```bash
 conda activate pepardiff-perm
 python scripts/eval/evaluate_permeability_scores.py \
-  --input outputs/samples/dpo_generate_data/helm_dpo_samples.txt \
-  --output outputs/samples/dpo_generate_data/helm_dpo_samples.perm.csv
+  --input outputs/samples/case1/generated/helm_dpo_samples.txt \
+  --output outputs/samples/case1/generated/helm_dpo_samples.perm.csv
 ```
 
 ### Docking / Vina cache export
@@ -175,7 +172,8 @@ python scripts/eval/evaluate_permeability_scores.py \
 conda activate pepardiff
 python scripts/eval/export_train_vina_scores.py \
   --config configs/training/dpo.json \
-  --sample_file outputs/samples/dpo_train_data/combined_candidates.txt
+  --sample_file outputs/samples/case1/train_candidates/candidates.txt \
+  --vina_score_file outputs/samples/case1/train_candidates/candidates.case1.vina.csv
 ```
 
 ### Full sample evaluation
@@ -186,7 +184,7 @@ python scripts/eval/evaluate_dpo_samples.py
 python scripts/eval/eval_add/evaluate_rewards.py --config configs/training/dpo.json
 python scripts/eval/evaluate_validity_uniqueness.py
 python scripts/eval/evaluate_full_metrics.py
-python scripts/eval/eval_add/evaluate_sample_quality.py outputs/samples/dpo_generate_data/helm_dpo_samples.txt
+python scripts/eval/eval_add/evaluate_sample_quality.py outputs/samples/case1/generated/helm_dpo_samples.txt
 ```
 
 ## Docking Backend

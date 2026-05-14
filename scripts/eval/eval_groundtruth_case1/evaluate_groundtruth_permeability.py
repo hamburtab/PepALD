@@ -7,7 +7,7 @@ Default input:
     data/docking/raw_cyclic_pep.sdf
 
 Default output:
-    outputs/samples/eval_groundtruth_case1/case1_groundtruth.perm.csv
+    outputs/samples/case1/eval_groundtruth/case1_groundtruth.perm.csv
 """
 
 from __future__ import annotations
@@ -32,7 +32,8 @@ DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "outputs"
     / "samples"
-    / "eval_groundtruth_case1"
+    / "case1"
+    / "eval_groundtruth"
     / "case1_groundtruth.perm.csv"
 )
 

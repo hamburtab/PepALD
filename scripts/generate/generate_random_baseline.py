@@ -7,7 +7,7 @@ def main():
     root = Path(__file__).resolve().parents[2]
     vocab_path = root / "data" / "processed" / "helm_vocab.json"
     monomer_path = root / "data" / "processed" / "monomer_library.csv"
-    output_dir = root / "outputs" / "samples"
+    output_dir = root / "outputs" / "samples" / "baselines"
     output_path = output_dir / "random_generated_samples.txt"
     
     output_dir.mkdir(parents=True, exist_ok=True)

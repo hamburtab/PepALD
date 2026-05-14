@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, List, Sequence, Tuple
 
@@ -26,6 +27,22 @@ except Exception:
 
 
 MAX_UNIDOCK_ATOMS = 150
+REQUIRED_UNIDOCK_SDF_FIELDS = ("fragInfo", "torsionInfo", "atomInfo")
+
+
+@lru_cache(maxsize=1)
+def _get_topology_builder():
+    try:
+        from unidock_tools.modules.ligand_prep.torsion_tree import TopologyBuilder
+    except Exception as exc:
+        try:
+            from unidock_tools.modules.ligand_prep import TopologyBuilder
+        except Exception as fallback_exc:
+            raise RuntimeError(
+                "Uni-Dock ligand preparation requires the `unidock_tools` package. "
+                "Install Uni-Dock Tools so ligands are written with fragment and torsion info."
+            ) from fallback_exc
+    return TopologyBuilder
 
 
 class ScoreLogWriter:
@@ -80,6 +97,38 @@ def _get_reference_center(ref_sdf_path: str) -> List[float]:
     return center.tolist()
 
 
+def _write_unidock_prepared_sdf(
+    mol: Chem.Mol,
+    output_path: Path,
+    name: str | None = None,
+) -> Tuple[bool, str]:
+    mol = Chem.RemoveHs(mol)
+    if name:
+        mol.SetProp("_Name", name)
+
+    topology_builder_cls = _get_topology_builder()
+    try:
+        topology_builder = topology_builder_cls(mol)
+        topology_builder.build_molecular_graph()
+        topology_builder.write_sdf_file(str(output_path), do_rigid_docking=False)
+    except Exception as exc:
+        return False, f"ligandprep_failed:{type(exc).__name__}:{str(exc).strip()[:180]}"
+
+    try:
+        sdf_text = output_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return False, f"ligandprep_readback_failed:{type(exc).__name__}:{str(exc).strip()[:180]}"
+
+    missing_fields = [
+        field for field in REQUIRED_UNIDOCK_SDF_FIELDS
+        if f"<{field}>" not in sdf_text
+    ]
+    if missing_fields:
+        return False, f"ligandprep_missing_unidock_fields:{','.join(missing_fields)}"
+
+    return True, "ok"
+
+
 def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[bool, str]:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
@@ -109,11 +158,7 @@ def _write_sdf_from_smiles(smiles: str, output_path: Path, name: str) -> Tuple[b
     if mol.GetNumAtoms() > MAX_UNIDOCK_ATOMS:
         return False, f"atom_count_exceeded:{mol.GetNumAtoms()}>{MAX_UNIDOCK_ATOMS}"
 
-    mol.SetProp("_Name", name)
-    writer = Chem.SDWriter(str(output_path))
-    writer.write(mol)
-    writer.close()
-    return True, "ok"
+    return _write_unidock_prepared_sdf(mol, output_path, name)
 
 
 def _prepare_ligand_entry(args: Tuple[int, str, str]) -> Tuple[int, str, str, str, str]:
@@ -283,6 +328,7 @@ def dock_helms_unidock(
             f"Uni-Dock binary '{unidock_binary}' was not found in PATH. "
             "Install it in the target conda env, e.g. `conda install -n pepardiff -c conda-forge unidock`."
         )
+    _get_topology_builder()
 
     if isinstance(box_size, (int, float)):
         box_size = [float(box_size)] * 3

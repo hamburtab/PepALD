@@ -52,9 +52,10 @@ The code path is now:
 The Uni-Dock backend:
 
 1. Converts each HELM to SMILES
-2. Builds one 3D SDF per ligand with RDKit
-3. Batches ligands through `unidock --ligand_index`
-4. Reads the first pose energy from each `*_out.sdf`
+2. Builds one 3D ligand per HELM with RDKit
+3. Runs Uni-Dock ligand preparation so fragment/torsion info is embedded in the SDF
+4. Batches ligands through `unidock --ligand_index`
+5. Reads the first pose energy from each `*_out.sdf`
 
 ## Errors
 

@@ -6,8 +6,8 @@ The score is PepTune's XGBoost positive-class probability for solubility.
 Usage:
     python scripts/eval/evaluate_solubility_scores.py
     python scripts/eval/evaluate_solubility_scores.py \
-        --input outputs/samples/dpo_generate_data/helm_dpo_samples.txt \
-        --output outputs/samples/dpo_generate_data/helm_dpo_samples.solubility.csv
+        --input outputs/samples/case1/generated/helm_dpo_samples.txt \
+        --output outputs/samples/case1/generated/helm_dpo_samples.solubility.csv
 """
 
 import argparse
@@ -24,10 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.evaluation.solubility import PepTuneSolubility
 
 
-# DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
-DEFAULT_INPUT = "outputs/samples/permeability1000_samples.txt"
-# DEFAULT_OUTPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.solubility.csv"
-DEFAULT_OUTPUT = "outputs/samples/permeability1000_samples.perm.csv"
+DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
+# DEFAULT_INPUT = "outputs/samples/finetune/permeability1000_samples.txt"
+DEFAULT_OUTPUT = "outputs/samples/case1/generated/helm_dpo_samples.solubility.csv"
+# DEFAULT_OUTPUT = "outputs/samples/finetune/permeability1000_samples.solubility.csv"
 
 
 def parse_args():

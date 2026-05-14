@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ENV_NAME="${1:-pepardiff}"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "Uni-Dock GPU is officially supported on Linux only."
@@ -22,15 +22,17 @@ fi
 echo "Installing Uni-Dock into conda env: ${ENV_NAME}"
 conda install -n "${ENV_NAME}" -c conda-forge -y unidock
 
-echo "Installing Uni-Dock Tools (optional Python helpers) into ${ENV_NAME}"
+echo "Installing Uni-Dock Tools (required ligand preparation helpers) into ${ENV_NAME}"
 conda run -n "${ENV_NAME}" python -m pip install -e "${REPO_ROOT}/Uni-Dock/unidock_tools"
 
 echo "Verifying installation"
 conda run -n "${ENV_NAME}" unidock --version
 conda run -n "${ENV_NAME}" python - <<'PY'
 import shutil
+from unidock_tools.modules.ligand_prep.torsion_tree import TopologyBuilder
 print("unidock:", shutil.which("unidock"))
 print("unidocktools:", shutil.which("unidocktools"))
+print("TopologyBuilder:", TopologyBuilder)
 PY
 
 echo "Uni-Dock setup complete."

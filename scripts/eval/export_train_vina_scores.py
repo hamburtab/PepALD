@@ -7,8 +7,8 @@ stops after writing / updating the Vina score cache file.
 Usage:
     python scripts/eval/export_train_vina_scores.py
     python scripts/eval/export_train_vina_scores.py --config configs/training/dpo.json
-    python scripts/eval/export_train_vina_scores.py --sample_file outputs/samples/dpo_train_data/combined_candidates.txt
-    python scripts/eval/export_train_vina_scores.py --vina_score_file outputs/samples/dpo_train_data/combined_candidates.vina.csv
+    python scripts/eval/export_train_vina_scores.py --sample_file outputs/samples/case1/train_candidates/candidates.txt
+    python scripts/eval/export_train_vina_scores.py --vina_score_file outputs/samples/case1/train_candidates/candidates.case1.vina.csv
 """
 
 import argparse
@@ -95,7 +95,7 @@ def main():
     vina_score_file = (
         args.vina_score_file
         or dpo_cfg.get("vina_score_file")
-        or "outputs/samples/dpo_train_data/combined_candidates.vina.csv"
+        or "outputs/samples/case1/train_candidates/candidates.case1.vina.csv"
     )
 
     print(f"Loading config from: {args.config}")

@@ -310,7 +310,7 @@ def main():
     vina_score_file = (
         args.vina_score_file
         or dpo_cfg.get("vina_score_file")
-        or "outputs/samples/dpo_train_data/combined_candidates.vina.csv"
+        or "outputs/samples/case1/train_candidates/candidates.case1.vina.csv"
     )
     cache_path = resolve_path(vina_score_file)
 

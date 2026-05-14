@@ -1,0 +1,2 @@
+helm,smiles,solubility,status
+"PEPTIDE1{X981.X1691.X810.Gln(Me).X934.dV.X1314}$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$",CCNC(=N)NCCC[C@@H]1NC(=O)[C@H](CCC(=O)NC)NC(=O)[C@@H]2C[C@@H](OCc3cccc(C)c3)CN2C(=O)C2(CCN(C(=N)N)CC2)NC(=O)[C@]2(CCc3ccccc3C2)NC(=O)[C@H](CCC(=O)OCc2ccccc2[N+](=O)[O-])NC(=O)[C@@H](C(C)C)NC1=O,0.87112248,ok

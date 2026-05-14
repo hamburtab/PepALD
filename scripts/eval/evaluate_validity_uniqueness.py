@@ -79,7 +79,7 @@ def evaluate_validity(helm_file: str, verbose: bool = True):
 
 if __name__ == "__main__":
     # Default sample file path
-    sample_file = str(PROJECT_ROOT / "outputs" / "samples" / "helm_chembl32only_samples.txt")
+    sample_file = str(PROJECT_ROOT / "outputs" / "samples" / "case1" / "generated" / "helm_dpo_samples.txt")
     
     # Run evaluation
     evaluate_validity(sample_file)

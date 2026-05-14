@@ -7,8 +7,8 @@ resulting score file to train_dpo.py / eval_rewards.py via --perm_score_file.
 Usage:
     python scripts/eval/evaluate_permeability_scores.py
     python scripts/eval/evaluate_permeability_scores.py \
-        --input outputs/samples/dpo_train_data/combined_candidates.txt \
-        --output outputs/samples/dpo_train_data/combined_candidates.perm.csv
+        --input outputs/samples/case1/generated/helm_dpo_samples.txt \
+        --output outputs/samples/case1/generated/helm_dpo_samples.perm.csv
 """
 
 import argparse
@@ -24,10 +24,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.evaluation.permeability import Permeability
 
 
-DEFAULT_INPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.txt"
-# DEFAULT_INPUT = "outputs/samples/permeability1000_samples.txt"
-DEFAULT_OUTPUT = "outputs/samples/dpo_generate_data/helm_dpo_samples.perm.csv"
-# DEFAULT_OUTPUT = "outputs/samples/permeability1000_samples.perm.csv"
+DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
+# DEFAULT_INPUT = "outputs/samples/finetune/permeability1000_samples.txt"
+DEFAULT_OUTPUT = "outputs/samples/case1/generated/helm_dpo_samples.perm.csv"
+# DEFAULT_OUTPUT = "outputs/samples/finetune/permeability1000_samples.perm.csv"
 
 
 def parse_args():

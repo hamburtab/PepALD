@@ -5,7 +5,7 @@ Default input:
     data/docking2/2axi_cyclicpep.sdf
 
 Default output:
-    outputs/samples/eval_groundtruth_case2/case2_groundtruth.solubility.csv
+    outputs/samples/case2/eval_groundtruth/case2_groundtruth.solubility.csv
 """
 
 from __future__ import annotations
@@ -29,7 +29,8 @@ DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "outputs"
     / "samples"
-    / "eval_groundtruth_case2"
+    / "case2"
+    / "eval_groundtruth"
     / "case2_groundtruth.solubility.csv"
 )
 

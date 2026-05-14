@@ -5,8 +5,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "data" / "processed"
-SAMPLE_FILE = PROJECT_ROOT / "outputs" / "samples" / "helm_chembl32only_samples.txt"
-OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "dpo_train_data" / "helm_chembl32only_r1r2_cyclized.txt"
+SAMPLE_FILE = PROJECT_ROOT / "outputs" / "samples" / "pretrain" / "helm_chembl32only_samples.txt"
+OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "case1" / "train_candidates" / "helm_chembl32only_r1r2_cyclized.txt"
 
 
 def load_rgroup_table(csv_path: Path) -> dict[str, set[str]]:

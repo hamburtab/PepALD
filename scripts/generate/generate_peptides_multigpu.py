@@ -30,8 +30,8 @@ def parse_args():
         help="Path to config file."
     )
     parser.add_argument(
-        "--output", type=str, required=True,
-        help="Merged output HELM file."
+        "--output", type=str, default=None,
+        help="Optional merged output HELM file. Defaults to generation.output_file in the config."
     )
     parser.add_argument(
         "--num_samples", type=int, default=None,
@@ -61,6 +61,34 @@ def parse_gpu_ids(value) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [str(v).strip() for v in value if str(v).strip()]
     return [part.strip() for part in str(value).split(",") if part.strip()]
+
+
+def detect_visible_gpu_ids() -> list[str]:
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible is not None:
+        visible = visible.strip()
+        if visible and visible != "-1":
+            return [part.strip() for part in visible.split(",") if part.strip()]
+        return []
+
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return [str(idx) for idx in range(torch.cuda.device_count())]
+    except Exception:
+        pass
+
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except Exception:
+        return []
+
+    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 
 def split_counts(total: int, n_parts: int) -> list[int]:
@@ -96,7 +124,6 @@ def write_merged_output(shard_outputs: list[Path], output_path: Path) -> int:
 def main():
     args = parse_args()
     config_path = resolve_path(args.config)
-    output_path = resolve_path(args.output)
 
     with open(config_path, "r", encoding="utf-8") as f:
         full_config = json.load(f)
@@ -104,9 +131,15 @@ def main():
     dpo_rounds_cfg = full_config.get("dpo_rounds", {})
     generation_cfg = full_config.get("generation", {})
     dpo_cfg = full_config.get("dpo", {})
+    output_raw = args.output or generation_cfg.get("output_file")
+    if not output_raw:
+        raise ValueError("Set --output or generation.output_file in the config.")
+    output_path = resolve_path(output_raw)
 
+    gpu_source = "--gpu_ids"
     gpu_ids = parse_gpu_ids(args.gpu_ids)
     if not gpu_ids:
+        gpu_source = "config"
         gpu_ids = parse_gpu_ids(
             dpo_rounds_cfg.get(
                 "generation_gpu_ids",
@@ -114,7 +147,13 @@ def main():
             )
         )
     if not gpu_ids:
-        raise ValueError("No generation GPUs configured. Set --gpu_ids or dpo_rounds.generation_gpu_ids.")
+        gpu_source = "auto-detected visible GPUs"
+        gpu_ids = detect_visible_gpu_ids()
+    if not gpu_ids:
+        raise ValueError(
+            "No generation GPUs found. Set --gpu_ids, set generation.gpu_ids / "
+            "dpo_rounds.generation_gpu_ids in the config, or expose GPUs with CUDA_VISIBLE_DEVICES."
+        )
 
     total_samples = int(args.num_samples or generation_cfg.get("num_samples", 0))
     if total_samples <= 0:
@@ -140,6 +179,7 @@ def main():
 
     print(f"Loading config from: {config_path}")
     print(f"Multi-GPU generation GPUs: {', '.join(gpu_ids)}")
+    print(f"GPU source: {gpu_source}")
     print(f"Generating {total_samples} samples across {len(active_shards)} GPU shard(s)")
     print(f"Shard files: {shard_root}")
 

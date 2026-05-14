@@ -2,7 +2,7 @@
 """Export cached high-quality DPO-generated cyclic peptide samples.
 
 The script does not recompute Vina or permeability scores. It reads the cached
-files under outputs/samples/dpo_generate_data, filters head-to-tail cyclic HELM
+files under outputs/samples/case1/generated, filters head-to-tail cyclic HELM
 sequences, and writes a compact report with permeability tiers.
 """
 
@@ -19,9 +19,9 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.postprocess import is_head_tail_single_cycle
 
 
-DEFAULT_SOURCE_DIR = PROJECT_ROOT / "outputs" / "samples" / "dpo_generate_data"
+DEFAULT_SOURCE_DIR = PROJECT_ROOT / "outputs" / "samples" / "case1" / "generated"
 DEFAULT_SAMPLE_FILE = DEFAULT_SOURCE_DIR / "helm_dpo_samples.txt"
-DEFAULT_VINA_FILE = DEFAULT_SOURCE_DIR / "dpo_generated_samples_score.csv"
+DEFAULT_VINA_FILE = DEFAULT_SOURCE_DIR / "helm_dpo_samples.case1.vina.csv"
 DEFAULT_PERM_FILE = DEFAULT_SOURCE_DIR / "helm_dpo_samples.perm.csv"
 DEFAULT_OUTPUT_FILE = Path(__file__).resolve().parent / "high_quality_samples.txt"
 

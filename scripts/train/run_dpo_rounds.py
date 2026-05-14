@@ -2,8 +2,8 @@
 Run multi-round DPO optimization for a configured target.
 
 Round 0 is a bootstrap round:
-  1. Use only the candidate pool in outputs/samples/dpo_train_data.
-  2. Reuse or export permeability and Vina score CSVs for that pool.
+  1. Use only the configured base candidate pool.
+  2. Export enabled reward score CSVs for that pool.
   3. Train DPO from the initial checkpoint.
 
 Rounds 1..N do:
@@ -387,6 +387,7 @@ def build_round_config(
     base_config: dict,
     round_idx: int,
     round_dir: Path,
+    target_tag: str,
     checkpoint_dir: Path,
     previous_checkpoint: Path,
     generated_path: Path,
@@ -414,7 +415,7 @@ def build_round_config(
     cfg["dpo"]["vina_score_file"] = str(vina_score_file)
     cfg["dpo"]["num_epochs"] = int(epochs)
 
-    config_path = round_dir / f"dpo_2axi_round{round_idx}.json"
+    config_path = round_dir / f"dpo_{target_tag}_round{round_idx}.json"
     save_json(cfg, config_path)
     return config_path
 
@@ -449,8 +450,10 @@ def main():
     )
     unidock_gpu_ids = parse_gpu_ids(dpo_cfg.get("unidock_gpu_ids"))
 
-    output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/dpo_rounds"))
+    output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/case2/dpo_rounds"))
     run_name = str(rounds_cfg.get("run_name", "2axi"))
+    target_tag = str(rounds_cfg.get("target_tag", run_name.split("_")[0] or "target"))
+    vina_score_name = str(rounds_cfg.get("vina_score_name", f"{target_tag}.vina"))
     checkpoint_root = resolve_path(
         rounds_cfg.get(
             "checkpoint_root",
@@ -497,7 +500,7 @@ def main():
         prev_idx = args.start_round - 1
         prev_dir = output_root / f"{run_name}_r{prev_idx}"
         previous_candidates = prev_dir / "candidates.txt"
-        previous_vina = prev_dir / "candidates.2axi.vina.csv"
+        previous_vina = prev_dir / f"candidates.{vina_score_name}.csv"
         previous_perm = prev_dir / "candidates.perm.csv" if use_permeability else None
         previous_checkpoint = (
             get_round_checkpoint_override(rounds_cfg, args.start_round)
@@ -531,9 +534,9 @@ def main():
         )
         candidates_path = round_dir / "candidates.txt"
         candidates_perm = round_dir / "candidates.perm.csv" if use_permeability else None
-        candidates_vina = round_dir / "candidates.2axi.vina.csv"
+        candidates_vina = round_dir / f"candidates.{vina_score_name}.csv"
         generated_perm = round_dir / "generated.perm.csv" if use_permeability else None
-        generated_vina = round_dir / "generated.2axi.vina.csv"
+        generated_vina = round_dir / f"generated.{vina_score_name}.csv"
         epochs = get_round_epochs(rounds_cfg, round_idx)
 
         print("\n" + "=" * 80)
@@ -566,6 +569,7 @@ def main():
             base_config=base_config,
             round_idx=round_idx,
             round_dir=round_dir,
+            target_tag=target_tag,
             checkpoint_dir=checkpoint_dir,
             previous_checkpoint=previous_checkpoint,
             generated_path=generated_raw,

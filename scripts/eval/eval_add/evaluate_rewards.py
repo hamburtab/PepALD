@@ -6,7 +6,7 @@ Does NOT start DPO training.
 
 Usage:
     python scripts/eval/eval_add/evaluate_rewards.py
-    python scripts/eval/eval_add/evaluate_rewards.py --sample_file outputs/samples/head_tail_single_cycle_samples.txt
+    python scripts/eval/eval_add/evaluate_rewards.py --sample_file outputs/samples/case1/train_candidates/candidates.txt
     python scripts/eval/eval_add/evaluate_rewards.py --sample_file samples.txt --top_ratio 0.25 --bottom_ratio 0.25
     python scripts/eval/eval_add/evaluate_rewards.py --sample_file samples.txt --max_samples 100
 """
@@ -71,8 +71,11 @@ def main():
 
     # Resolve sample file
     sample_file = args.sample_file or dpo_cfg.get('sample_file')
+    if sample_file is None and dpo_cfg.get('sample_files'):
+        sample_files = list(dpo_cfg.get('sample_files') or [])
+        sample_file = sample_files[0] if sample_files else None
     if not sample_file:
-        print("No sample file specified. Use --sample_file or set dpo.sample_file in config.")
+        print("No sample file specified. Use --sample_file or set dpo.sample_file / dpo.sample_files in config.")
         sys.exit(1)
 
     sample_path = resolve_path(sample_file)

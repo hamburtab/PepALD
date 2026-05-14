@@ -10,7 +10,7 @@ Diffusion-DPO (Wallace et al. 2023) applied to cyclic peptide generation:
 Usage:
     python scripts/train/train_dpo.py
     python scripts/train/train_dpo.py --config configs/training/dpo.json
-    python scripts/train/train_dpo.py --sample_file outputs/samples/head_tail_single_cycle_samples.txt
+    python scripts/train/train_dpo.py --sample_file outputs/samples/case1/train_candidates/candidates.txt
     python scripts/train/train_dpo.py --config configs/training/dpo.json --skip_generate --winner_file w.txt --loser_file l.txt
 """
 

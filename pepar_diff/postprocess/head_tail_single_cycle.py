@@ -16,8 +16,9 @@ import re
 from pathlib import Path
 
 
-DEFAULT_INPUT = Path(__file__).parent / "helm_chembl32only_samples.txt"
-DEFAULT_OUTPUT = Path(__file__).parent / "head_tail_single_cycle_samples.txt"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_INPUT = PROJECT_ROOT / "outputs" / "samples" / "pretrain" / "helm_chembl32only_samples.txt"
+DEFAULT_OUTPUT = PROJECT_ROOT / "outputs" / "samples" / "pretrain" / "head_tail_single_cycle_samples.txt"
 
 
 def get_peptide_length(helm_line: str) -> int | None:
