@@ -21,14 +21,14 @@
     "batch_size": 8,
     "weight_decay": 0.01,
     "max_grad_norm": 1.0,
-    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_only_full_r0",
+    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_flexible_20k_full_r0",
     "device": "cuda",
     "num_workers": 4,
     "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
   },
   "generation": {
     "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
-    "num_samples": 1001,
+    "num_samples": 20000,
     "max_length": 7,
     "min_length": 7,
     "use_ddim": true,
@@ -51,11 +51,9 @@
   "dpo": {
     "beta_dpo": 1.0,
     "lr": 1e-05,
-    "num_epochs": 10,
+    "num_epochs": 15,
     "freeze_mode": "all",
-    "sample_files": [
-      "./outputs/samples/case1/train_candidates/candidates.txt"
-    ],
+    "sample_files": [],
     "protein_pdbqt_path": "./data/docking/6dn5_receptor.pdbqt",
     "ref_sdf_path": "./data/docking/raw_cyclic_pep.sdf",
     "dock_center": [
@@ -68,7 +66,8 @@
       30.0,
       30.0
     ],
-    "vina_score_file": "./outputs/samples/case1/train_candidates/candidates.case1.vina.csv",
+    "vina_score_file": null,
+    "docking_mode": "flexible",
     "perm_score_file": null,
     "top_ratio": 0.1,
     "bottom_ratio": 0.1,
@@ -88,8 +87,7 @@
       0,
       1,
       2,
-      3,
-      4
+      3
     ],
     "unidock_batch_size": 1024,
     "unidock_prep_workers": 20,
@@ -111,14 +109,15 @@
     "save_interval_epochs": 1
   },
   "dpo_rounds": {
-    "num_rounds": 0,
+    "num_rounds": 4,
     "output_root": "./outputs/samples/case1/dpo_rounds",
-    "run_name": "case1_vina_only_full",
+    "run_name": "case1_vina_flexible_20k_full",
     "target_tag": "case1",
+    "vina_score_name": "case1.flexible.vina",
     "checkpoint_root": "/root/autodl-tmp/checkpoints/dpo_rounds",
     "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
-    "bootstrap_generate": false,
-    "base_candidate_file": "./outputs/samples/case1/train_candidates/candidates.txt",
+    "bootstrap_generate": true,
+    "base_candidate_file": null,
     "base_vina_score_file": null,
     "base_perm_score_file": null,
     "base_merge_rounds": 0,
@@ -128,16 +127,15 @@
       0,
       1,
       2,
-      3,
-      4
+      3
     ],
-    "num_samples_per_round": 40000,
+    "num_samples_per_round": 20000,
+    "bootstrap_num_epochs": 15,
     "epochs_per_round": [
       10,
-      10,
-      10,
-      10,
-      10
+      8,
+      5,
+      5
     ],
     "python": "conda run --no-capture-output -n base python",
     "permeability_python": "conda run --no-capture-output -n perm_env python",

@@ -441,6 +441,7 @@ def main():
     perm_python_cmd = command_prefix(rounds_cfg.get("permeability_python", rounds_cfg.get("python")))
     use_permeability = float(dpo_cfg.get("reward_w_perm", 0.5)) > 0.0
     generated_postprocess = str(rounds_cfg.get("generated_postprocess", "filter_head_tail"))
+    docking_mode = str(dpo_cfg.get("docking_mode", "flexible")).lower()
     bootstrap_generate = bool(rounds_cfg.get("bootstrap_generate", False))
     generation_gpu_ids = parse_gpu_ids(
         rounds_cfg.get(
@@ -715,6 +716,7 @@ def main():
             "--config", str(round_config),
             "--sample_file", str(candidates_path),
             "--vina_score_file", str(candidates_vina),
+            "--docking_mode", docking_mode,
         ]
         if len(unidock_gpu_ids) > 1:
             vina_export_cmd.extend(["--gpu_ids", ",".join(unidock_gpu_ids)])

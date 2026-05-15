@@ -195,6 +195,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
     unidock_keep_workdir = bool(dpo_cfg.get('unidock_keep_workdir', False))
     unidock_verbosity = int(dpo_cfg.get('unidock_verbosity', 0))
     unidock_prep_workers = int(dpo_cfg.get('unidock_prep_workers', 1))
+    docking_mode = str(dpo_cfg.get('docking_mode', 'flexible')).lower()
     vina_score_file = dpo_cfg.get('vina_score_file')
     perm_score_file = dpo_cfg.get('perm_score_file')
 
@@ -247,7 +248,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
                 f"Docking runtime: Uni-Dock GPU, batch_size={unidock_batch_size}, "
                 f"prep_workers={unidock_prep_workers}, "
                 f"search_mode={unidock_search_mode}, exhaustiveness={vina_exhaustiveness}, "
-                f"n_poses={vina_n_poses}"
+                f"n_poses={vina_n_poses}, docking_mode={docking_mode}"
             )
             if protein_pdbqt_path or ref_sdf_path or dock_center:
                 print(f"Docking receptor: {protein_pdbqt_path or 'default'}")
@@ -281,6 +282,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
                     unidock_verbosity=unidock_verbosity,
                     unidock_prep_workers=unidock_prep_workers,
                     score_log_path=vina_score_file,
+                    docking_mode=docking_mode,
                 ),
                 dtype=np.float64,
             )
