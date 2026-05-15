@@ -62,6 +62,27 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--gpu_ids",
+        type=str,
+        default=None,
+        help=(
+            "Comma-separated GPU IDs for both generation and Uni-Dock scoring. "
+            "Overrides dpo_rounds.generation_gpu_ids and dpo.unidock_gpu_ids."
+        ),
+    )
+    parser.add_argument(
+        "--generation_gpu_ids",
+        type=str,
+        default=None,
+        help="Comma-separated GPU IDs for generation only.",
+    )
+    parser.add_argument(
+        "--unidock_gpu_ids",
+        type=str,
+        default=None,
+        help="Comma-separated GPU IDs for Uni-Dock scoring only.",
+    )
+    parser.add_argument(
         "--dry_run",
         action="store_true",
         help="Print commands and write round configs without executing them.",
@@ -450,6 +471,12 @@ def main():
         )
     )
     unidock_gpu_ids = parse_gpu_ids(dpo_cfg.get("unidock_gpu_ids"))
+    override_generation_gpu_ids = parse_gpu_ids(args.generation_gpu_ids or args.gpu_ids)
+    override_unidock_gpu_ids = parse_gpu_ids(args.unidock_gpu_ids or args.gpu_ids)
+    if override_generation_gpu_ids:
+        generation_gpu_ids = override_generation_gpu_ids
+    if override_unidock_gpu_ids:
+        unidock_gpu_ids = override_unidock_gpu_ids
 
     output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/case2/dpo_rounds"))
     run_name = str(rounds_cfg.get("run_name", "2axi"))
