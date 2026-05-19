@@ -23,12 +23,15 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from pepar_diff.evaluation.permeability import Permeability
 
-
-DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
+# DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
+# DEFAULT_INPUT = "outputs/samples/pretrain/helm_chembl32only_samples.txt"
+DEFAULT_INPUT = "outputs/samples/finetune/cycpeptMPDB_samples.txt"
 # DEFAULT_INPUT = "outputs/samples/finetune/permeability1000_samples.txt"
-DEFAULT_OUTPUT = "outputs/samples/case1/generated/helm_dpo_samples.perm.csv"
-# DEFAULT_OUTPUT = "outputs/samples/finetune/permeability1000_samples.perm.csv"
 
+# DEFAULT_OUTPUT = "outputs/samples/case1/generated/helm_dpo_samples.perm.csv"
+# DEFAULT_OUTPUT = "outputs/samples/pretrain/helm_chembl32only_samples.perm.csv"
+DEFAULT_OUTPUT = "outputs/samples/finetune/cycpeptMPDB_samples.perm.csv"
+# DEFAULT_OUTPUT = "outputs/samples/finetune/permeability1000_samples.perm.csv"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Export precomputed permeability scores")

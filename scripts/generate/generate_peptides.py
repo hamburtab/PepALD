@@ -359,10 +359,11 @@ def main():
     elif is_dpo_config and cyclization_mode == "predict_ring":
         gen_cfg.predict_ring_bonds = True
         print("🔁 dpo.json cyclization_mode=predict_ring: using automatic ring-bond prediction")
-    elif args.mode == "linear":
-        gen_cfg.predict_ring_bonds = False
-    elif args.mode in {"cyclic", "vina"}:
-        gen_cfg.predict_ring_bonds = True
+    elif args.config is None:
+        if args.mode == "linear":
+            gen_cfg.predict_ring_bonds = False
+        elif args.mode in {"cyclic", "vina"}:
+            gen_cfg.predict_ring_bonds = True
     
     # Set seed
     if gen_cfg.seed is not None:
