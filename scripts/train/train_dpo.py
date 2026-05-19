@@ -308,6 +308,17 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         )
 
     valid_vina_mask = vina_scores != INVALID_SCORE
+    vina_invalid_score_cutoff = dpo_cfg.get('vina_invalid_score_cutoff')
+    if vina_invalid_score_cutoff is not None:
+        cutoff = float(vina_invalid_score_cutoff)
+        cutoff_invalid_mask = vina_scores > cutoff
+        newly_invalid = int((valid_vina_mask & cutoff_invalid_mask).sum())
+        valid_vina_mask &= ~cutoff_invalid_mask
+        if newly_invalid > 0:
+            print(
+                f"Vina cutoff: treating {newly_invalid} samples with "
+                f"vina_score > {cutoff:.4f} as invalid before DPO."
+            )
     valid_vina = vina_scores[valid_vina_mask]
     if len(valid_vina) == 0:
         raise RuntimeError(

@@ -366,6 +366,106 @@ def merge_score_csvs(source_csvs: Sequence[Path], target_csv: Path, helms: Seque
     return True
 
 
+def select_vina_helms(
+    score_csv: Path,
+    helms: Sequence[str],
+    *,
+    top_ratio: float | None = None,
+    score_lt: float | None = None,
+) -> list[str]:
+    """Select HELMs by Vina score from a cache CSV. Lower Vina is better."""
+    fieldnames, rows = read_score_rows(score_csv)
+    if not fieldnames:
+        raise ValueError(f"Cannot read Vina score CSV: {score_csv}")
+
+    field_map = {name.strip().lower(): name for name in fieldnames if name}
+    score_key = field_map.get("vina_score") or field_map.get("score")
+    if score_key is None:
+        raise ValueError(f"Vina score CSV lacks a vina_score/score column: {score_csv}")
+
+    scored: list[tuple[float, str]] = []
+    for helm in deduplicate_preserve_order(helms):
+        row = rows.get(helm)
+        if row is None:
+            continue
+        try:
+            score = float((row.get(score_key) or "").strip())
+        except ValueError:
+            continue
+        if not math.isfinite(score):
+            continue
+        if score_lt is not None and score >= float(score_lt):
+            continue
+        scored.append((score, helm))
+
+    scored.sort(key=lambda item: item[0])
+    if top_ratio is not None:
+        target_count = max(1, int(len(scored) * float(top_ratio))) if scored else 0
+        scored = scored[:target_count]
+    return [helm for _, helm in scored]
+
+
+def update_elite_replay_buffer(
+    previous_buffer: Path | None,
+    current_vina: Path,
+    candidate_helms: Sequence[str],
+    output_path: Path,
+    threshold: float,
+) -> list[str]:
+    previous_elites = load_helm_list(previous_buffer) if previous_buffer and previous_buffer.exists() else []
+    current_elites = select_vina_helms(
+        current_vina,
+        candidate_helms,
+        score_lt=threshold,
+    )
+    replay = deduplicate_preserve_order([*previous_elites, *current_elites])
+    write_helm_list(replay, output_path)
+    print(
+        f"Elite replay buffer: {len(previous_elites)} previous + "
+        f"{len(current_elites)} current (vina < {threshold:.3f}) -> "
+        f"{len(replay)} unique"
+    )
+    return replay
+
+
+def build_elite_sft_config(
+    round_config: Path,
+    output_config: Path,
+    elite_file: Path,
+    checkpoint_dir: Path,
+    pretrained_checkpoint: Path,
+    rounds_cfg: dict,
+    dpo_cfg: dict,
+) -> Path:
+    cfg = load_json(round_config)
+    cfg.setdefault("training", {})
+
+    cfg["training"]["train_data_file"] = str(elite_file)
+    cfg["training"]["checkpoint_dir"] = str(checkpoint_dir)
+    cfg["training"]["pretrained_checkpoint"] = str(pretrained_checkpoint)
+    cfg["training"]["finetune_mode"] = True
+    cfg["training"]["cyclic_only"] = True
+    cfg["training"]["num_epochs"] = int(rounds_cfg.get("elite_sft_num_epochs", 1))
+    cfg["training"]["learning_rate"] = float(rounds_cfg.get("elite_sft_lr", dpo_cfg.get("lr", 1e-5)))
+    cfg["training"]["warmup_steps"] = int(rounds_cfg.get("elite_sft_warmup_steps", 10))
+    cfg["training"]["ring_loss_weight"] = float(rounds_cfg.get("elite_sft_ring_loss_weight", 0.3))
+    cfg["training"]["ce_loss_weight"] = float(rounds_cfg.get("elite_sft_ce_loss_weight", 0.8))
+    cfg["training"]["freeze_embedding"] = bool(rounds_cfg.get("elite_sft_freeze_embedding", True))
+    cfg["training"]["freeze_context_encoder"] = bool(rounds_cfg.get("elite_sft_freeze_context_encoder", False))
+    cfg["training"]["freeze_diffusion"] = bool(rounds_cfg.get("elite_sft_freeze_diffusion", False))
+    cfg["training"]["ce_only_finetune"] = bool(rounds_cfg.get("elite_sft_ce_only", False))
+
+    save_json(cfg, output_config)
+    return output_config
+
+
+def set_training_checkpoint(config_path: Path, checkpoint_path: Path) -> None:
+    cfg = load_json(config_path)
+    cfg.setdefault("training", {})
+    cfg["training"]["pretrained_checkpoint"] = str(checkpoint_path)
+    save_json(cfg, config_path)
+
+
 def copy_seed_cache(seed_path: Path | None, target_path: Path, dry_run: bool = False) -> None:
     if target_path.exists():
         print(f"Keeping existing score cache: {target_path}")
@@ -461,6 +561,10 @@ def main():
     python_cmd = command_prefix(rounds_cfg.get("python"))
     perm_python_cmd = command_prefix(rounds_cfg.get("permeability_python", rounds_cfg.get("python")))
     use_permeability = float(dpo_cfg.get("reward_w_perm", 0.5)) > 0.0
+    elite_replay_enabled = bool(rounds_cfg.get("elite_replay_enabled", False))
+    elite_replay_threshold = float(rounds_cfg.get("elite_replay_vina_threshold", -7.0))
+    elite_sft_enabled = bool(rounds_cfg.get("elite_sft_enabled", False))
+    elite_sft_top_ratio = float(rounds_cfg.get("elite_sft_top_ratio", 0.03))
     generated_postprocess = str(rounds_cfg.get("generated_postprocess", "filter_head_tail"))
     docking_mode = str(dpo_cfg.get("docking_mode", "flexible")).lower()
     bootstrap_generate = bool(rounds_cfg.get("bootstrap_generate", False))
@@ -522,6 +626,7 @@ def main():
     previous_candidates: Path | None = None
     previous_vina: Path | None = None
     previous_perm: Path | None = None
+    previous_elite_replay: Path | None = None
 
     # Resuming from a later round needs the previous round artifacts.
     if args.start_round > 0:
@@ -530,6 +635,7 @@ def main():
         previous_candidates = prev_dir / "candidates.txt"
         previous_vina = prev_dir / f"candidates.{vina_score_name}.csv"
         previous_perm = prev_dir / "candidates.perm.csv" if use_permeability else None
+        previous_elite_replay = prev_dir / "elite_replay_buffer.txt" if elite_replay_enabled else None
         previous_checkpoint = (
             get_round_checkpoint_override(rounds_cfg, args.start_round)
             or checkpoint_root / f"{run_name}_r{prev_idx}" / "dpo_latest.pt"
@@ -538,6 +644,8 @@ def main():
             required_paths = [previous_candidates, previous_vina, previous_checkpoint]
             if use_permeability:
                 required_paths.append(previous_perm)
+            if elite_replay_enabled:
+                required_paths.append(previous_elite_replay)
             for path in required_paths:
                 if path is not None and not path.exists():
                     raise FileNotFoundError(f"Cannot resume; previous artifact missing: {path}")
@@ -565,6 +673,10 @@ def main():
         candidates_vina = round_dir / f"candidates.{vina_score_name}.csv"
         generated_perm = round_dir / "generated.perm.csv" if use_permeability else None
         generated_vina = round_dir / f"generated.{vina_score_name}.csv"
+        elite_replay_path = round_dir / "elite_replay_buffer.txt"
+        elite_sft_file = round_dir / "elite_sft_top3.txt"
+        elite_sft_config = round_dir / f"elite_sft_{target_tag}_round{round_idx}.json"
+        elite_sft_checkpoint_dir = checkpoint_dir / "elite_sft"
         epochs = get_round_epochs(rounds_cfg, round_idx)
 
         print("\n" + "=" * 80)
@@ -581,6 +693,8 @@ def main():
         print(f"Checkpoint dir:      {checkpoint_dir}")
         print(f"Epochs this round:   {epochs}")
         print(f"Permeability reward: {'enabled' if use_permeability else 'disabled'}")
+        print(f"Elite replay:        {'enabled' if elite_replay_enabled else 'disabled'}")
+        print(f"Elite SFT:           {'enabled' if elite_sft_enabled else 'disabled'}")
         print(f"Generated postproc:  {generated_postprocess}")
         print(f"Bootstrap generate:  {'enabled' if bootstrap_generate else 'disabled'}")
         print(
@@ -652,6 +766,8 @@ def main():
             candidate_sources = []
             if carry_forward and previous_candidates is not None:
                 candidate_sources.append(previous_candidates)
+            if elite_replay_enabled and previous_elite_replay is not None:
+                candidate_sources.append(previous_elite_replay)
             if base_candidate_file is not None and round_idx <= base_merge_rounds:
                 candidate_sources.append(base_candidate_file)
             candidate_sources.append(generated_filtered)
@@ -758,11 +874,76 @@ def main():
                 write_subset_csv(candidates_perm, generated_perm, generated_helms)
             write_subset_csv(candidates_vina, generated_vina, generated_helms)
 
+        if not args.dry_run and elite_replay_enabled:
+            update_elite_replay_buffer(
+                previous_elite_replay,
+                candidates_vina,
+                candidate_helms,
+                elite_replay_path,
+                elite_replay_threshold,
+            )
+
+        sft_used = False
+        if elite_sft_enabled:
+            if args.dry_run:
+                run_command(
+                    python_cmd + [
+                        "scripts/train/train_finetune.py",
+                        "--config", str(elite_sft_config),
+                    ],
+                    log_path=log_path,
+                    dry_run=True,
+                )
+            else:
+                elite_sft_helms = select_vina_helms(
+                    candidates_vina,
+                    candidate_helms,
+                    top_ratio=elite_sft_top_ratio,
+                )
+                if not elite_sft_helms:
+                    raise RuntimeError(
+                        f"Elite SFT requested but no scored HELMs were selected from {candidates_vina}"
+                    )
+                write_helm_list(elite_sft_helms, elite_sft_file)
+                print(
+                    f"Elite SFT set: top {elite_sft_top_ratio * 100:.1f}% "
+                    f"-> {len(elite_sft_helms)} HELMs at {elite_sft_file}"
+                )
+                build_elite_sft_config(
+                    round_config,
+                    elite_sft_config,
+                    elite_sft_file,
+                    elite_sft_checkpoint_dir,
+                    input_checkpoint,
+                    rounds_cfg,
+                    dpo_cfg,
+                )
+                run_command(
+                    python_cmd + [
+                        "scripts/train/train_finetune.py",
+                        "--config", str(elite_sft_config),
+                    ],
+                    log_path=log_path,
+                    dry_run=False,
+                )
+                elite_sft_checkpoint = elite_sft_checkpoint_dir / "latest.pt"
+                if not elite_sft_checkpoint.exists():
+                    raise FileNotFoundError(
+                        f"Elite SFT did not produce checkpoint: {elite_sft_checkpoint}"
+                    )
+                set_training_checkpoint(round_config, elite_sft_checkpoint)
+                print(f"Round DPO will initialize from elite SFT checkpoint: {elite_sft_checkpoint}")
+                sft_used = True
+
         train_cmd = python_cmd + [
             "scripts/train/train_dpo.py",
             "--config", str(round_config),
         ]
-        if round_idx > 0 and bool(rounds_cfg.get("resume_dpo_training", True)):
+        if (
+            round_idx > 0
+            and bool(rounds_cfg.get("resume_dpo_training", True))
+            and not sft_used
+        ):
             train_cmd.extend(["--resume", str(input_checkpoint)])
 
         run_command(
@@ -778,6 +959,7 @@ def main():
         previous_candidates = candidates_path
         previous_vina = candidates_vina
         previous_perm = candidates_perm if use_permeability else None
+        previous_elite_replay = elite_replay_path if elite_replay_enabled else None
 
         summary = {
             "round": round_idx,
@@ -793,6 +975,9 @@ def main():
             "generated_postprocess": generated_postprocess,
             "generated_perm": None if generated_perm is None else str(generated_perm),
             "generated_vina": None if generated_vina is None else str(generated_vina),
+            "elite_replay": str(elite_replay_path) if elite_replay_enabled else None,
+            "elite_sft_file": str(elite_sft_file) if elite_sft_enabled else None,
+            "elite_sft_checkpoint": str(elite_sft_checkpoint_dir / "latest.pt") if elite_sft_enabled else None,
             "candidates": str(candidates_path),
             "candidates_perm": None if candidates_perm is None else str(candidates_perm),
             "candidates_vina": str(candidates_vina),
