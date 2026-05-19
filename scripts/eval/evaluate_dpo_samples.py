@@ -29,8 +29,10 @@ from pepar_diff.vina.constants import INVALID_SCORE
 from pepar_diff.vina.dock import dock_helms
 
 
-DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
-DEFAULT_VINA_OUTPUT = "outputs/samples/case1/generated/helm_dpo_samples.case1.vina.csv"
+# DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
+DEFAULT_INPUT = "outputs/samples/pretrain/helm_chembl32only_samples_cyc.txt"
+# DEFAULT_VINA_OUTPUT = "outputs/samples/case1/generated/helm_dpo_samples.case1.vina.csv"
+DEFAULT_VINA_OUTPUT = "outputs/samples/pretrain/helm_chembl32only_samples.vina.csv"
 DEFAULT_PRIOR = "data/processed/prior_data.csv"
 
 
