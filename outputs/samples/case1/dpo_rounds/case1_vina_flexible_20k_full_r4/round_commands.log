@@ -1,0 +1,10 @@
+
+[2026-05-20 11:38:13] $ conda run --no-capture-output -n base python scripts/generate/generate_peptides_multigpu.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/dpo_case1_round4.json --output /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/generated.txt --gpu_ids 0,1,2,3,4
+
+[2026-05-20 11:39:30] $ conda run --no-capture-output -n base python scripts/data/vina_filter_r1r2_cyclize.py --input /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/generated.txt --output /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/generated_r1r2_cyclized.txt
+
+[2026-05-20 11:39:31] $ conda run --no-capture-output -n base python scripts/eval/export_train_vina_scores_multigpu.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/dpo_case1_round4.json --sample_file /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/candidates.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/candidates.case1.flexible.vina.csv --docking_mode flexible --gpu_ids 0,1,2,3,4
+
+[2026-05-20 11:49:56] $ conda run --no-capture-output -n base python scripts/train/train_finetune.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/elite_sft_case1_round4.json
+
+[2026-05-20 11:50:10] $ conda run --no-capture-output -n base python scripts/train/train_dpo.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r4/dpo_case1_round4.json

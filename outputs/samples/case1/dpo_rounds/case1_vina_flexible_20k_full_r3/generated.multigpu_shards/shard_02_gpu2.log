@@ -1,0 +1,80 @@
+
+CUDA_VISIBLE_DEVICES=2 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/generate/generate_peptides.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.json --output /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.txt
+Shard sample count: 4000
+Shard seed: 779183995
+📄 Loading config from: /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.json
+🎯 Mode: linear
+🎲 Random seed set to 779183995
+💻 Using device: cuda
+ Loading checkpoint from: /root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_flexible_20k_full_r2/dpo_latest.pt
+   Loaded vocab from checkpoint (3105 tokens)
+[UniMolEmbeddingLoader] Loaded embeddings:
+  - Embedding dim: 512
+  - Num monomers: 3104
+  - Vocab size: 3105 (including <PAD>)
+  - Frozen: True
+  - Fusion: CLS + 0.0 * (R1 + R2 + R3)
+[TokenMapper] Loaded embeddings: torch.Size([3105, 512])
+[TokenMapper] Monomer classification:
+  Class 1 (first): 2563
+  Class 2 (middle): 1767
+  Class 3 (last): 2303
+[ALD] R-group table: 3104 monomers, 92 with R3
+[ALD] Model: d=512, layers=6+6, T=1000
+ Model loaded successfully (50.6M parameters)
+
+ Generating 4000 samples...
+   Generated 4000 samples in 71.02s
+   (17.8ms per sample)
+
+ Generation Statistics:
+   Total samples:     4000
+   Avg sequence len:  7.0
+   Min sequence len:  7
+   Max sequence len:  7
+   Cyclic sequences:  840
+   Linear sequences:  3160
+
+ Saved 4000 sequences to /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.txt
+
+✅ Generation complete!
+
+CUDA_VISIBLE_DEVICES=2 /root/miniconda3/bin/python /root/New-HELM-Diffusion/scripts/generate/generate_peptides.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.json --output /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.txt
+Shard sample count: 4000
+Shard seed: 779184645
+📄 Loading config from: /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.json
+🎯 Mode: linear
+🎲 Random seed set to 779184645
+💻 Using device: cuda
+ Loading checkpoint from: /root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_flexible_20k_full_r2/dpo_latest.pt
+   Loaded vocab from checkpoint (3105 tokens)
+[UniMolEmbeddingLoader] Loaded embeddings:
+  - Embedding dim: 512
+  - Num monomers: 3104
+  - Vocab size: 3105 (including <PAD>)
+  - Frozen: True
+  - Fusion: CLS + 0.0 * (R1 + R2 + R3)
+[TokenMapper] Loaded embeddings: torch.Size([3105, 512])
+[TokenMapper] Monomer classification:
+  Class 1 (first): 2563
+  Class 2 (middle): 1767
+  Class 3 (last): 2303
+[ALD] R-group table: 3104 monomers, 92 with R3
+[ALD] Model: d=512, layers=6+6, T=1000
+ Model loaded successfully (50.6M parameters)
+
+ Generating 4000 samples...
+   Generated 4000 samples in 70.32s
+   (17.6ms per sample)
+
+ Generation Statistics:
+   Total samples:     4000
+   Avg sequence len:  7.0
+   Min sequence len:  7
+   Max sequence len:  7
+   Cyclic sequences:  828
+   Linear sequences:  3172
+
+ Saved 4000 sequences to /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r3/generated.multigpu_shards/shard_02_gpu2.txt
+
+✅ Generation complete!
