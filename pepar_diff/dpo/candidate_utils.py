@@ -260,28 +260,38 @@ def select_diverse_subset(
     base_norm = robust_normalize(base_arr)
     local_score = {idx: float(score) for idx, score in zip(indices, base_norm)}
 
+    if diversity_lambda <= 0.0:
+        return sorted(indices, key=lambda idx: local_score[idx], reverse=True)[:target_count]
+
     selected: List[int] = []
     remaining = set(indices)
 
     first = max(indices, key=lambda idx: local_score[idx])
     selected.append(first)
     remaining.remove(first)
+    min_distance_to_selected = {
+        idx: jaccard_distance(records[idx].bigrams, records[first].bigrams)
+        for idx in remaining
+    }
 
     while remaining and len(selected) < target_count:
         best_idx = None
         best_score = None
         for idx in remaining:
-            min_dist = min(
-                jaccard_distance(records[idx].bigrams, records[s].bigrams)
-                for s in selected
-            )
-            score = local_score[idx] + diversity_lambda * min_dist
+            score = local_score[idx] + diversity_lambda * min_distance_to_selected[idx]
             if best_score is None or score > best_score:
                 best_score = score
                 best_idx = idx
 
         selected.append(best_idx)
         remaining.remove(best_idx)
+        min_distance_to_selected.pop(best_idx, None)
+
+        selected_bigrams = records[best_idx].bigrams
+        for idx in remaining:
+            dist = jaccard_distance(records[idx].bigrams, selected_bigrams)
+            if dist < min_distance_to_selected[idx]:
+                min_distance_to_selected[idx] = dist
 
     return selected
 

@@ -89,6 +89,15 @@ def parse_args() -> argparse.Namespace:
             "status."
         ),
     )
+    parser.add_argument(
+        "--reference_cache",
+        default=None,
+        type=str,
+        help=(
+            "Optional .npz cache for reference canonical SMILES and fingerprints. "
+            "Defaults to '<prior_path>.fingerprints.npz' when --prior_path is set."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -159,12 +168,69 @@ def canonicalize_smiles(smiles: list[str]) -> tuple[list[str], list[str], list[C
     return canonical, statuses, mols
 
 
-def load_reference(prior_path: Path | None) -> tuple[set[str], np.ndarray, str, int]:
+def default_reference_cache_path(prior_path: Path) -> Path:
+    return prior_path.with_suffix(prior_path.suffix + ".fingerprints.npz")
+
+
+def load_cached_reference(
+    prior_path: Path, cache_path: Path
+) -> tuple[set[str], np.ndarray, str, int] | None:
+    if not cache_path.exists():
+        return None
+
+    source_stat = prior_path.stat()
+    try:
+        with np.load(cache_path, allow_pickle=False) as cache:
+            if (
+                int(cache["source_mtime_ns"]) != source_stat.st_mtime_ns
+                or int(cache["source_size"]) != source_stat.st_size
+            ):
+                return None
+
+            ref_smiles = set(cache["ref_smiles"].astype(str).tolist())
+            ref_fps = cache["ref_fps"].astype(np.float32, copy=False)
+            ref_column = str(cache["ref_column"])
+            ref_size = int(cache["ref_size"])
+            return ref_smiles, ref_fps, ref_column, ref_size
+    except (KeyError, OSError, ValueError):
+        return None
+
+
+def save_reference_cache(
+    prior_path: Path,
+    cache_path: Path,
+    ref_smiles: set[str],
+    ref_fps: np.ndarray,
+    ref_column: str,
+    ref_size: int,
+) -> None:
+    source_stat = prior_path.stat()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        cache_path,
+        ref_smiles=np.array(sorted(ref_smiles), dtype=str),
+        ref_fps=ref_fps,
+        ref_column=np.array(ref_column),
+        ref_size=np.array(ref_size),
+        source_mtime_ns=np.array(source_stat.st_mtime_ns),
+        source_size=np.array(source_stat.st_size),
+    )
+
+
+def load_reference(
+    prior_path: Path | None, cache_path: Path | None = None
+) -> tuple[set[str], np.ndarray, str, int]:
     if prior_path is None:
         return set(), np.zeros((0, 2048), dtype=np.float32), "", 0
 
     if not prior_path.exists():
         raise FileNotFoundError(f"Reference CSV not found: {prior_path}")
+
+    if cache_path is not None:
+        cached = load_cached_reference(prior_path, cache_path)
+        if cached is not None:
+            print(f"Loaded reference cache: {cache_path}")
+            return cached
 
     ref_smiles, ref_column = load_reference_smiles(prior_path)
     ref_canonical, _, ref_mols = canonicalize_smiles(ref_smiles)
@@ -178,6 +244,11 @@ def load_reference(prior_path: Path | None) -> tuple[set[str], np.ndarray, str, 
 
     ref_set = {cano for cano, _ in valid_pairs}
     ref_fps = np.vstack([fingerprint(mol) for _, mol in valid_pairs])
+    if cache_path is not None:
+        save_reference_cache(
+            prior_path, cache_path, ref_set, ref_fps, ref_column, len(valid_pairs)
+        )
+        print(f"Saved reference cache: {cache_path}")
     return ref_set, ref_fps, ref_column, len(valid_pairs)
 
 
@@ -215,6 +286,13 @@ def main() -> None:
     )
     details_path = resolve_path(args.details_output) if args.details_output else None
     prior_path = resolve_path(args.prior_path) if args.prior_path else None
+    reference_cache_path = (
+        resolve_path(args.reference_cache)
+        if args.reference_cache
+        else default_reference_cache_path(prior_path)
+        if prior_path is not None
+        else None
+    )
 
     if not input_path.exists():
         raise FileNotFoundError(f"Input CSV not found: {input_path}")
@@ -244,7 +322,9 @@ def main() -> None:
         else 0.0
     )
 
-    ref_smiles, ref_fps, ref_column, ref_size = load_reference(prior_path)
+    ref_smiles, ref_fps, ref_column, ref_size = load_reference(
+        prior_path, reference_cache_path
+    )
     if len(gen_fps) > 0 and len(ref_fps) > 0:
         snn = float(batch_tanimoto(ref_fps, gen_fps, agg="max"))
         novelty = (
