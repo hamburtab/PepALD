@@ -110,7 +110,7 @@
     "save_interval_epochs": 1
   },
   "dpo_rounds": {
-    "num_rounds": 4,
+    "num_rounds": 7,
     "output_root": "./outputs/samples/case1/dpo_rounds",
     "run_name": "case1_vina_flexible_20k_full",
     "target_tag": "case1",
@@ -136,6 +136,9 @@
       3,
       2,
       2,
+      2,
+      2,
+      2,
       2
     ],
     "python": "conda run --no-capture-output -n base python",
@@ -143,9 +146,9 @@
     "elite_replay_enabled": true,
     "elite_replay_vina_threshold": -7.0,
     "elite_sft_enabled": true,
-    "elite_sft_top_ratio": 0.03,
+    "elite_sft_top_ratio": 0.05,
     "elite_sft_num_epochs": 1,
-    "elite_sft_lr": 1e-05,
+    "elite_sft_lr": 5e-06,
     "elite_sft_warmup_steps": 10,
     "elite_sft_ring_loss_weight": 0.3,
     "elite_sft_ce_loss_weight": 0.8,
