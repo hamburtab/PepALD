@@ -11,8 +11,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.utils.metrics import Metrics
 
 # DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
-# DEFAULT_INPUT = "outputs/samples/pretrain/helm_chembl32only_samples.txt"
-DEFAULT_INPUT = "outputs/samples/finetune/cycpeptMPDB_samples.txt"
+DEFAULT_INPUT = "outputs/samples/pretrain/helm_chembl32only_samples.txt"
+# DEFAULT_INPUT = "outputs/samples/finetune/cycpeptMPDB_samples.txt"
 DEFAULT_PRIOR = "data/processed/prior_data.csv"
 
 def resolve_path(path_str: str) -> Path:

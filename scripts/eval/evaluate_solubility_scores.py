@@ -8,6 +8,10 @@ Usage:
     python scripts/eval/evaluate_solubility_scores.py \
         --input outputs/samples/case1/generated/helm_dpo_samples.txt \
         --output outputs/samples/case1/generated/helm_dpo_samples.solubility.csv
+    python scripts/eval/evaluate_solubility_scores.py \
+        --input scripts/eval_reference_model/peptune_samples/peptune_1000_smiles.csv \
+        --input_type smiles \
+        --output scripts/eval_reference_model/peptune_samples/peptune_1000_smiles.solubility.csv
 """
 
 import argparse
@@ -45,6 +49,13 @@ def parse_args():
     parser.add_argument(
         "--input_type", choices=["helm", "smiles"], default="helm",
         help="Interpret input lines as HELM or SMILES"
+    )
+    parser.add_argument(
+        "--input_column", default=None, type=str,
+        help=(
+            "Optional CSV column to read. If omitted, CSV inputs use 'helm' for "
+            "HELM mode or 'smiles'/'input_smiles' for SMILES mode."
+        )
     )
     parser.add_argument(
         "--peptune_dir", default=None, type=str,
@@ -88,7 +99,46 @@ def resolve_path(path_str: str) -> Path:
     return path
 
 
-def load_sequence_list(path: Path):
+def _normalize_fieldnames(fieldnames):
+    return {name.strip().lower(): name for name in (fieldnames or []) if name}
+
+
+def _infer_csv_column(fieldnames, input_type: str) -> str:
+    field_map = _normalize_fieldnames(fieldnames)
+    preferred = {
+        "helm": ("helm", "helms", "sequence"),
+        "smiles": ("smiles", "input_smiles", "canonical_smiles", "smile"),
+    }[input_type]
+    for key in preferred:
+        if key in field_map:
+            return field_map[key]
+    if fieldnames and len(fieldnames) == 1:
+        return fieldnames[0]
+    available = ", ".join(fieldnames or [])
+    raise ValueError(
+        f"Could not infer {input_type.upper()} column from CSV header. "
+        f"Use --input_column. Available columns: {available}"
+    )
+
+
+def load_sequence_list(path: Path, input_type: str, input_column: str | None = None):
+    if path.suffix.lower() == ".csv":
+        with open(path, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            if not reader.fieldnames:
+                return []
+            column = input_column or _infer_csv_column(reader.fieldnames, input_type)
+            if column not in reader.fieldnames:
+                available = ", ".join(reader.fieldnames)
+                raise ValueError(
+                    f"CSV input column not found: {column}. Available columns: {available}"
+                )
+            return [
+                (row.get(column) or "").strip()
+                for row in reader
+                if (row.get(column) or "").strip()
+            ]
+
     with open(path, "r") as f:
         return [line.strip() for line in f if line.strip()]
 
@@ -107,7 +157,7 @@ def main():
     if not input_path.exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
 
-    sequences = load_sequence_list(input_path)
+    sequences = load_sequence_list(input_path, args.input_type, args.input_column)
     if not sequences:
         raise ValueError(f"No valid sequences found in: {input_path}")
 

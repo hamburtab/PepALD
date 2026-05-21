@@ -1,0 +1,51 @@
+{
+  "model": {
+    "embedding_dim": 512,
+    "d_model": 512,
+    "n_heads": 8,
+    "context_layers": 6,
+    "denoiser_layers": 6,
+    "d_ff": 2048,
+    "max_seq_len": 45,
+    "dropout": 0.3,
+    "num_diffusion_steps": 1000,
+    "variance_schedule": "linear",
+    "beta_start": 0.0001,
+    "beta_end": 0.02,
+    "r_group_dim": 512
+  },
+  "training": {
+    "vocab_file": "./data/processed/helm_vocab.json",
+    "embeddings_dir": "./data/processed/unimol_embeddings",
+    "data_dir": "./data/processed",
+    "batch_size": 8,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0,
+    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/case3_vina_flexible_20k_full_r0",
+    "device": "cuda",
+    "num_workers": 4,
+    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
+  },
+  "generation": {
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/case3_vina_flexible_20k_full_r4/elite_sft/checkpoint_epoch_1.pt",
+    "num_samples": 1000,
+    "max_length": 7,
+    "min_length": 7,
+    "use_ddim": true,
+    "ddim_steps": 50,
+    "lambda_gpt": 0.1,
+    "predict_ring_bonds": true,
+    "cyclization_mode": "predict_ring",
+    "ring_bond_threshold": 0.5,
+    "ring_top_k": 1,
+    "use_embedding_norm": true,
+    "mapping_sample": true,
+    "mapping_top_k": 8,
+    "mapping_top_p": 0.95,
+    "mapping_temperature": 0.85,
+    "mapping_frequency_penalty": 0.35,
+    "output_file": "./outputs/samples/case3/generated/generated_from_checkpoint.txt",
+    "verbose": false,
+    "seed": null
+  }
+}
