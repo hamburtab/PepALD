@@ -112,7 +112,7 @@
     "save_interval_epochs": 1
   },
   "dpo_rounds": {
-    "num_rounds": 3,
+    "num_rounds": 1,
     "output_root": "./outputs/samples/case1/dpo_rounds",
     "run_name": "case1_vina_nearmiss_refine_r7_v2",
     "target_tag": "case1",
@@ -133,11 +133,10 @@
       3
     ],
     "num_samples_per_round": 20000,
-    "bootstrap_num_epochs": 1,
+    "bootstrap_num_epochs": 2,
     "epochs_per_round": [
-      1,
-      1,
-      1
+      2,
+      2
     ],
     "python": "conda run --no-capture-output -n base python",
     "permeability_python": "conda run --no-capture-output -n perm_env python",
