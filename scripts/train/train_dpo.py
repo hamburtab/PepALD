@@ -841,6 +841,8 @@ def main():
             loser_diversity_lambda=dpo_cfg.get('loser_diversity_lambda', 0.20),
             pair_strategy=dpo_cfg.get('pair_strategy', 'nearest_hard_negative'),
             min_reward_gap=float(dpo_cfg.get('min_reward_gap', 0.0)),
+            loser_vina_score_min=dpo_cfg.get('loser_vina_score_min'),
+            loser_vina_score_max=dpo_cfg.get('loser_vina_score_max'),
         )
 
         # Save for reproducibility

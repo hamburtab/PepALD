@@ -179,6 +179,8 @@ def build_preference_pairs(
     loser_diversity_lambda: float = 0.20,
     pair_strategy: str = "nearest_hard_negative",
     min_reward_gap: float = 0.0,
+    loser_vina_score_min: Optional[float] = None,
+    loser_vina_score_max: Optional[float] = None,
 ):
     """
     从生成结果中构造 winner/loser 列表.
@@ -219,6 +221,25 @@ def build_preference_pairs(
 
     winner_pool_idx = sorted_idx[-n_winner_pool:][::-1].tolist()
     loser_pool_idx = sorted_idx[:n_loser_pool].tolist()
+    loser_label = f"bottom {bottom_ratio*100:.0f}%"
+    use_loser_vina_window = (
+        vina_scores is not None
+        and (loser_vina_score_min is not None or loser_vina_score_max is not None)
+    )
+
+    if use_loser_vina_window:
+        vina_arr = np.asarray(vina_scores, dtype=np.float64)
+        lower = -np.inf if loser_vina_score_min is None else float(loser_vina_score_min)
+        upper = np.inf if loser_vina_score_max is None else float(loser_vina_score_max)
+        if lower > upper:
+            lower, upper = upper, lower
+        window_mask = (vina_arr >= lower) & (vina_arr <= upper)
+        loser_pool_idx = np.flatnonzero(window_mask).tolist()
+        loser_label = f"vina window [{lower:.3f}, {upper:.3f}]"
+        if not loser_pool_idx:
+            raise ValueError(
+                f"No loser candidates found in requested Vina window [{lower:.4f}, {upper:.4f}]."
+            )
 
     winner_idx = select_diverse_subset(
         records,
@@ -227,11 +248,21 @@ def build_preference_pairs(
         base_values=all_rewards[winner_pool_idx],
         diversity_lambda=winner_diversity_lambda,
     )
+    if use_loser_vina_window:
+        winner_set = set(winner_idx)
+        loser_pool_idx = [idx for idx in loser_pool_idx if idx not in winner_set]
+        if not loser_pool_idx:
+            raise ValueError("No loser candidates remain after excluding selected winners.")
+
     loser_idx = select_diverse_subset(
         records,
         loser_pool_idx,
         n_bottom,
-        base_values=-all_rewards[loser_pool_idx],
+        base_values=(
+            all_rewards[loser_pool_idx]
+            if use_loser_vina_window
+            else -all_rewards[loser_pool_idx]
+        ),
         diversity_lambda=loser_diversity_lambda,
     )
 
@@ -260,7 +291,7 @@ def build_preference_pairs(
     print(f"Winners (top {top_ratio*100:.0f}%):  n={len(winner_helms)}, "
           f"reward mean={w_rewards.mean():.4f}, std={w_rewards.std():.4f}, "
           f"range=[{w_rewards.min():.4f}, {w_rewards.max():.4f}]")
-    print(f"Losers (bottom {bottom_ratio*100:.0f}%): n={len(loser_helms)}, "
+    print(f"Losers ({loser_label}): n={len(loser_helms)}, "
           f"reward mean={l_rewards.mean():.4f}, std={l_rewards.std():.4f}, "
           f"range=[{l_rewards.min():.4f}, {l_rewards.max():.4f}]")
 
@@ -293,7 +324,7 @@ def build_preference_pairs(
         print(f"  Winner sources: {summarize_sources(winner_idx, records)}")
         print(f"  Loser sources:  {summarize_sources(loser_idx, records)}")
 
-    print(f"Winner pool size: {n_winner_pool}, Loser pool size: {n_loser_pool}")
+    print(f"Winner pool size: {len(winner_pool_idx)}, Loser pool size: {len(loser_pool_idx)}")
     print(f"Diverse selection λ: winners={winner_diversity_lambda:.2f}, losers={loser_diversity_lambda:.2f}")
     print(f"Pair strategy: {pair_strategy}, min_reward_gap={min_reward_gap:.4f}")
 
