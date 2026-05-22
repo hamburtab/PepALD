@@ -372,6 +372,7 @@ def select_vina_helms(
     *,
     top_ratio: float | None = None,
     score_lt: float | None = None,
+    max_count: int | None = None,
 ) -> list[str]:
     """Select HELMs by Vina score from a cache CSV. Lower Vina is better."""
     fieldnames, rows = read_score_rows(score_csv)
@@ -402,6 +403,8 @@ def select_vina_helms(
     if top_ratio is not None:
         target_count = max(1, int(len(scored) * float(top_ratio))) if scored else 0
         scored = scored[:target_count]
+    if max_count is not None and max_count > 0:
+        scored = scored[: int(max_count)]
     return [helm for _, helm in scored]
 
 
@@ -411,19 +414,24 @@ def update_elite_replay_buffer(
     candidate_helms: Sequence[str],
     output_path: Path,
     threshold: float,
+    max_size: int | None = None,
 ) -> list[str]:
     previous_elites = load_helm_list(previous_buffer) if previous_buffer and previous_buffer.exists() else []
     current_elites = select_vina_helms(
         current_vina,
         candidate_helms,
         score_lt=threshold,
+        max_count=max_size,
     )
-    replay = deduplicate_preserve_order([*previous_elites, *current_elites])
+    replay = current_elites
+    if not max_size:
+        replay = deduplicate_preserve_order([*previous_elites, *current_elites])
     write_helm_list(replay, output_path)
+    cap_text = f", capped at {max_size}" if max_size else ""
     print(
         f"Elite replay buffer: {len(previous_elites)} previous + "
         f"{len(current_elites)} current (vina < {threshold:.3f}) -> "
-        f"{len(replay)} unique"
+        f"{len(replay)} unique{cap_text}"
     )
     return replay
 
@@ -563,6 +571,9 @@ def main():
     use_permeability = float(dpo_cfg.get("reward_w_perm", 0.5)) > 0.0
     elite_replay_enabled = bool(rounds_cfg.get("elite_replay_enabled", False))
     elite_replay_threshold = float(rounds_cfg.get("elite_replay_vina_threshold", -7.0))
+    elite_replay_max_size = rounds_cfg.get("elite_replay_max_size")
+    if elite_replay_max_size is not None:
+        elite_replay_max_size = int(elite_replay_max_size)
     elite_sft_enabled = bool(rounds_cfg.get("elite_sft_enabled", False))
     elite_sft_top_ratio = float(rounds_cfg.get("elite_sft_top_ratio", 0.03))
     generated_postprocess = str(rounds_cfg.get("generated_postprocess", "filter_head_tail"))
@@ -881,6 +892,7 @@ def main():
                 candidate_helms,
                 elite_replay_path,
                 elite_replay_threshold,
+                max_size=elite_replay_max_size,
             )
 
         sft_used = False
