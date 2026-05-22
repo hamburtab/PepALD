@@ -146,7 +146,7 @@
     "python": "conda run --no-capture-output -n base python",
     "permeability_python": "conda run --no-capture-output -n perm_env python",
     "elite_replay_enabled": true,
-    "elite_replay_vina_threshold": -7.0,
+    "elite_replay_vina_threshold": -9.1,
     "elite_sft_enabled": true,
     "elite_sft_top_ratio": 0.05,
     "elite_sft_num_epochs": 1,
