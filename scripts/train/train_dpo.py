@@ -743,7 +743,7 @@ def main():
 
     with open(args.config, 'r') as f:
         raw_config = json.load(f)
-    checkpoint_dir = raw_config.get('training', {}).get('checkpoint_dir', '/root/autodl-tmp/checkpoints/ald_dpo')
+    checkpoint_dir = raw_config.get('training', {}).get('checkpoint_dir', './checkpoints/ald_dpo')
     log_path = setup_output_logging(checkpoint_dir)
 
     config = ALDConfig.load(args.config)

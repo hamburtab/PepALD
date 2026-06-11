@@ -21,13 +21,13 @@
     "batch_size": 8,
     "weight_decay": 0.01,
     "max_grad_norm": 1.0,
-    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/case2_vina_flexible_20k_full_r0",
+    "checkpoint_dir": "./checkpoints/dpo_rounds/case2_vina_flexible_20k_full_r0",
     "device": "cuda",
     "num_workers": 4,
-    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
+    "pretrained_checkpoint": "./checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
+    "checkpoint_path": "./checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
     "num_samples": 20000,
     "max_length": 7,
     "min_length": 7,
@@ -115,8 +115,8 @@
     "run_name": "case2_vina_flexible_20k_full",
     "target_tag": "case2",
     "vina_score_name": "case2.flexible.vina",
-    "checkpoint_root": "/root/autodl-tmp/checkpoints/dpo_rounds",
-    "initial_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
+    "checkpoint_root": "./checkpoints/dpo_rounds",
+    "initial_checkpoint": "./checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt",
     "bootstrap_generate": true,
     "base_candidate_file": null,
     "base_vina_score_file": null,

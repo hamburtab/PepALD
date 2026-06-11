@@ -97,13 +97,12 @@ These docking visualizations show four representative PepALD-generated
 macrocyclic peptides selected from the target-specific optimization case
 studies in the paper.
 
-| SPSB2 / 6DN5 | SPSB2 / 6DN5 |
+| Targeted case | Targeted case |
 | --- | --- |
+| **SPSB2 / 6DN5** | **SPSB2 / 6DN5** |
 | ![SPSB2-CP1 docked to 6DN5](docs/assets/readme/spsb2_cp1.png) | ![SPSB2-CP2 docked to 6DN5](docs/assets/readme/spsb2_cp2.png) |
 | **SPSB2-CP1**<br>Vina score: -8.436<br>Permeability: -6.300<br>Solubility: 0.851<br>`PEPTIDE1{A.Mono84.Y.Me_Phe(3-Cl).dP.G.Mono84}` | **SPSB2-CP2**<br>Vina score: -8.256<br>Permeability: -6.576<br>Solubility: 0.839<br>`PEPTIDE1{Me_Bal.P.Mono2.T.P.Y.Phe(4-CF3)}` |
-
-| MtbCM / 9BT3 | MtbCM / 9BT3 |
-| --- | --- |
+| **MtbCM / 9BT3** | **MtbCM / 9BT3** |
 | ![MtbCM-CP1 docked to 9BT3](docs/assets/readme/mtbcm_cp1.png) | ![MtbCM-CP2 docked to 9BT3](docs/assets/readme/mtbcm_cp2.png) |
 | **MtbCM-CP1**<br>Vina score: -11.067<br>Permeability: -5.936<br>Solubility: 0.794<br>`PEPTIDE1{Me_Bal.Mono84.P.L.meA.dF.D}` | **MtbCM-CP2**<br>Vina score: -10.034<br>Permeability: -5.617<br>Solubility: 0.834<br>`PEPTIDE1{Mono6.T.Sar.meF.P.G.D}` |
 

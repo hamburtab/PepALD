@@ -50,7 +50,7 @@ class DPOTrainer:
         freeze_mode: str = 'denoiser_only',
         dpop_winner_reg_alpha: float = 0.0,
         dpop_winner_reg_mode: str = 'external_reg',
-        checkpoint_dir: str = '/root/autodl-tmp/checkpoints/ald_dpo',
+        checkpoint_dir: str = './checkpoints/ald_dpo',
         device: str = 'cuda',
     ):
         self.config = config

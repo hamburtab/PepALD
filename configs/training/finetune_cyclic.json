@@ -30,12 +30,12 @@
     "sample_positions": 45,
     "log_interval": 50,
     "save_interval": 500,
-    "checkpoint_dir": "/root/autodl-tmp/checkpoints/ald_cyclic_6layer",
+    "checkpoint_dir": "./checkpoints/ald_cyclic_6layer",
     "device": "cuda",
     "use_amp": false,
     "num_workers": 4,
     "finetune_mode": true,
-    "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald/checkpoint_epoch_99.pt",
+    "pretrained_checkpoint": "./checkpoints/ald/checkpoint_epoch_99.pt",
     "cyclic_only": true,
     "ring_loss_weight": 0.5,
     "ce_loss_weight": 0.5,
@@ -44,7 +44,7 @@
     "freeze_diffusion": false
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/ald_cyclic_6layer/checkpoint_epoch_40.pt",
+    "checkpoint_path": "./checkpoints/ald_cyclic_6layer/checkpoint_epoch_40.pt",
     "num_samples": 1000,
     "max_length": 12,
     "min_length": 7,
