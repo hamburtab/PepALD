@@ -242,10 +242,8 @@ The permeability workflow expects a random-forest model at:
 data/models/permeability/regression_rf.pkl
 ```
 
-If `data/models/permeability/regression_rf.pkl` is present in your checkout or
-release package, no extra setup is required for permeability scoring. If it is
-missing, place the permeability predictor at this path before running the
-permeability evaluation scripts.
+This predictor is included in the repository, so no extra setup is required for
+permeability scoring after cloning the project.
 
 ## Training
 
