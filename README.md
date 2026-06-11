@@ -1,4 +1,4 @@
-# PepALD / PepAR-Diff
+# PepALD
 
 **Autoregressive latent diffusion for HELM-based macrocyclic peptide generation.**
 
@@ -283,7 +283,6 @@ Related target configs:
 
 ```text
 configs/training/dpo.json        # SPSB2 / 6DN5 case
-configs/training/dpo_2axi.json   # 2AXI-related docking config
 configs/training/dpo_case3.json  # additional target case
 ```
 

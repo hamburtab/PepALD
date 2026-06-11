@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/training/dpo_2axi.json",
+        default="configs/training/dpo.json",
         help="Path to DPO config with a top-level dpo_rounds block.",
     )
     parser.add_argument(
@@ -593,8 +593,8 @@ def main():
     if override_unidock_gpu_ids:
         unidock_gpu_ids = override_unidock_gpu_ids
 
-    output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/case2/dpo_rounds"))
-    run_name = str(rounds_cfg.get("run_name", "2axi"))
+    output_root = resolve_path(rounds_cfg.get("output_root", "outputs/samples/case1/dpo_rounds"))
+    run_name = str(rounds_cfg.get("run_name", "case1"))
     target_tag = str(rounds_cfg.get("target_tag", run_name.split("_")[0] or "target"))
     vina_score_name = str(rounds_cfg.get("vina_score_name", f"{target_tag}.vina"))
     checkpoint_root = resolve_path(

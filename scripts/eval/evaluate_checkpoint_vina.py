@@ -102,7 +102,6 @@ def infer_case_dir(config_path: Path, config: dict) -> tuple[str, Path]:
 def infer_dpo_config(case_tag: str) -> Path:
     mapping = {
         "case1": PROJECT_ROOT / "configs" / "training" / "dpo.json",
-        "case2": PROJECT_ROOT / "configs" / "training" / "dpo_2axi.json",
         "case3": PROJECT_ROOT / "configs" / "training" / "dpo_case3.json",
     }
     path = mapping.get(case_tag, PROJECT_ROOT / "configs" / "training" / f"dpo_{case_tag}.json")
