@@ -1,0 +1,282 @@
+\section{Results}\label{sec:results}
+
+\subsection{Generation quality of prior models}\label{subsec:prior_generation_quality}
+
+We first evaluated the basic generation quality of two PepALD prior models: PepALD$_{\mathrm{ChEMBL}}$, obtained by pretraining on ChEMBL32 HELM peptide sequences, and PepALD$_{\mathrm{CycPeptMPDB}}$, obtained by further fine-tuning PepALD$_{\mathrm{ChEMBL}}$ on CycPeptMPDB cyclic peptide sequences.
+We compared these two PepALD priors with HELM-GPT and PepMDLM.
+HELM-GPT provides a closely matched HELM-level baseline, as it was likewise pretrained on the ChEMBL database and further fine-tuned on the CycPeptMPDB database \citep{ref_helm_gpt}.
+PepMDLM denotes the SMILES-based peptide diffusion prior underlying PepTune before multi-objective inference-time guidance; this prior was trained on a peptide SMILES corpus compiled from CycPeptMPDB, SmProt, and a CycloPs-generated modified-peptide library \citep{ref_peptune}.
+
+Five generation-quality metrics are adapted from MOSES \citep{ref_moses} to evaluate generation quality: validity, uniqueness, novelty, internal diversity, and similarity to the nearest training-set neighbor (SNN). Detailed definitions and implementation details are provided in Supplementary Section~8. Table~\ref{tab:prior_models} presents the evaluation results of the PepALD prior models and reference baselines.
+Benefiting from HELM-based monomer-level assembly, a chemically informed foundation-model prior, and autoregressive diffusion for chain-like molecular generation, PepALD$_{\mathrm{ChEMBL}}$ achieved a validity of 0.951 for generating chemically valid peptide structures, substantially higher than HELM-GPT$_{\mathrm{ChEMBL}}$ (validity of 0.708) and PepMDLM (validity of 0.334).
+Beyond validity, benefiting from the generative capability of the diffusion-based paradigm, the ChEMBL-pretrained PepALD prior, together with PepMDLM, achieved peak performance in both novelty and uniqueness, with values of 1.000.
+It also achieved the highest internal diversity of 0.790 among the baseline models, along with a SNN of 0.441, outperforming HELM-GPT prior model and PepMDLM.
+After fine-tuning on the CycPeptMPDB dataset, PepALD continued to show leading performance across these generation-quality metrics.
+
+\begin{table*}[!t]
+\centering
+\caption{Evaluation of PepALD prior models and reference baselines.}
+\label{tab:prior_models}
+\small
+\setlength{\tabcolsep}{0pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccccc@{}}
+\toprule
+Model & Validity & Uniqueness & Diversity & SNN & Novelty \\
+\midrule
+Baseline$_{\mathrm{ChEMBL}}$ & \textbf{1.000} & \textbf{1.000} & \underline{0.768} & 1.000 & 0.000 \\
+HELM-GPT$_{\mathrm{ChEMBL}}$ & 0.708 & 0.890 & 0.740 & 0.750 & \underline{0.889} \\
+HELM-GPT$_{\mathrm{CycPeptMPDB}}$ & 0.839 & \underline{0.913} & 0.595 & 0.975 & 0.461 \\
+PepMDLM & 0.334 & \textbf{1.000} & 0.709 & 0.590 & \textbf{1.000} \\
+PepALD$_{\mathrm{ChEMBL}}$ & \underline{0.951} & \textbf{1.000} & \textbf{0.790} & \textbf{0.441} & \textbf{1.000} \\
+PepALD$_{\mathrm{CycPeptMPDB}}$ & 0.933 & \textbf{1.000} & 0.726 & \underline{0.504} & \textbf{1.000} \\
+\bottomrule
+\end{tabular*}
+\begin{flushleft}
+\footnotesize Baseline$_{\mathrm{ChEMBL}}$ denotes samples from the ChEMBL dataset. PepALD$_{\mathrm{ChEMBL}}$ and PepALD$_{\mathrm{CycPeptMPDB}}$ are the PepALD prior models, corresponding to the ChEMBL-pretrained and CycPeptMPDB-fine-tuned generators, respectively. HELM-GPT$_{\mathrm{ChEMBL}}$ and HELM-GPT$_{\mathrm{CycPeptMPDB}}$ are the corresponding HELM-GPT prior models; PepMDLM denotes the pretrained PepTune/PepMDLM reference model.
+\end{flushleft}
+\end{table*}
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{result_data/figure_about_monomer/fig2_prior_monomer_coverage.pdf}
+\caption{Prior monomer-space and residue-family coverage before downstream optimization.
+(a) Monomer-level chemical-space coverage, where the gray background denotes the full monomer library projected from molecular fingerprints and highlighted points denote monomers used by HELM-GPT and PepALD samples; point size is proportional to monomer usage frequency.
+(b) Monomer rarefaction curves over generated peptides.
+(c) Fingerprint-cluster rarefaction curves over generated peptides; fingerprint clusters were obtained by applying K-means clustering to SVD-reduced Morgan-fingerprint representations of the full mapped monomer library.
+Only clean monomers mapped to the monomer SMILES library are included.}
+\label{fig:prior_monomer_coverage}
+\end{figure*}
+
+Because PepALD performs diffusion-based generation in a latent space informed by molecular chemical properties, it is not constrained by local minima arising from fixed combinations of building blocks, enabling the generation of diverse peptide molecules.
+We therefore examined whether its generalizability was accompanied by broader use of the underlying monomer library.
+In the 1000-sample monomer-level evaluation, PepALD used 263 clean monomers mapped to the monomer SMILES library, whereas HELM-GPT used 34 mapped monomers (Fig.~\ref{fig:prior_monomer_coverage}a).
+To assess whether this broader monomer usage also covered distinct residue families, we grouped the mapped monomer library into 48 fingerprint-derived clusters.
+The rarefaction curves show that this advantage was sustained across sampling depths at both resolutions: PepALD accumulated new monomers more rapidly (Fig.~\ref{fig:prior_monomer_coverage}b) and occupied 37 clusters, compared with 15 clusters for HELM-GPT (Fig.~\ref{fig:prior_monomer_coverage}c).
+Together, the monomer- and monomer-cluster-level analyses indicate that PepALD samples more broadly within the existing monomer chemical space, covering more residue identities and fingerprint-derived residue families.
+
+\subsection{Cell permeability optimization}\label{subsec:permeability_optimization}
+
+To establish a permeability-enriched starting point for subsequent receptor-specific optimization, we next evaluated whether PepALD could be shifted toward cell-permeable macrocyclic peptides while retaining chemical diversity.
+As described in Section~\ref{subsubsec:permeability_prior}, the permeability-enriched PepALD model was initialized from the cyclic prior and further fine-tuned on the top $1\,000$ training-set molecules with the highest predicted permeability scores.
+For permeability scoring, we adopted the random-forest predictor previously used in HELM-GPT \citep{ref_helm_gpt}, which achieved a Spearman correlation of 0.82 on a held-out macrocyclic-peptide test set and successfully guided HELM-space permeability optimization.
+Accordingly, we used this predictor to compute the average predicted permeability (less negative values indicating better membrane permeability) of cyclic peptides generated by each method.
+During cyclic-prior training followed by permeability-oriented fine-tuning, the fitted mean permeability increased from $-7.069$ to $-6.688$ and then to $-5.822$ (Supplementary Fig.~S2), indicating a progressive shift toward the high-permeability regime.
+
+\begin{table*}[!b]
+\centering
+\small
+\caption{Evaluation of permeability-oriented generation.}
+\label{tab:permeability_models}
+\setlength{\tabcolsep}{0pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}lccccc@{}}
+\toprule
+Model & Permeability & Solubility & Diversity & SNN & Validity \\
+\midrule
+Baseline$_{\mathrm{ChEMBL}}$ & -7.104 & \underline{0.837} & \underline{0.768} & 1.000 & \textbf{1.000} \\
+HELM-GPT$_{\mathrm{perm}}$ & \textbf{-5.396} & 0.759 & 0.553 & 0.621 & 0.253 \\
+PepTune & -7.378 & 0.825 & 0.611 & 0.537 & 0.341 \\
+PepALD$_{\mathrm{perm}}$ & \underline{-5.822} & 0.788 & 0.660 & 0.585 & \underline{0.955} \\
+PepALD$_{\mathrm{ChEMBL}}$ & -7.069 & 0.821 & \textbf{0.790} & \textbf{0.441} & 0.951 \\
+PepALD$_{\mathrm{CycPeptMPDB}}$ & -6.669 & \textbf{0.840} & 0.726 & \underline{0.504} & 0.933 \\
+\bottomrule
+\end{tabular*}
+\begin{flushleft}
+\footnotesize Baseline$_{\mathrm{ChEMBL}}$ denotes samples from the ChEMBL dataset. PepALD$_{\mathrm{ChEMBL}}$ and PepALD$_{\mathrm{CycPeptMPDB}}$ are the PepALD priors before permeability fine-tuning. HELM-GPT$_{\mathrm{perm}}$ is the permeability-oriented HELM-GPT baseline; PepTune denotes the PepTune/PepMDLM reference model. Permeability is higher-is-better, and solubility is the PepTune predicted soluble-class probability.
+\end{flushleft}
+\end{table*}
+
+Table~\ref{tab:permeability_models} compares PepALD$_{\mathrm{perm}}$ with permeability-oriented baselines.
+HELM-GPT$_{\mathrm{perm}}$ denotes the HELM-GPT model optimized for permeability, whereas PepTune represents the PepMDLM model using permeability-oriented guidance.
+At the peptide level, the permeability-oriented PepALD samples occupied a broad region while retaining partial overlap with HELM-GPT (Fig.~\ref{fig:permeability_peptide_space}), indicating that the permeability shift did not collapse generation into a narrow peptide-space neighborhood.
+
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.70\linewidth]{result_data/figure_about_monomer/fig3_peptide_space.pdf}
+\caption{Peptide-level chemical-space coverage after permeability-oriented generation, shown as an MDS projection of pairwise molecular-fingerprint distances for valid samples from PepMDLM, HELM-GPT, and PepALD.}
+\label{fig:permeability_peptide_space}
+\end{figure}
+
+Because adequate aqueous solubility is needed to maintain the concentration gradient that drives membrane flux, we also report the predicted soluble-class probability alongside permeability \citep{ref_peptune}, with the valid-sample solubility distributions shown in Fig.~\ref{fig:permeability_optimization}a.
+In terms of permeability, PepALD$_{\mathrm{perm}}$ achieved a mean predicted permeability of -5.8215, marginally inferior to HELM-GPT$_{\mathrm{perm}}$ (-5.3964) among the generative models and substantially better than PepTune (-7.3783), as illustrated by the predicted permeability distributions in Fig.~\ref{fig:permeability_optimization}b.
+However, the higher permeability of HELM-GPT$_{\mathrm{perm}}$ was accompanied by a marked reduction in generation usability.
+Its validity was only 0.253, compared with 0.955 for PepALD$_{\mathrm{perm}}$ and 0.341 for PepTune.
+PepALD$_{\mathrm{perm}}$ also retained stronger generation-quality characteristics, with an internal diversity of 0.660 that exceeded both HELM-GPT$_{\mathrm{perm}}$ and PepTune, together with a moderate SNN of 0.585.
+
+The importance of validity and diversity was further supported by the SNN-gated batch-discovery analysis in Fig.~\ref{fig:permeability_optimization}c.
+When equal-size raw-sample batches were filtered by an SNN $<0.60$ novelty gate, HELM-GPT$_{\mathrm{perm}}$ produced progressively fewer retained candidates during repeated sampling, suggesting that its generated samples increasingly revisited chemically similar neighborhoods.
+In contrast, PepALD$_{\mathrm{perm}}$ continued to provide nonredundant candidates within the desired permeability range across sampling batches.
+
+Through a permeability-oriented strategy, PepALD$_{\mathrm{perm}}$ not only exhibits superior properties in terms of permeability scores, but also preserves the structural plausibility, diversity, and solubility of the generated cyclic peptides, which suggests that PepALD$_{\mathrm{perm}}$ provides an effective and balanced framework for the in silico design of cyclic peptides.
+
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=0.97\textwidth]{result_data/figure_solu_perm/fig4_abc_property_panels.pdf}
+\caption{Permeability-oriented optimization and sample usability.
+(a) Predicted soluble-class probability distributions for valid samples from PepTune, HELM-GPT$_{\mathrm{perm}}$, and PepALD$_{\mathrm{perm}}$; non-ok conversions or NaN scores were excluded.
+(b) Predicted permeability-score distributions of valid generated samples from the same generators; sentinel scores ($\leq -10$) were excluded.
+(c) SNN-gated batch discovery from equal-size raw-sample batches.
+Failed HELM-to-molecule conversions were discarded.
+Each batch drew 40 samples per model, and the remaining candidates were retained only if their maximum Morgan-fingerprint Tanimoto similarity to the previously accepted pool was below 0.60.
+For readability, panel (c) displays retained candidates with permeability scores between $-7$ and $-5$.}
+\label{fig:permeability_optimization}
+\end{figure*}
+
+\subsection{Optimization for specific tasks}\label{subsec:specific_task_optimization}
+
+We further applied \mytool to two target-specific macrocyclic peptide optimization cases: SPRY domain-containing SOCS box protein 2 (SPSB2, PDB id: 6DN5) and Chorismate Mutase from Mycobacterium tuberculosis (MtbCM, PDB id: 9BT3).
+To optimize and evaluate the ability of generated macrocyclic peptides to bind the target proteins, we utilized docking scores from Uni-Dock, a GPU-accelerated Vina-style docking engine, as both the candidate rewards and the affinity metric \citep{ref_unidock}.
+To more comprehensively evaluate the applicability of PepALD in macrocyclic peptide drug-design scenarios, the predicted membrane permeability and aqueous solubility of the generated peptides were also incorporated as evaluation metrics.
+
+\subsubsection{Cyclic peptide generation for SPSB2}\label{subsubsec:spsb2_generation}
+
+SPSB2 is a SPRY domain-containing adaptor protein that recruits iNOS for ubiquitin-mediated degradation, thereby suppressing nitric oxide production and modulating host antimicrobial responses.
+Designing cyclic peptide inhibitors against the SPSB2-iNOS interface can potently and selectively stabilize iNOS levels, offering a structure-guided strategy for enhancing nitric oxide-dependent clearance of intracellular pathogens.
+
+In this task, we aim to generate cell-permeable macrocyclic peptide binders targeting SPSB2 structure from PDB structure 6DN5 using \mytool.
+Given the exploratory capacity of \mytool, we did not introduce any additional 6DN5-specific peptide or ligand set as prior information.
+Instead, the WP-DPO policy was initialized directly from PepALD$_{\mathrm{perm}}$ and optimized using the strategy described in Section~\ref{subsec:preference_optimization}.
+
+The Vina-score distributions in Fig.~\ref{fig:specific_task_optimization}a show a steady shift toward more favorable docking scores during WP-DPO.
+Through ten optimization rounds, \mytool can generate macrocyclic peptide with more favorable docking scores, improving the mean Vina score from -5.832 for PepALD$_{\mathrm{perm}}$ to -7.020 for PepALD$_{\mathrm{SPSB2}}$.
+The top-ranked subsets exceeded the reference ligand in predicted docking affinity, with mean Vina scores of -8.037 for the top $10\%$ and -7.746 for the top $25\%$, compared with -7.627 for the reference ligand.
+At the same time, the optimized population retained high predicted solubility (0.863) and internal diversity (0.654), and its predicted permeability (-6.593) remained higher than that of the reference ligand (-7.181).
+
+\subsubsection{Cyclic peptide generation for MtbCM}\label{subsubsec:mtbcm_generation}
+
+Chorismate mutase from Mycobacterium tuberculosis (Mtb) is a secreted enzyme implicated in bacterial virulence and host-pathogen interactions. 
+Designing cyclic peptide inhibitors against Mtb chorismate mutase (MtbCM) has the potential of enabling potent enzymatic inhibition and providing new ligand scaffolds for tuberculosis therapies amid rising antibiotic resistance.
+
+In this task, we used \mytool to generate cyclic peptides against the MtbCM structure represented by PDB id 9BT3. The WP-DPO optimization procedure followed the same workflow as the SPSB2-binding cyclic peptide generation task described above.
+
+The MtbCM-targeted task showed the same self-improving behavior under generated-data WP-DPO.
+The mean Vina score improved from \mbox{-7.641} for PepALD$_{\mathrm{perm}}$ to \mbox{-8.645} for PepALD$_{\mathrm{MtbCM}}$, and the top-ranked generated subsets reached substantially stronger docking scores.
+In particular, the top $10\%$ subset achieved a mean Vina score of -10.324, and the top $25\%$ subset reached -9.781, matching the reference ligand-level docking performance (-9.730).
+The optimized cyclic peptides exhibited substantially better predicted permeability than the reference ligand, with a mean score of -5.889 compared with -7.089, while maintaining high solubility (0.857) and diversity (0.660).
+
+Together with the SPSB2-targeted task, these results indicate that the permeability-enriched \mytool prior can be redirected to new protein structures through WP-DPO-driven optimization using only model-generated preference data, while maintaining favorable permeability and solubility.
+This highlights the practical potential of PepALD for cyclic peptide design.
+
+\begin{table*}[!b]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{0pt}
+\begin{minipage}[t]{0.495\textwidth}
+\centering
+\textbf{(a) PepALD-generated cyclic peptides binding 6DN5}\\[1pt]
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}l
+S[table-format=-1.3]
+S[table-format=1.3]
+S[table-format=1.3]
+S[table-format=-2.3]@{}}
+\toprule
+Model & \multicolumn{1}{c}{Permeability} & \multicolumn{1}{c}{Solubility} & \multicolumn{1}{c}{Diversity} & \multicolumn{1}{c}{Vina score} \\
+\midrule
+PepALD$_{\mathrm{perm}}$ & -5.804 & 0.794 & 0.656 & -5.832 \\
+PepALD$_{\mathrm{SPSB2}}$ & -6.593 & 0.863 & 0.654 & -7.020 \\
+Top $10\%$ & -6.622 & 0.819 & 0.608 & -8.037 \\
+Top $25\%$ & -6.619 & 0.836 & 0.634 & -7.746 \\
+Reference ligand & -7.181 & 0.785 & \multicolumn{1}{c}{--} & -7.627 \\
+\bottomrule
+\end{tabular*}
+\end{minipage}\hfill%
+\begin{minipage}[t]{0.495\textwidth}
+\centering
+\textbf{(b) PepALD-generated cyclic peptides binding 9BT3}\\[1pt]
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular*}{\linewidth}{@{\extracolsep{\fill}}l
+S[table-format=-1.3]
+S[table-format=1.3]
+S[table-format=1.3]
+S[table-format=-2.3]@{}}
+\toprule
+Model & \multicolumn{1}{c}{Permeability} & \multicolumn{1}{c}{Solubility} & \multicolumn{1}{c}{Diversity} & \multicolumn{1}{c}{Vina score} \\
+\midrule
+PepALD$_{\mathrm{perm}}$ & -5.804 & 0.794 & 0.656 & -7.641 \\
+PepALD$_{\mathrm{MtbCM}}$ & -5.889 & 0.857 & 0.660 & -8.645 \\
+Top $10\%$ & -5.987 & 0.876 & 0.631 & -10.324 \\
+Top $25\%$ & -5.934 & 0.865 & 0.631 & -9.781 \\
+Reference ligand & -7.089 & 0.917 & \multicolumn{1}{c}{--} & -9.730 \\
+\bottomrule
+\end{tabular*}
+\end{minipage}
+\caption{Target-specific optimization metrics.
+(a) Optimization of PepALD-generated cyclic peptides binding 6DN5.
+(b) Optimization of PepALD-generated cyclic peptides binding 9BT3.
+Each panel reports scalar metrics for PepALD$_{\mathrm{perm}}$, the final task policy, top-ranked generated subsets, and the reference ligand.
+Permeability, solubility, and diversity are higher-is-better; Vina score is lower-is-better.}
+\label{tab:spsb2_task}
+\label{tab:mtbcm_task}
+\label{tab:specific_task_metrics}
+\end{table*}
+
+\begin{figure*}[!t]
+\centering
+\small
+\begingroup
+\newcommand{\dockposepanel}[9]{%
+\begin{minipage}[t]{0.315\textwidth}
+\centering
+\textbf{#1. #2}\\[3pt]
+\begin{tikzpicture}
+\node[inner sep=0pt] (poseimage)
+{\includegraphics[width=\linewidth,height=1.25in,keepaspectratio,#4]{#3}};
+\node[
+anchor=south east,
+fill=white,
+fill opacity=0.90,
+text opacity=1,
+inner xsep=2.2pt,
+inner ysep=1.6pt,
+font=\tiny\sffamily,
+align=left
+] at ([xshift=-1pt,yshift=1pt]poseimage.south east)
+{\textbf{Vina score}\\#5\\[-0.5pt]\textbf{Permeability}\\#6\\[-0.5pt]\textbf{Solubility}\\#7};
+\end{tikzpicture}\\[-1pt]
+\parbox{\linewidth}{\raggedright\tiny\ttfamily
+\detokenize{#8}\\[-1pt]\detokenize{#9}\par}
+\end{minipage}%
+}
+\begin{minipage}[t]{0.315\textwidth}
+\centering
+\textbf{a. SPSB2-targeted WP-DPO optimization}\\[3pt]
+\includegraphics[width=\linewidth,height=1.25in,keepaspectratio]{result_data/case1_samples_vina/case1_vina_violin.pdf}
+\end{minipage}\hfill
+\dockposepanel{b}{SPSB2-CP1}
+{result_data/3d_plot/case1/ligand4.png}
+{trim=0 0 60 0,clip}
+{-8.436}{-6.300}{0.851}
+{PEPTIDE1{A.Mono84.Y.Me_Phe(3-Cl).dP.G.Mono84}}
+{$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$}\hfill
+\dockposepanel{c}{SPSB2-CP2}
+{result_data/3d_plot/case1/ligand7.png}
+{trim=0 0 60 0,clip}
+{-8.256}{-6.576}{0.839}
+{PEPTIDE1{Me_Bal.P.Mono2.T.P.Y.Phe(4-CF3)}}
+{$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$}
+\par\vspace{7pt}
+\begin{minipage}[t]{0.315\textwidth}
+\centering
+\textbf{d. MtbCM-targeted WP-DPO optimization}\\[3pt]
+\includegraphics[width=\linewidth,height=1.25in,keepaspectratio]{result_data/case2_samples_vina/case2_vina_violin.pdf}
+\end{minipage}\hfill
+\dockposepanel{e}{MtbCM-CP1}
+{result_data/3d_plot/case2/ligand3.png}
+{trim=410 0 360 0,clip}
+{-11.067}{-5.936}{0.794}
+{PEPTIDE1{Me_Bal.Mono84.P.L.meA.dF.D}}
+{$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$}\hfill
+\dockposepanel{f}{MtbCM-CP2}
+{result_data/3d_plot/case2/ligand4.png}
+{trim=410 0 360 0,clip}
+{-10.034}{-5.617}{0.834}
+{PEPTIDE1{Mono6.T.Sar.meF.P.G.D}}
+{$PEPTIDE1,PEPTIDE1,1:R1-7:R2$$$}
+\caption{Target-specific WP-DPO optimization redirects PepALD toward receptor-favorable macrocyclic peptides while retaining permeability-related properties.
+(a) Vina score distributions for SPSB2-targeted cyclic peptide generation, targeting the SPSB2--iNOS interface represented by 6DN5, from PepALD$_{\mathrm{perm}}$ through iterative WP-DPO rounds.
+(b,c) Representative optimized SPSB2 cyclic-peptide candidates docked to 6DN5.
+(d) Vina score distributions for MtbCM-targeted cyclic peptide generation, targeting Mtb chorismate mutase (MtbCM) represented by 9BT3, under the same optimization protocol.
+(e,f) Representative optimized MtbCM cyclic-peptide candidates docked to 9BT3.}
+\label{fig:specific_task_optimization}
+\endgroup
+\end{figure*}

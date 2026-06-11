@@ -1,0 +1,376 @@
+\begin{methods}
+\section{Materials and Methods}\label{sec:methods}
+
+\subsection{Overview}\label{subsec:overview}
+
+We use HELM sequences mapped into the Uni-Mol latent space as model inputs. The model consists of three core components: a causal context encoder, a context-conditioned denoising network, and a ring-bond predictor. We then optimize the framework for target properties through a diffusion-adapted preference optimization procedure. More details can be found in Figure~\ref{fig:architecture}.
+
+\begin{figure*}[!t]%
+\centering
+\includegraphics[width=\textwidth]{result_data/fig1_7 (1).png}
+\caption{Overview of the PepALD framework.
+At each autoregressive step $t$, the Causal Context Encoder transforms the previously generated monomer embeddings $(\mathbf{e}_0, \ldots, \mathbf{e}_{t-1})$ into a context vector $\mathbf{h}_t$.
+A context-conditioned Diffusion Engine then samples a continuous embedding $\mathbf{z}_t$ via iterative denoising in the Uni-Mol latent space.
+The Token Mapper discretizes $\mathbf{z}_t$ into a HELM monomer token $x_t$ subject to position-dependent R-group chemical constraints.
+Concurrently, the Autoregressive Ring Predictor evaluates potential ring-closure bonds between $x_t$ and all preceding residues using R-group compatibility scoring.
+The process repeats until the target sequence length is reached, yielding a complete macrocyclic peptide with predicted ring topology.
+}\label{fig:architecture}
+\end{figure*}
+%%
+%% [DRAWING GUIDE FOR FIGURE 1 — Overall Architecture]
+%%
+%% Layout: horizontal left-to-right pipeline, with a vertical time axis showing
+%% autoregressive unrolling for steps t=0, 1, ..., T-1.
+%%
+%% LEFT BLOCK — "Causal Context Encoder":
+%%   - Show a stack of causal Transformer layers with a triangular attention mask.
+%%   - Input: sequence of Uni-Mol monomer embeddings (e_0, ..., e_{t-1}).
+%%   - A special "Start Token" embedding feeds position t=0.
+%%   - Output arrow labeled h_t pointing right.
+%%
+%% CENTER BLOCK — "Diffusion Engine":
+%%   - Show the reverse diffusion trajectory: z_K (noise) → z_{K-1} → ... → z_0 (clean).
+%%   - Inside each denoising step, show a DenoiserBlock with:
+%%       (a) AdaptiveLayerNorm conditioned on timestep k,
+%%       (b) Cross-Attention receiving h_t from the left block.
+%%   - Output arrow labeled z_t pointing right.
+%%
+%% RIGHT BLOCK — "Token Mapper + Ring Predictor":
+%%   - Token Mapper: show z_t compared against a codebook of Uni-Mol reference
+%%     embeddings via cosine distance, with a filter icon for R-group constraints.
+%%   - Below or beside it, show the Ring Predictor: current R-group embeddings
+%%     (R1, R2, R3) dot-producted against history R-groups, producing a 3x3
+%%     compatibility matrix, feeding into position and type prediction heads.
+%%   - Output: discrete token x_t and optional ring bond annotation.
+%%
+%% BOTTOM — "Feedback loop":
+%%   - Arrow from x_t back to the left block, showing the embedding of x_t
+%%     being appended to the history for the next step.
+%%
+%% OPTIONAL INSET — "Training Objectives":
+%%   - Small box showing the three loss terms: L_diff (MSE), L_CE, L_ring.
+%%
+
+
+
+
+\subsection{Representing HELM Grammar with Chemically Informed Monomer Embeddings}\label{subsec:helm}
+
+We adopt HELM as the native sequence representation \citep{ref_helm}. Under the HELM specification, each monomer exposes a set of canonical attachment points---such as $\mathrm{R1}$, $\mathrm{R2}$, and $\mathrm{R3}$---through which all covalent bonds, backbone amides and intramolecular ring closures alike, are explicitly specified.
+
+We next associate each monomer in the HELM vocabulary with a pre-computed embedding derived from Uni-Mol, a molecular representation model pre-trained to capture three-dimensional molecular geometry and chemical semantics \citep{ref_unimol}. To preserve both residue-level identity and attachment-site chemistry, we extract a molecule-level representation for the whole monomer and atom-level representations for the atoms adjacent to the HELM R-group attachment sites. Missing R-group sites are represented by zero vectors.
+Specifically, for each monomer $m$ with SMILES representation, we extract a structured embedding vector:
+\begin{equation}
+\mathbf{e}_m = \bigl[\mathbf{e}_m^{\mathrm{CLS}},\; \mathbf{e}_m^{\mathrm{R1}},\; \mathbf{e}_m^{\mathrm{R2}},\; \mathbf{e}_m^{\mathrm{R3}}\bigr] \in \mathbb{R}^{4 \times d}
+\label{eq:unimol_full}
+\end{equation}
+where $\mathbf{e}_m^{\mathrm{CLS}} \in \mathbb{R}^d$ is the molecule-level representation, and $\mathbf{e}_m^{\mathrm{R}i} \in \mathbb{R}^d$ ($i \in \{1,2,3\}$) are the atomic representations at the respective R-group attachment sites.
+
+The embedding matrix is pre-computed for all $|\mathcal{V}|$ monomers in the vocabulary and frozen during training, ensuring that the diffusion process operates in a chemically grounded latent space rather than a learned but potentially arbitrary token space.
+
+
+\subsection{ALD generative model}\label{subsec:ald_generative_model}
+
+Conditioned on a target length $T$, PepALD defines the probability of a HELM monomer sequence $\mathbf{x}=(x_1,\ldots,x_T)$ by an ALD process. At position $t$, the already generated prefix is summarized as a causal context vector $\mathbf{h}_t=f_{\mathrm{ctx}}(x_{<t})$, with a learnable start context used for $t=1$. The clean latent variable for the next residue is identified with the frozen Uni-Mol embedding of the corresponding monomer, $\mathbf{z}_{t,0}=\tilde{\mathbf{e}}_{x_t}$. Thus,
+\begin{equation}
+p_\theta(\mathbf{x}\mid T)=\prod_{t=1}^{T}p_\theta(x_t\mid x_{<t}),
+\label{eq:ald_ar_factorization}
+\end{equation}
+where each discrete conditional distribution is induced by a continuous conditional density $p_\theta(\mathbf{z}_{t,0}\mid \mathbf{h}_t)$ followed by a chemically constrained projection to the HELM vocabulary:
+\begin{equation}
+p_\theta(x_t=m\mid x_{<t})=
+\int \mathds{1}\!\left[\mathcal{M}_t(\mathbf{z},\mathbf{h}_t)=m\right]\,
+p_\theta(\mathbf{z}\mid \mathbf{h}_t)\,d\mathbf{z}.
+\label{eq:ald_induced_token_distribution}
+\end{equation}
+Here $\mathcal{M}_t$ denotes the position-aware token mapping rule, and its admissible set is restricted by the R-group requirements of the current backbone position.
+
+\subsubsection{Forward diffusion}
+
+For each valid residue position, the forward process perturbs the clean monomer embedding independently in the Uni-Mol latent space. Let $\{\beta_k\}_{k=1}^{K}$ be the variance schedule, $\alpha_k=1-\beta_k$, and $\bar{\alpha}_k=\prod_{s=1}^{k}\alpha_s$. PepALD uses the standard DDPM Gaussian kernel \citep{ref_ddpm}:
+\begin{equation}
+q(\mathbf{z}_{t,k}\mid \mathbf{z}_{t,0},\mathbf{h}_t)
+=\mathcal{N}\!\left(\sqrt{\bar{\alpha}_k}\mathbf{z}_{t,0},
+(1-\bar{\alpha}_k)\mathbf{I}\right),
+\label{eq:ald_forward_kernel}
+\end{equation}
+In the forward process, the noising kernel is conditionally independent of the autoregressive context, i.e., $q(\mathbf{z}_{t,k}\mid \mathbf{z}_{t,0},\mathbf{h}_t)=q(\mathbf{z}_{t,k}\mid \mathbf{z}_{t,0})$.
+equivalently,
+\begin{equation}
+\mathbf{z}_{t,k}=\sqrt{\bar{\alpha}_k}\mathbf{z}_{t,0}
++\sqrt{1-\bar{\alpha}_k}\boldsymbol{\epsilon},\quad
+\boldsymbol{\epsilon}\sim\mathcal{N}(\mathbf{0},\mathbf{I}).
+\label{eq:ald_forward_sample}
+\end{equation}
+During training, $k$ is sampled uniformly from $\{1,\ldots,K\}$ for every non-padding token, and the denoising network is trained to predict the injected noise $\boldsymbol{\epsilon}$ from $(\mathbf{z}_{t,k},k,\mathbf{h}_t)$.
+
+\subsubsection{Reverse denoising with hybrid sampling}\label{subsubsec:reverse_hybrid_sampling}
+
+Generation starts from isotropic Gaussian noise $\mathbf{z}_{t,K}\sim\mathcal{N}(\mathbf{0},\mathbf{I})$ for each autoregressive position. The reverse transition is parameterized by the context-conditioned noise predictor $\boldsymbol{\epsilon}_\theta$:
+\begin{equation}
+p_\theta(\mathbf{z}_{t,k-1}\mid \mathbf{z}_{t,k},\mathbf{h}_t)
+=\mathcal{N}\!\left(\boldsymbol{\mu}_\theta(\mathbf{z}_{t,k},k,\mathbf{h}_t),
+\sigma_k^2\mathbf{I}\right),
+\label{eq:ald_reverse_kernel}
+\end{equation}
+with
+\begin{equation}
+\boldsymbol{\mu}_\theta=
+\frac{1}{\sqrt{\alpha_k}}\left(
+\mathbf{z}_{t,k}
+-\frac{1-\alpha_k}{\sqrt{1-\bar{\alpha}_k}}\,
+\boldsymbol{\epsilon}_\theta(\mathbf{z}_{t,k},k,\mathbf{h}_t)
+\right),
+\label{eq:ald_reverse_mean}
+\end{equation}
+and $\sigma_k^2=\beta_k(1-\bar{\alpha}_{k-1})/(1-\bar{\alpha}_k)$, with the stochastic term omitted at $k=1$ \citep{ref_ddpm}. For faster inference, the same predicted noise can be used in a DDIM trajectory over a reduced and adjustable subset of timesteps \citep{ref_ddim}.
+
+After the final denoising step, the continuous sample is projected back to a valid HELM monomer using a hybrid decoder. At the core of the decoder is a fused score that reconciles the geometric output of the diffusion process with the contextual prior of the autoregressive state. Let $\tilde{\mathbf{e}}_m$ denote the $\ell_2$-normalized reference embedding of monomer $m$, and let $\mathbf{h}_t$ denote the causal context representation at position $t$. For every admissible candidate $m \in \mathcal{C}_t$, we define:
+\begin{equation}
+\mathcal{S}(m \mid \mathbf{z}_{t,0}, \mathbf{h}_t)
+= d(\mathbf{z}_{t,0}, \tilde{\mathbf{e}}_m)
+- \lambda \log p_{\mathrm{LM}}(m \mid \mathbf{h}_t),
+\label{eq:ald_hybrid_sampling}
+\end{equation}
+where $d(\cdot,\cdot)$ is the cosine distance in the shared embedding space, $p_{\mathrm{LM}}(m \mid \mathbf{h}_t)=\mathrm{softmax}(\mathbf{W}_{\mathrm{LM}}\mathbf{h}_t)_m$ is the categorical distribution produced by an auxiliary language-model head trained jointly with the denoiser, and the fusion weight $\lambda \geq 0$ is manually adjusted during sequence generation.
+Related experiments are provided in Section~3.
+
+
+\subsection{Model architecture}\label{subsec:ald}
+
+As shown in Fig.~\ref{fig:architecture}, PepALD implements the ALD formulation in Section~\ref{subsec:ald_generative_model} with three coordinated modules: context encoder, denoising network and ring-bond predictor.
+
+\subsubsection{Causal context encoder}\label{subsubsec:context_encoder}
+
+To encode the autoregressive history, we use a causal context encoder $f_{\mathrm{ctx}}$.
+Given the Uni-Mol embeddings of the generated prefix $(\tilde{\mathbf{e}}_{x_1}, \ldots, \tilde{\mathbf{e}}_{x_{t-1}})$, the encoder outputs a position-specific context vector $\mathbf{h}_t$ that conditions the diffusion model for the next monomer.
+
+The encoder takes the prefix Uni-Mol embeddings with added sinusoidal positional encodings as input.
+For efficient teacher-forced training, the embedded HELM sequence is processed in parallel by $L_{\mathrm{ctx}}$ causal Transformer layers \citep{ref_transformer}.
+Within this stack, each causal Transformer layer consists of masked multi-head self-attention, a feed-forward block, residual connections, layer normalization, and dropout.
+The attention mask is lower triangular, and a padding mask is applied when minibatches contain peptides of different lengths.
+Thus, the hidden state at position $i$ can depend only on residues $x_{\leq i}$ that are present in the sequence.
+
+The output of the stack is then passed through an additional final layer normalization and a linear context projection, giving the overall context encoder flow:
+\begin{equation}
+\mathbf{H} = \mathrm{Proj}_{\mathrm{ctx}}\!\left(\mathrm{LN}\!\left[\mathrm{CausalTransformer}\!\left(\mathrm{PosEnc}(\mathbf{W}_{\mathrm{in}}\tilde{\mathbf{E}})\right)\right]\right).
+\label{eq:causal_encoder}
+\end{equation}
+Here $\tilde{\mathbf{E}}$ denotes the matrix of input Uni-Mol monomer embeddings, and $\mathbf{W}_{\mathrm{in}}$ is the input projection to the Transformer hidden dimension.
+For the first residue, where no prefix is available, we introduce a learnable start embedding and pass it through the same encoding pathway to obtain $\mathbf{h}_{\mathrm{start}}$.
+For subsequent positions, the context used to predict residue $x_t$ is the previous contextual state $\mathbf{H}_{t-1}$.
+In practice, the shifted context sequence is assembled as $[\mathbf{h}_{\mathrm{start}}, \mathbf{H}_1,\ldots,\mathbf{H}_{T-1}]$, yielding one context vector for every valid residue position while preserving the same autoregressive information flow used during generation.
+
+\subsubsection{Context-conditioned denoising network}
+
+Given the context vector $\mathbf{h}_t$, we introduce a context-conditioned denoiser that guides the reverse diffusion trajectory for the next monomer.
+The denoiser is designed around two conditioning axes: a normalized timestep signal that marks the current denoising stage, and a context signal that anchors each refinement step to the prefix chemistry.
+
+The noisy embedding $\mathbf{z}_{t,k}$ is first projected to the model dimension and combined with a sinusoidal timestep embedding $\mathbf{e}_k=\mathrm{MLP}_{t}(\mathrm{SinEmb}(k/K))$.
+The resulting state is processed by $L_{\mathrm{den}}$ denoiser blocks:
+\begin{equation}
+\begin{aligned}
+\mathbf{u}^{(0)} &= \mathbf{W}_{z}\mathbf{z}_{t,k} + \mathbf{e}_k,\\
+\tilde{\mathbf{u}}^{(l)} &= \mathrm{AdaLN}_{l}\!\left(\mathbf{u}^{(l-1)},\, \mathbf{e}_k\right),\\
+\mathbf{u}^{(l)} &= \mathrm{DenoiserBlock}_{l}\!\left(\tilde{\mathbf{u}}^{(l)},\, \mathbf{h}_t\right),\quad l=1,\ldots,L_{\mathrm{den}}.
+\end{aligned}
+\label{eq:denoiser_block}
+\end{equation}
+Each denoiser block applies a self-attention-based update to the single noisy-token state, cross-attention to $\mathbf{h}_t$, and a feed-forward transformation with residual connections, layer normalization, and dropout.
+AdaLN supplies timestep-dependent scale and shift parameters, whereas cross-attention provides the only path through which the autoregressive history enters the denoising network.
+
+The final block output is normalized and projected back to the Uni-Mol embedding dimension to predict the injected noise:
+\begin{equation}
+\hat{\boldsymbol{\epsilon}}
+= \mathbf{W}_{\mathrm{out}}\mathrm{LN}\!\left(\mathbf{u}^{(L_{\mathrm{den}})}\right)
+= \boldsymbol{\epsilon}_\theta(\mathbf{z}_{t,k},\, k,\, \mathbf{h}_t).
+\label{eq:noise_prediction}
+\end{equation}
+The resulting noise estimate is used by the DDPM or DDIM samplers described in Section~\ref{subsubsec:reverse_hybrid_sampling}.
+
+
+\subsubsection{R-group-aware ring bond predictor}\label{subsec:ring}
+
+To couple macrocyclization with residue generation, PepALD predicts ring-closure bonds within the autoregressive loop.
+At each step $t$, the predictor scores whether the newly generated residue $x_t$ should connect to a previous residue $x_j$ ($j<t$) and classifies the bond into one of four R-group link types, $\mathcal{B}=\{\mathrm{R3R3},\mathrm{R1R2},\mathrm{R1R3},\mathrm{R3R2}\}$.
+
+For each candidate pair $(x_j,x_t)$, the model combines a sequence-level context feature with an R-group compatibility feature.
+The context feature reuses the shifted states $\mathbf{h}_j$ and $\mathbf{h}_t$ produced by the causal context encoder in Section~\ref{subsubsec:context_encoder}, while the R-group feature is computed from the scaled dot products between the Uni-Mol attachment-site embeddings of the current and historical residues.
+At a high level, the predictor can be written as
+\begin{equation}
+\left(s_{j,t}^{\mathrm{pos}},\mathbf{l}_{j,t}^{\mathrm{type}}\right)
+=
+f_{\mathrm{ring}}\!\left(
+\mathbf{h}_t,\mathbf{h}_j,
+\mathbf{E}_{x_t}^{\mathrm{R}},\mathbf{E}_{x_j}^{\mathrm{R}}
+\right),
+\quad j<t,
+\label{eq:ring_predictor_summary}
+\end{equation}
+where $s_{j,t}^{\mathrm{pos}}$ is the bond-position score and $\mathbf{l}_{j,t}^{\mathrm{type}}$ contains the logits over R-group link types.
+Full definitions of the pair features and prediction heads are provided in Supplementary Section~6.
+
+
+\subsection{Supervised pre-training and fine-tuning}\label{subsec:training}
+
+PepALD is trained with supervised objectives that target complementary aspects of peptide sequence generation.
+The first stage pre-trains the context encoder and denoiser using denoising and auxiliary token-prediction losses.
+The second stage fine-tunes the same generator on curated macrocyclic peptides and adds an autoregressive ring-bond objective for learning cyclization topology.
+
+For a mini-batch, let $\Omega$ denote the set of valid non-padding residue positions and let $\mathbf{z}_{b,t,0}=\tilde{\mathbf{e}}_{x_{b,t}}$ be the clean Uni-Mol embedding of token $x_{b,t}$.
+For each $(b,t)\in\Omega$, a diffusion step $k$ and Gaussian noise $\boldsymbol{\epsilon}_{b,t}$ are sampled as in Section~\ref{subsec:ald_generative_model}.
+The denoiser is optimized by the standard $\epsilon$-prediction objective \citep{ref_ddpm}:
+\begin{equation}
+\mathcal{L}_{\mathrm{diff}}
+=\frac{1}{|\Omega|d}\sum_{(b,t)\in\Omega}
+\left\|
+\boldsymbol{\epsilon}_{\theta}(\mathbf{z}_{b,t,k}, k, \mathbf{h}_{b,t})
+-\boldsymbol{\epsilon}_{b,t}
+\right\|_2^2 ,
+\label{eq:diff_loss}
+\end{equation}
+where $d$ is the Uni-Mol embedding dimension and $\mathbf{h}_{b,t}$ is the shifted context vector used to predict position $t$.
+In parallel, the language-model head receives the same context and predicts the ground-truth monomer identity:
+\begin{equation}
+\begin{aligned}
+p_{\mathrm{LM}}(m\mid \mathbf{h}_{b,t})
+&=\left[\operatorname{softmax}(\mathbf{W}_{\mathrm{LM}}\mathbf{h}_{b,t})\right]_m,\\
+\mathcal{L}_{\mathrm{CE}}
+&=-\frac{1}{|\Omega|}\sum_{(b,t)\in\Omega}
+\log p_{\mathrm{LM}}(x_{b,t}\mid \mathbf{h}_{b,t}).
+\end{aligned}
+\label{eq:ce_loss}
+\end{equation}
+This auxiliary term regularizes the contextual representation used by the hybrid decoder in Section~\ref{subsubsec:reverse_hybrid_sampling}.
+
+During macrocyclic fine-tuning, the ring predictor is trained on all valid autoregressive candidate pairs.
+Let $\mathcal{P}=\{(b,j,t): (b,t)\in\Omega,\; j<t\}$ and let $y_{b,j,t}^{\mathrm{pos}}\in\{0,1\}$ indicate whether residue $x_{b,t}$ forms a ring bond with a previous residue $x_{b,j}$.
+The bond-position objective is a weighted binary cross-entropy over the raw logits $s_{b,j,t}^{\mathrm{pos}}$:
+\begin{equation}
+\begin{aligned}
+\pi_{b,j,t} &= \sigma(s_{b,j,t}^{\mathrm{pos}}),\\
+\mathcal{L}_{\mathrm{pos}}
+&=-\frac{1}{|\mathcal{P}|}
+\sum_{(b,j,t)\in\mathcal{P}}
+\Big[
+w^{+}y_{b,j,t}^{\mathrm{pos}}\log \pi_{b,j,t}\\
+&\qquad\qquad\qquad
++(1-y_{b,j,t}^{\mathrm{pos}})\log (1-\pi_{b,j,t})
+\Big],
+\end{aligned}
+\label{eq:pos_loss}
+\end{equation}
+where $w^{+}=\min(n^{-}/n^{+},50)$ is computed from the positive and negative candidate counts in the mini-batch to compensate for sparse ring closures.
+For positive candidate pairs $\mathcal{P}^{+}=\{(b,j,t)\in\mathcal{P}:y_{b,j,t}^{\mathrm{pos}}=1\}$, a separate cross-entropy term classifies the R-group link type:
+\begin{equation}
+\mathcal{L}_{\mathrm{type}}
+=-\frac{1}{|\mathcal{P}^{+}|}
+\sum_{(b,j,t)\in\mathcal{P}^{+}}
+\log
+\frac{\exp(l_{b,j,t,c^{*}}^{\mathrm{type}})}
+{\sum_{c\in\mathcal{B}}\exp(l_{b,j,t,c}^{\mathrm{type}})} ,
+\label{eq:type_loss}
+\end{equation}
+where $c^{*}$ is the ground-truth bond type and $\mathcal{B}$ is the four-class R-group bond vocabulary defined in Section~\ref{subsec:ring}.
+If a mini-batch contains no positive ring pair, the type term is set to zero.
+
+The supervised objective combines the denoising, token-prediction, and ring-bond terms:
+\begin{equation}
+\mathcal{L}_{\mathrm{sup}}
+=\mathcal{L}_{\mathrm{diff}}
++\lambda_{\mathrm{CE}}\mathcal{L}_{\mathrm{CE}}
++\lambda_{\mathrm{ring}}\left(\mathcal{L}_{\mathrm{pos}}+\mathcal{L}_{\mathrm{type}}\right).
+\label{eq:sup_loss}
+\end{equation}
+During pre-training, the ring objective is disabled; during macrocyclic fine-tuning, all three supervised components are active with configurable weights.
+
+\subsection{Optimization for cell-penetrating peptide design}\label{subsec:preference_optimization}
+
+The downstream task is to optimize PepALD for cyclic cell-penetrating peptide design.
+We first construct a permeability-enriched prior generator and then align it with a reward-ranked preference objective.
+
+\subsubsection{Permeability prior fine-tuning}\label{subsubsec:permeability_prior}
+
+For permeability-oriented prior construction, we rank the merged ChEMBL32--CycPeptMPDB prior table by predicted permeability and select the top 1,000 entries for an additional cyclic-only fine-tuning stage.
+The resulting permeability-enriched prior model serves as the initialization for the trainable preference-aligned policy.
+
+\subsubsection{Composite reward and WP-DPO objective}\label{subsubsec:dpo_loss}
+
+In the target-specific DPO experiments, candidate rewards are computed from Uni-Dock/Vina docking scores \citep{ref_unidock}.
+Because lower docking scores indicate stronger predicted binding, the docking-derived reward is normalized by a robust transformation over the valid candidate set before preference-pair construction.
+The resulting scalar score is denoted $R(\mathbf{x})$.
+Further details on the sign convention, robust normalization, and invalid-score handling are provided in Supplementary Sections~4 and~7.
+
+Direct preference optimization (DPO) has been used to align generative models from pairwise preferences \citep{ref_dpo}, and its diffusion variant replaces sequence likelihoods with denoising errors along the diffusion process \citep{ref_diffusion_dpo}.
+Given a preference pair $(\mathbf{x}^{w},\mathbf{x}^{l})$ with $R(\mathbf{x}^{w})>R(\mathbf{x}^{l})$, we sample a diffusion step $k$ and noise $\boldsymbol{\epsilon}$.
+For a model $\theta$, $\overline{\mathrm{MSE}}_{\theta}(\mathbf{x})$ denotes the mean squared difference between the predicted and injected noise, averaged over all valid residue positions of peptide $\mathbf{x}$.
+Let
+\begin{equation}
+\Delta_{\theta}(\mathbf{x})
+=\overline{\mathrm{MSE}}_{\mathrm{ref}}(\mathbf{x})
+-\overline{\mathrm{MSE}}_{\theta}(\mathbf{x})
+\label{eq:dpo_delta}
+\end{equation}
+be the improvement of the current model over the reference model.
+The preference loss is
+\begin{equation}
+\mathcal{L}_{\mathrm{DPO}}
+=-\frac{1}{B}\sum_{b=1}^{B}
+\log\sigma\!\left(
+\beta_{\mathrm{DPO}}
+\left[
+\Delta_{\theta}(\mathbf{x}_{b}^{w})
+-\Delta_{\theta}(\mathbf{x}_{b}^{l})
+\right]\right),
+\label{eq:dpo_loss}
+\end{equation}
+where $B$ is the number of preference pairs in a mini-batch and $\beta_{\mathrm{DPO}}$ controls the strength of the preference margin.
+For each pair, the winner and loser are evaluated with the same sampled $k$ and $\boldsymbol{\epsilon}$.
+Motivated by DPO-Positive (DPOP), which addresses degradation of preferred samples under standard DPO \citep{ref_dpop}, we add an external winner-protection regularizer to prevent the policy from improving the relative margin by degrading the denoising quality of winner samples:
+\begin{equation}
+\mathcal{L}_{\mathrm{win}}
+=\frac{1}{B}\sum_{b=1}^{B}
+\max\left(
+0,\,
+\overline{\mathrm{MSE}}_{\theta}(\mathbf{x}_{b}^{w})
+-
+\overline{\mathrm{MSE}}_{\mathrm{ref}}(\mathbf{x}_{b}^{w})
+\right).
+\label{eq:winner_reg}
+\end{equation}
+The final WP-DPO objective is
+\begin{equation}
+\mathcal{L}_{\mathrm{align}}
+=\mathcal{L}_{\mathrm{DPO}}
++\alpha_{\mathrm{win}}\mathcal{L}_{\mathrm{win}},
+\label{eq:dpo_total_loss}
+\end{equation}
+where $\alpha_{\mathrm{win}}$ controls the strength of winner protection.
+
+\subsubsection{Iterative candidate-pool construction and preference pairing}\label{subsubsec:pairing}
+
+Preference construction is performed iteratively on model-generated candidate pools rather than on the original training corpus.
+At each WP-DPO round, candidates are sampled from the preceding PepALD checkpoint, post-processed to enforce the target cyclic topology, deduplicated, filtered for valid Uni-Dock/Vina scoring, and ranked by the target-specific reward described above.
+Preference pairs are then constructed with a stage-dependent, diversity-aware strategy.
+In early WP-DPO rounds, high- and low-reward regions define winner and loser candidate pools, and diversity-aware selection is applied within each pool before pairing.
+In later refinement rounds, after the generator has begun to produce competitive binders, we make the preference task more stringent by replacing obvious low-quality losers with harder negatives.
+Specifically, loser candidates are sampled from an intermediate Vina-score range, so that they remain plausible binders but are still worse than the selected winners.
+We then apply diversity-aware reranking to both winner and loser pools using cyclic-residue bigram features, and pair each winner with a structurally similar loser \citep{ref_mmr,ref_drugblip}.
+Pairs are retained only when the loser remains meaningfully worse than its matched winner according to the combined reward.
+The final $(\mathbf{x}^{w},\mathbf{x}^{l})$ pairs are fixed before training and reused unchanged during WP-DPO optimization.
+Details of diversity selection, hard-negative pairing, and candidate-pool settings are provided in Supplementary Sections~5 and~9.
+
+\subsection{Datasets}\label{subsec:datasets}
+
+We built the training corpus from public peptide resources that provide residue-level monomer annotations and explicit inter-monomer connections.
+The main sequence source was ChEMBL32 \citep{ref_chembl}, from which 20,783 HELM sequences were extracted for pre-training.
+
+Then, we performed macrocyclic peptide fine-tuning using \linebreak[4]CycPeptMPDB \citep{ref_cycpeptmpdb}, a curated database of cyclic peptides with membrane-permeability measurements and structural representations.
+The raw CycPeptMPDB HELM strings were normalized to a single polymer identifier, deduplicated, and written to the processed HELM corpus, which yielded 7,348 unique cyclic peptide HELM sequences.
+After merging and preprocessing, the training corpus contains predominantly head-to-tail cycles, together with terminal-to-internal cyclization patterns.
+
+The monomer vocabulary was compiled from the curated HELM monomer library used in this study, covering monomers observed in ChEMBL32 and CycPeptMPDB together with additional peptide building blocks.
+The library contains 3,105 peptide monomer tokens with available R-group attachment sites.
+For every monomer, a Uni-Mol representation was precomputed from its molecular structure, including a molecule-level vector and attachment-site vectors for the available R-groups.
+
+\end{methods}

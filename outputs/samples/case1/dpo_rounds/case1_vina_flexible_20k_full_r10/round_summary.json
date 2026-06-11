@@ -1,0 +1,23 @@
+{
+  "round": 10,
+  "mode": "generate_merge_train",
+  "round_dir": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10",
+  "round_config": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/dpo_case1_round10.json",
+  "previous_checkpoint_for_generation": "/root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_flexible_20k_full_r9/dpo_latest.pt",
+  "checkpoint": "/root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_flexible_20k_full_r10/dpo_latest.pt",
+  "candidate_sources": [
+    "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r9/elite_replay_buffer.txt",
+    "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/generated_r1r2_cyclized.txt"
+  ],
+  "generated": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/generated_r1r2_cyclized.txt",
+  "generated_postprocess": "force_r1r2_cyclize",
+  "generated_perm": null,
+  "generated_vina": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/generated.case1.flexible.vina.csv",
+  "elite_replay": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/elite_replay_buffer.txt",
+  "elite_sft_file": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/elite_sft_top3.txt",
+  "elite_sft_checkpoint": "/root/autodl-tmp/checkpoints/dpo_rounds/case1_vina_flexible_20k_full_r10/elite_sft/latest.pt",
+  "candidates": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/candidates.txt",
+  "candidates_perm": null,
+  "candidates_vina": "/root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r10/candidates.case1.flexible.vina.csv",
+  "epochs": 1
+}

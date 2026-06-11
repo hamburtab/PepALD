@@ -1,0 +1,185 @@
+\begin{thebibliography}{}
+
+\bibitem[Bojadzic and Buchwald(2018)Bojadzic and Buchwald]{bojadzic2018toward}
+Bojadzic, D. and Buchwald, P. (2018).
+\newblock Toward small-molecule inhibition of protein--protein interactions:
+  General aspects and recent progress in targeting costimulatory and
+  coinhibitory (immune checkpoint) interactions.
+\newblock {\em Current topics in medicinal chemistry\/}, {\bf 18}(8), 674--699.
+
+\bibitem[Carbonell and Goldstein(1998)Carbonell and Goldstein]{ref_mmr}
+Carbonell, J. and Goldstein, J. (1998).
+\newblock The use of {MMR}, diversity-based reranking for reordering documents
+  and producing summaries.
+\newblock In {\em Proceedings of the 21st Annual International ACM SIGIR
+  Conference on Research and Development in Information Retrieval\/}, pages
+  335--336.
+
+\bibitem[Gare {\em et~al.}(2025)Gare, White, and Malins]{gare2025lead}
+Gare, C.~L.  {\em et~al.} (2025).
+\newblock From lead to market: chemical approaches to transform peptides into
+  therapeutics.
+\newblock {\em Trends in Biochemical Sciences\/}.
+
+\bibitem[Geylan {\em et~al.}(2025)Geylan, Janet, Tibo, He, Patronov, Kabeshov,
+  Czechtizky, David, Engkvist, and De~Maria]{geylan2025pepinvent}
+Geylan, G.  {\em et~al.} (2025).
+\newblock Pepinvent: generative peptide design beyond natural amino acids.
+\newblock {\em Chemical Science\/}, {\bf 16}(20), 8682--8696.
+
+\bibitem[Hickey {\em et~al.}(2023)Hickey, Sindhikara, Zultanski, and
+  Schultz]{hickey2023beyond}
+Hickey, J.~L.  {\em et~al.} (2023).
+\newblock Beyond 20 in the 21st century: prospects and challenges of
+  non-canonical amino acids in peptide drug discovery.
+\newblock {\em ACS Medicinal Chemistry Letters\/}, {\bf 14}(5), 557--565.
+
+\bibitem[Ho {\em et~al.}(2020)Ho, Jain, and Abbeel]{ref_ddpm}
+Ho, J.  {\em et~al.} (2020).
+\newblock Denoising diffusion probabilistic models.
+\newblock In {\em Advances in Neural Information Processing Systems\/},
+  volume~33, pages 6840--6851.
+
+\bibitem[Li {\em et~al.}(2023)Li, Yanagisawa, Sugita, Fujie, Ohue, and
+  Akiyama]{ref_cycpeptmpdb}
+Li, J.  {\em et~al.} (2023).
+\newblock {CycPeptMPDB}: A comprehensive database of membrane permeability of
+  cyclic peptides.
+\newblock {\em Journal of Chemical Information and Modeling\/}, {\bf 63}(7),
+  2240--2250.
+
+\bibitem[Mendez {\em et~al.}(2019)Mendez, Gaulton, Bento, Chambers, De~Veij,
+  Felix, Magarinos, Mosquera, Mutowo, Nowotka, Gordillo-Maranon, Hunter, Junco,
+  Mugumbate, Rodriguez-Lopez, Atkinson, Bosc, Radoux, Segura-Cabrera, Hersey,
+  and Leach]{ref_chembl}
+Mendez, D.  {\em et~al.} (2019).
+\newblock {ChEMBL}: towards direct deposition of bioassay data.
+\newblock {\em Nucleic Acids Research\/}, {\bf 47}(D1), D930--D940.
+
+\bibitem[Pal {\em et~al.}(2024)Pal, Karkhanis, Dooley, Roberts, Naidu, and
+  White]{ref_dpop}
+Pal, A.  {\em et~al.} (2024).
+\newblock {Smaug}: Fixing failure modes of preference optimisation with
+  {DPO}-positive.
+
+\bibitem[Polykovskiy {\em et~al.}(2020)Polykovskiy, Zhebrak, Sanchez-Lengeling,
+  Golovanov, Tatanov, Belyaev, Kurbanov, Artamonov, Aladinskiy, Veselov,
+  Kadurin, Johansson, Chen, Nikolenko, Aspuru-Guzik, and
+  Zhavoronkov]{ref_moses}
+Polykovskiy, D.  {\em et~al.} (2020).
+\newblock {Molecular Sets (MOSES)}: A benchmarking platform for molecular
+  generation models.
+\newblock {\em Frontiers in Pharmacology\/}, {\bf 11}, 565644.
+
+\bibitem[Rafailov {\em et~al.}(2023)Rafailov, Sharma, Mitchell, Manning, Ermon,
+  and Finn]{ref_dpo}
+Rafailov, R.  {\em et~al.} (2023).
+\newblock Direct preference optimization: Your language model is secretly a
+  reward model.
+\newblock In {\em Advances in Neural Information Processing Systems\/},
+  volume~36, pages 53728--53741.
+
+\bibitem[Rettie {\em et~al.}(2025a)Rettie, Juergens, Adebomi, Bueso, Zhao,
+  Leveille, Liu, Bera, Wilms, {\"U}ffing, {\em et~al.}]{rettie2025accurate}
+Rettie, S.~A.  {\em et~al.} (2025a).
+\newblock Accurate de novo design of high-affinity protein-binding macrocycles
+  using deep learning.
+\newblock {\em Nature Chemical Biology\/}, pages 1--9.
+
+\bibitem[Rettie {\em et~al.}(2025b)Rettie, Campbell, Bera, Kang, Kozlov, Bueso,
+  De~La~Cruz, Ahlrichs, Cheng, Gerben, {\em et~al.}]{rettie2025cyclic}
+Rettie, S.~A.  {\em et~al.} (2025b).
+\newblock Cyclic peptide structure prediction and design using alphafold2.
+\newblock {\em Nature Communications\/}, {\bf 16}(1), 4730.
+
+\bibitem[Sadek {\em et~al.}(2018)Sadek, Barlow, Leung, Williams-Noonan, Yap,
+  Shariff, Caradoc-Davies, Nicholson, Chalmers, Thompson, Law, and
+  Norton]{sadek2018cyclic}
+Sadek, M.~M.  {\em et~al.} (2018).
+\newblock A cyclic peptide inhibitor of the {iNOS}--{SPSB} protein--protein
+  interaction as a potential anti-infective agent.
+\newblock {\em {ACS} Chemical Biology\/}, {\bf 13}(10), 2930--2938.
+
+\bibitem[Song {\em et~al.}(2021)Song, Meng, and Ermon]{ref_ddim}
+Song, J.  {\em et~al.} (2021).
+\newblock Denoising diffusion implicit models.
+\newblock In {\em International Conference on Learning Representations\/}.
+
+\bibitem[Tang {\em et~al.}(2025)Tang, Zhang, and Chatterjee]{ref_peptune}
+Tang, S.  {\em et~al.} (2025).
+\newblock {PepTune}: \textit{De novo} generation of therapeutic peptides with
+  multi-objective-guided discrete diffusion.
+\newblock In {\em Proceedings of the 42nd International Conference on Machine
+  Learning\/}, volume 267 of {\em Proceedings of Machine Learning Research\/},
+  pages 59017--59065. {PMLR}.
+
+\bibitem[van Neer {\em et~al.}(2025)van Neer, Dranchak, Aitha, Liu, Carlson,
+  Jacobsen, Battaile, Fang, Tao, Rai, Padia, Lovell, Suga, and
+  Inglese]{van2025active}
+van Neer, R. H.~P.  {\em et~al.} (2025).
+\newblock Active- and allosteric-site cyclic peptide inhibitors of secreted {M.
+  tuberculosis} chorismate mutase.
+\newblock {\em {ACS} Infectious Diseases\/}, {\bf 11}(3), 703--714.
+
+\bibitem[Vaswani {\em et~al.}(2017)Vaswani, Shazeer, Parmar, Uszkoreit, Jones,
+  Gomez, Kaiser, and Polosukhin]{ref_transformer}
+Vaswani, A.  {\em et~al.} (2017).
+\newblock Attention is all you need.
+\newblock In {\em Advances in Neural Information Processing Systems\/},
+  volume~30.
+
+\bibitem[Wallace {\em et~al.}(2024)Wallace, Dang, Rafailov, Zhou, Lou,
+  Purushwalkam, Ermon, Xiong, Joty, and Naik]{ref_diffusion_dpo}
+Wallace, B.  {\em et~al.} (2024).
+\newblock Diffusion model alignment using direct preference optimization.
+\newblock In {\em 2024 IEEE/CVF Conference on Computer Vision and Pattern
+  Recognition\/}, pages 8228--8238.
+
+\bibitem[Wang {\em et~al.}(2026)Wang, Gao, and Zhao]{ref_drugblip}
+Wang, R.  {\em et~al.} (2026).
+\newblock {DrugBLIP}: exploring the protein--molecule interaction mechanisms
+  with a multi-task learning graph transformer.
+\newblock {\em Bioinformatics\/}, {\bf 42}(4), btag069.
+
+\bibitem[Weininger(1988)Weininger]{ref_smiles}
+Weininger, D. (1988).
+\newblock {SMILES}, a chemical language and information system. 1. introduction
+  to methodology and encoding rules.
+\newblock {\em Journal of Chemical Information and Computer Sciences\/}, {\bf
+  28}(1), 31--36.
+
+\bibitem[Xu {\em et~al.}(2024)Xu, Xu, He, Wei, Li, Zhou, Zhang, Wang, Xiong,
+  and Gao]{ref_helm_gpt}
+Xu, X.  {\em et~al.} (2024).
+\newblock {HELM-GPT}: \textit{de novo} macrocyclic peptide design using
+  generative pre-trained transformer.
+\newblock {\em Bioinformatics\/}, {\bf 40}(6), btae364.
+
+\bibitem[Yu {\em et~al.}(2023)Yu, Cai, Wang, Bo, Zhu, and Zheng]{ref_unidock}
+Yu, Y.  {\em et~al.} (2023).
+\newblock {Uni-Dock}: {GPU}-accelerated docking enables ultralarge virtual
+  screening.
+\newblock {\em Journal of Chemical Theory and Computation\/}, {\bf 19}(11),
+  3336--3345.
+
+\bibitem[Zhang {\em et~al.}(2012)Zhang, Li, Xi, Stanton, and
+  Rotstein]{ref_helm}
+Zhang, T.  {\em et~al.} (2012).
+\newblock {HELM}: a hierarchical notation language for complex biomolecule
+  structure representation.
+\newblock {\em Journal of Chemical Information and Modeling\/}, {\bf 52}(10),
+  2796--2806.
+
+\bibitem[Zhou {\em et~al.}(2023)Zhou, Gao, Ding, Zheng, Xu, Wei, Zhang, and
+  Ke]{ref_unimol}
+Zhou, G.  {\em et~al.} (2023).
+\newblock {Uni-Mol}: a universal 3d molecular representation learning
+  framework.
+\newblock In {\em International Conference on Learning Representations\/}.
+
+\bibitem[Zorzi {\em et~al.}(2017)Zorzi, Deyle, and Heinis]{zorzi2017cyclic}
+Zorzi, A.  {\em et~al.} (2017).
+\newblock Cyclic peptide therapeutics: past, present and future.
+\newblock {\em Current opinion in chemical biology\/}, {\bf 38}, 24--29.
+
+\end{thebibliography}

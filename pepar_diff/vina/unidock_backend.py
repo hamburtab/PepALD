@@ -296,20 +296,24 @@ def _prepare_ligands(
 
 
 def _read_first_score_from_result_sdf(result_path: Path) -> float:
-    score_line = ""
+    """Return the lowest Uni-Dock ENERGY across all poses in a result SDF."""
+    best_score = None
     with open(result_path, "r") as f:
         for line in f:
             if line.startswith("> <Uni-Dock RESULT>") or line.startswith(">  <Uni-Dock RESULT>"):
                 score_line = next(f, "").strip()
-                break
+                if not score_line.startswith("ENERGY="):
+                    continue
+                try:
+                    score = float([x for x in score_line[len("ENERGY="):].split(" ") if x][0])
+                except Exception:
+                    continue
+                if best_score is None or score < best_score:
+                    best_score = score
 
-    if not score_line:
+    if best_score is None:
         return INVALID_SCORE
-
-    try:
-        return float([x for x in score_line[len("ENERGY="):].split(" ") if x][0])
-    except Exception:
-        return INVALID_SCORE
+    return best_score
 
 
 def _build_unidock_cmd(
@@ -389,7 +393,7 @@ def dock_helms_unidock(
 
     Uni-Dock officially supports Linux + NVIDIA GPU. This function prepares one
     SDF per HELM ligand, batches them through `unidock --ligand_index`, and
-    returns the first pose energy per ligand.
+    returns the best (lowest) pose energy per ligand.
     """
     if protein_pdbqt_path is None:
         protein_pdbqt_path = DEFAULT_RECEPTOR
