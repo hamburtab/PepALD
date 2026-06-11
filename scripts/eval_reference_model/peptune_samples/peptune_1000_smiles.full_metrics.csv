@@ -1,2 +1,0 @@
-input,smiles_column,prior_path,reference_column,reference_size,total,valid,unique,validity,uniqueness,diversity,snn,novelty,SA
-/Users/tab/Documents/GitHub/New-HELM-Diffusion/scripts/eval_reference_model/peptune_samples/peptune_1000_smiles.csv,smiles,/Users/tab/Documents/GitHub/New-HELM-Diffusion/scripts/eval_reference_model/peptune_data/train_random_1000_batches_smiles.csv,smiles,93216,3000,1019,1019,0.33966667,1.00000000,0.70918107,0.59021115,1.00000000,9.49328159
