@@ -1,6 +1,0 @@
-
-[2026-05-22 23:16:09] $ conda run --no-capture-output -n base python scripts/generate/generate_peptides.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/dpo_case1_round12.json --output /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/generated.txt
-
-[2026-05-22 23:28:12] $ conda run --no-capture-output -n base python scripts/data/vina_filter_r1r2_cyclize.py --input /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/generated.txt --output /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/generated_r1r2_cyclized.txt
-
-[2026-05-22 23:28:13] $ conda run --no-capture-output -n base python scripts/eval/export_train_vina_scores.py --config /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/dpo_case1_round12.json --sample_file /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/candidates.txt --vina_score_file /root/New-HELM-Diffusion/outputs/samples/case1/dpo_rounds/case1_vina_flexible_20k_full_r12/candidates.case1.flexible.vina.csv --docking_mode flexible

@@ -12,7 +12,6 @@ from pepar_diff.utils.metrics import Metrics
 
 # DEFAULT_INPUT = "outputs/samples/case1/generated/helm_dpo_samples.txt"
 DEFAULT_INPUT = "outputs/samples/pretrain/helm_chembl32only_samples.txt"
-# DEFAULT_INPUT = "scripts/eval_reference_model/helmgpt_samples/perm_samples.txt"
 # DEFAULT_INPUT = "outputs/samples/finetune/cycpeptMPDB_samples.txt"
 DEFAULT_PRIOR = "data/processed/prior_data.csv"
 

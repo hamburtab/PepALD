@@ -39,7 +39,7 @@
     "cyclic_only": true,
     "ring_loss_weight": 0.3,
     "ce_loss_weight": 0.8,
-    "ce_only_finetune": false,
+    "ce_only_finetune": true,
     "freeze_embedding": true,
     "freeze_context_encoder": false,
     "freeze_diffusion": false
