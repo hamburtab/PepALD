@@ -1,13 +1,13 @@
 """
-Score the case3 reference/groundtruth cyclic peptide SDF with the same
+Score the case2 reference/groundtruth cyclic peptide SDF with the same
 Uni-Dock settings used by DPO training.
 
 Typical usage:
-    python scripts/eval/eval_groundtruth_case3/evaluate_groundtruth_vina.py
-    python scripts/eval/eval_groundtruth_case3/evaluate_groundtruth_vina.py \
-        --config configs/training/dpo_case3.json
-    python scripts/eval/eval_groundtruth_case3/evaluate_groundtruth_vina.py \
-        --sdf data/docking3/9bt3_ligand.sdf
+    python scripts/eval/eval_groundtruth_case2/evaluate_groundtruth_vina.py
+    python scripts/eval/eval_groundtruth_case2/evaluate_groundtruth_vina.py \
+        --config configs/training/dpo_case2.json
+    python scripts/eval/eval_groundtruth_case2/evaluate_groundtruth_vina.py \
+        --sdf data/docking_9bt3/9bt3_ligand.sdf
 
 This script is meant to establish the baseline Vina score that generated
 samples should beat. It prints the baseline plus the target thresholds for
@@ -40,25 +40,25 @@ from pepar_diff.vina.unidock_backend import (
 )
 
 
-DEFAULT_RECEPTOR = PROJECT_ROOT / "data" / "docking3" / "9bt3_receptor.pdbqt"
-DEFAULT_REF_SDF = PROJECT_ROOT / "data" / "docking3" / "9bt3_ligand.sdf"
+DEFAULT_RECEPTOR = PROJECT_ROOT / "data" / "docking_9bt3" / "9bt3_receptor.pdbqt"
+DEFAULT_REF_SDF = PROJECT_ROOT / "data" / "docking_9bt3" / "9bt3_ligand.sdf"
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Score the case3 groundtruth/reference cyclic peptide SDF with Uni-Dock"
+        description="Score the case2 groundtruth/reference cyclic peptide SDF with Uni-Dock"
     )
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/training/dpo_case3.json",
+        default="configs/training/dpo_case2.json",
         help="Path to config file; reads docking settings from its dpo section.",
     )
     parser.add_argument(
         "--sdf",
         type=str,
         default=str(DEFAULT_REF_SDF),
-        help="Ligand SDF to score. Defaults to data/docking3/9bt3_ligand.sdf",
+        help="Ligand SDF to score. Defaults to data/docking_9bt3/9bt3_ligand.sdf",
     )
     parser.add_argument(
         "--ref_sdf",
@@ -70,7 +70,7 @@ def parse_args():
         "--receptor",
         type=str,
         default=str(DEFAULT_RECEPTOR),
-        help="Receptor PDBQT path. Defaults to data/docking3/9bt3_receptor.pdbqt",
+        help="Receptor PDBQT path. Defaults to data/docking_9bt3/9bt3_receptor.pdbqt",
     )
     parser.add_argument(
         "--keep_workdir",

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Score the case3 groundtruth ligand with the permeability predictor.
+"""Score the case2 groundtruth ligand with the permeability predictor.
 
 Run this script inside the isolated `perm_env` conda environment.
 
 Default input:
-    data/docking3/9bt3_ligand.sdf
+    data/docking_9bt3/9bt3_ligand.sdf
 
 Default output:
-    outputs/samples/case3/eval_groundtruth/case3_groundtruth.perm.csv
+    outputs/samples/case2/eval_groundtruth/case2_groundtruth.perm.csv
 """
 
 from __future__ import annotations
@@ -27,20 +27,20 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.evaluation.permeability import Permeability
 
 
-DEFAULT_SDF = PROJECT_ROOT / "data" / "docking3" / "9bt3_ligand.sdf"
+DEFAULT_SDF = PROJECT_ROOT / "data" / "docking_9bt3" / "9bt3_ligand.sdf"
 DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "outputs"
     / "samples"
-    / "case3"
+    / "case2"
     / "eval_groundtruth"
-    / "case3_groundtruth.perm.csv"
+    / "case2_groundtruth.perm.csv"
 )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Score the case3 groundtruth ligand with permeability"
+        description="Score the case2 groundtruth ligand with permeability"
     )
     parser.add_argument(
         "--sdf",

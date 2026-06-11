@@ -102,7 +102,7 @@ def infer_case_dir(config_path: Path, config: dict) -> tuple[str, Path]:
 def infer_dpo_config(case_tag: str) -> Path:
     mapping = {
         "case1": PROJECT_ROOT / "configs" / "training" / "dpo.json",
-        "case3": PROJECT_ROOT / "configs" / "training" / "dpo_case3.json",
+        "case2": PROJECT_ROOT / "configs" / "training" / "dpo_case2.json",
     }
     path = mapping.get(case_tag, PROJECT_ROOT / "configs" / "training" / f"dpo_{case_tag}.json")
     if not path.exists():

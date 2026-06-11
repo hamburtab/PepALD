@@ -80,6 +80,33 @@ rewards such as Uni-Dock/Vina docking scores. Preference pairs are constructed
 from reward-ranked candidate pools and used in a diffusion-adapted DPO objective
 with an additional winner-protection term.
 
+## Paper Figures
+
+### PepALD Framework
+
+![PepALD framework](docs/assets/readme/pepald_framework.png)
+
+The full PepALD workflow combines HELM grammar and a curated monomer codebook,
+Uni-Mol structured monomer embeddings, autoregressive latent diffusion, hybrid
+token mapping, R-group-aware ring prediction, and WP-DPO reward alignment for
+target-specific macrocyclic peptide optimization.
+
+### Representative Generated 3D Structures
+
+These docking visualizations show four representative PepALD-generated
+macrocyclic peptides selected from the target-specific optimization case
+studies in the paper.
+
+| SPSB2 / 6DN5 | SPSB2 / 6DN5 |
+| --- | --- |
+| ![SPSB2-CP1 docked to 6DN5](docs/assets/readme/spsb2_cp1.png) | ![SPSB2-CP2 docked to 6DN5](docs/assets/readme/spsb2_cp2.png) |
+| **SPSB2-CP1**<br>Vina score: -8.436<br>Permeability: -6.300<br>Solubility: 0.851<br>`PEPTIDE1{A.Mono84.Y.Me_Phe(3-Cl).dP.G.Mono84}` | **SPSB2-CP2**<br>Vina score: -8.256<br>Permeability: -6.576<br>Solubility: 0.839<br>`PEPTIDE1{Me_Bal.P.Mono2.T.P.Y.Phe(4-CF3)}` |
+
+| MtbCM / 9BT3 | MtbCM / 9BT3 |
+| --- | --- |
+| ![MtbCM-CP1 docked to 9BT3](docs/assets/readme/mtbcm_cp1.png) | ![MtbCM-CP2 docked to 9BT3](docs/assets/readme/mtbcm_cp2.png) |
+| **MtbCM-CP1**<br>Vina score: -11.067<br>Permeability: -5.936<br>Solubility: 0.794<br>`PEPTIDE1{Me_Bal.Mono84.P.L.meA.dF.D}` | **MtbCM-CP2**<br>Vina score: -10.034<br>Permeability: -5.617<br>Solubility: 0.834<br>`PEPTIDE1{Mono6.T.Sar.meF.P.G.D}` |
+
 ## Repository Structure
 
 ```text
@@ -112,7 +139,7 @@ data/
   raw/                              Raw ChEMBL32 and CycPeptMPDB tables
   processed/                        HELM corpora, vocabulary, monomer library
   docking/                          SPSB2 / 6DN5 docking assets
-  docking3/                         MtbCM / 9BT3 docking assets
+  docking_9bt3/                     MtbCM / 9BT3 docking assets
 
 envs/                               Conda environment definitions
 docs/                               Additional technical notes
@@ -282,8 +309,10 @@ python scripts/train/run_dpo_rounds.py \
 Related target configs:
 
 ```text
-configs/training/dpo.json        # SPSB2 / 6DN5 case
-configs/training/dpo_case3.json  # additional target case
+configs/training/dpo.json             # SPSB2 / 6DN5 case
+configs/training/dpo_case2.json       # MtbCM / 9BT3 case
+configs/inference/generate_case1.json # SPSB2 / 6DN5 case
+configs/inference/generate_case2.json # MtbCM / 9BT3 case
 ```
 
 ## Inference / Generation

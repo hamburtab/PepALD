@@ -21,13 +21,13 @@
     "batch_size": 8,
     "weight_decay": 0.01,
     "max_grad_norm": 1.0,
-    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/case3_vina_flexible_20k_full_r0",
+    "checkpoint_dir": "/root/autodl-tmp/checkpoints/dpo_rounds/case2_vina_flexible_20k_full_r0",
     "device": "cuda",
     "num_workers": 4,
     "pretrained_checkpoint": "/root/autodl-tmp/checkpoints/ald_top1000_6layer/checkpoint_epoch_50.pt"
   },
   "generation": {
-    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/case3_vina_flexible_20k_full_r4/elite_sft/checkpoint_epoch_1.pt",
+    "checkpoint_path": "/root/autodl-tmp/checkpoints/dpo_rounds/case2_vina_flexible_20k_full_r4/elite_sft/checkpoint_epoch_1.pt",
     "num_samples": 1000,
     "max_length": 7,
     "min_length": 7,
@@ -44,7 +44,7 @@
     "mapping_top_p": 0.95,
     "mapping_temperature": 0.85,
     "mapping_frequency_penalty": 0.35,
-    "output_file": "./outputs/samples/case3/generated/generated_from_checkpoint.txt",
+    "output_file": "./outputs/samples/case2/generated/generated_from_checkpoint.txt",
     "verbose": false,
     "seed": null
   }

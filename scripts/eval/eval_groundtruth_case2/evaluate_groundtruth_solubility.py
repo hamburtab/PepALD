@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Score the case3 groundtruth ligand with PepTune solubility.
+"""Score the case2 groundtruth ligand with PepTune solubility.
 
 Default input:
-    data/docking3/9bt3_ligand.sdf
+    data/docking_9bt3/9bt3_ligand.sdf
 
 Default output:
-    outputs/samples/case3/eval_groundtruth/case3_groundtruth.solubility.csv
+    outputs/samples/case2/eval_groundtruth/case2_groundtruth.solubility.csv
 """
 
 from __future__ import annotations
@@ -24,20 +24,20 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from pepar_diff.evaluation.solubility import PepTuneSolubility
 
 
-DEFAULT_SDF = PROJECT_ROOT / "data" / "docking3" / "9bt3_ligand.sdf"
+DEFAULT_SDF = PROJECT_ROOT / "data" / "docking_9bt3" / "9bt3_ligand.sdf"
 DEFAULT_OUTPUT = (
     PROJECT_ROOT
     / "outputs"
     / "samples"
-    / "case3"
+    / "case2"
     / "eval_groundtruth"
-    / "case3_groundtruth.solubility.csv"
+    / "case2_groundtruth.solubility.csv"
 )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Score the case3 groundtruth ligand with PepTune solubility"
+        description="Score the case2 groundtruth ligand with PepTune solubility"
     )
     parser.add_argument(
         "--sdf",
