@@ -222,15 +222,17 @@ Training and generation expect precomputed monomer embeddings under:
 data/processed/unimol_embeddings/
 ```
 
-This directory is ignored because it is a generated cache. Regenerate it with:
+This directory is ignored because it is a generated cache. Regenerate it from
+the included monomer library with:
 
 ```bash
 conda activate pepardiff
 python -m pepar_diff.embeddings.generator
 ```
 
-[TODO: document the exact Uni-Mol checkpoint/source and any external files
-required to rebuild the monomer embedding cache.]
+The generator reads `data/processed/monomer_library.csv`, uses
+`unimol_tools.UniMolRepr` to compute Uni-Mol representations, and writes the
+embedding cache back to `data/processed/unimol_embeddings/`.
 
 ### Auxiliary Predictors
 
@@ -240,16 +242,16 @@ The permeability workflow expects a random-forest model at:
 data/models/permeability/regression_rf.pkl
 ```
 
-This file is ignored because it is a binary model artifact.
-
-[TODO: add the download link or reconstruction instructions for the
-permeability predictor.]
+If `data/models/permeability/regression_rf.pkl` is present in your checkout or
+release package, no extra setup is required for permeability scoring. If it is
+missing, place the permeability predictor at this path before running the
+permeability evaluation scripts.
 
 ## Training
 
 All model and training hyperparameters are controlled by JSON files in
-`configs/training/`. Several configs contain absolute checkpoint paths from the
-training machine used in the study. Before running them on a new system, update
+`configs/training/`. The configs use repository-relative checkpoint placeholders
+under `./checkpoints/`. Before running them on a new system, update
 `training.checkpoint_dir`, `training.pretrained_checkpoint`, and
 `generation.checkpoint_path` as appropriate.
 
@@ -453,10 +455,8 @@ python scripts/train/run_dpo_rounds.py \
 ```
 
 The exact checkpoints used in the paper are not included in the current Git
-repository.
-
-[TODO: add release links for pretrained, cyclic fine-tuned,
-permeability-enriched, and target-optimized checkpoints.]
+repository. Release links for pretrained, cyclic fine-tuned,
+permeability-enriched, and target-optimized checkpoints are coming soon.
 
 ## Checkpoints and Large Artifacts
 
@@ -490,15 +490,7 @@ running generation or evaluation.
 
 If you use this codebase, please cite the associated paper:
 
-```bibtex
-@article{TODO_PepALD,
-  title   = {PepALD: Autoregressive Latent Diffusion for Macrocyclic Peptide Generation},
-  author  = {[TODO: add authors]},
-  journal = {[TODO: add venue]},
-  year    = {[TODO: add year]},
-  doi     = {[TODO: add DOI]}
-}
-```
+Preprint.
 
 ## License
 
@@ -509,5 +501,5 @@ If you use this codebase, please cite the associated paper:
 For questions about the code or the accompanying paper, please contact:
 
 ```text
-[TODO: add maintainer name and email]
+btab605@gmail.com
 ```
