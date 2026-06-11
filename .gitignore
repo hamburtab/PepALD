@@ -172,6 +172,7 @@ cython_debug/
 #  be added to the global gitignore or merged into this project gitignore.  For a PyCharm
 #  project, it is common to ignore *.iws files.
 .idea/
+.vscode/
 .claude/
 .conda/
 
@@ -186,9 +187,20 @@ Thumbs.db
 
 # Project-specific files
 overleaf-upload-clean/
+PepALD_submit/
+PepALD_submit.zip
+overleaf-upload-package-*/
+overleaf-upload-package-*.zip
+deprecated/
+iptm_conclude
+scripts/figures/长方体.svg
 
 # Generated embedding caches
 data/processed/unimol_embeddings/
+
+# Generated/reference evaluation data
+scripts/eval_reference_model/peptune_data/
+scripts/eval_reference_model/peptune_samples/
 
 # Model checkpoints and weights
 *.pth
@@ -207,9 +219,6 @@ checkpoints/
 chembl32_checkpoints/
 outputs/
 results/
-!outputs/
-!outputs/samples/
-!outputs/samples/**
 outputs/analysis/
 outputs/checkpoints/
 outputs/logs/
@@ -230,7 +239,3 @@ outputs/logs/
 # IDE files
 *.sublime-project
 *.sublime-workspace
-.vscode/launch.json
-.vscode/tasks.json
-.vscode/c_cpp_properties.json
-.vscode/extensions.json
