@@ -187,6 +187,9 @@ Thumbs.db
 # Project-specific files
 overleaf-upload-clean/
 
+# Generated embedding caches
+data/processed/unimol_embeddings/
+
 # Model checkpoints and weights
 *.pth
 *.ckpt
