@@ -2,11 +2,11 @@
 DPO Trainer for Autoregressive Latent Diffusion model.
 
 Training flow per step:
-    1. model & ref_model 各自计算 causal context (teacher forcing)
-    2. 共享 t 和 noise, 对好/差样本加噪
-    3. 4 次 noise prediction (model×w, model×l, ref×w, ref×l)
+    1. Compute causal contexts for model and reference model.
+    2. Add shared timestep/noise to winner and loser samples.
+    3. Predict noise for model/ref on winner/loser samples.
     4. per-position MSE → scatter_mean → per-sample MSE [Bz]
-    5. DPO loss + optional DPOP winner protection, 反向传播
+    5. Backpropagate DPO loss plus optional winner protection.
 """
 
 import math
@@ -67,14 +67,14 @@ class DPOTrainer:
             )
         self.device = torch.device(device if torch.cuda.is_available() else 'cpu')
 
-        # ── ref_model: 冻结的 pretrained 副本, 永不更新 ──
+        # Frozen reference model.
         self.ref_model = deepcopy(model)
         self.ref_model.eval()
         for param in self.ref_model.parameters():
             param.requires_grad = False
         self.ref_model = self.ref_model.to(self.device)
 
-        # ── model: 被 DPO 更新的模型 ──
+        # Trainable policy model.
         self.model = model.to(self.device)
         self._setup_freeze(freeze_mode)
 
@@ -83,29 +83,25 @@ class DPOTrainer:
         n_total = sum(p.numel() for p in self.model.parameters())
         print(f"[DPOTrainer] Trainable: {n_trainable/1e6:.2f}M / {n_total/1e6:.2f}M params")
 
-        # ── Optimizer ──
         self.optimizer = optim.AdamW(
             trainable_params,
             lr=lr,
             weight_decay=weight_decay,
         )
 
-        # ── Checkpoint ──
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # ── State ──
         self.global_step = 0
         self.epoch = 0
 
-        # ── Diffusion constants ──
         self.T = self.model.diffusion_engine.num_steps
         self.dm = self.model.embedding_dim
 
     def _setup_freeze(self, freeze_mode: str):
         """Setup parameter freezing."""
         if freeze_mode == 'denoiser_only':
-            # 只解冻 denoiser, 冻结 context_encoder / lm_head / ring_predictor
+            # Train only the denoiser.
             for name, param in self.model.named_parameters():
                 if 'diffusion_engine.denoiser' in name:
                     param.requires_grad = True
@@ -113,7 +109,6 @@ class DPOTrainer:
                     param.requires_grad = False
             print("[DPOTrainer] Freeze mode: denoiser_only")
         elif freeze_mode == 'all':
-            # 全部可训练
             for param in self.model.parameters():
                 param.requires_grad = True
             print("[DPOTrainer] Freeze mode: all trainable")
@@ -139,11 +134,11 @@ class DPOTrainer:
 
         Bz, L = token_ids_w.shape
 
-        # ── Step 1: Context encoding (teacher forcing) ──
+        # Step 1: context encoding with teacher forcing.
         # _prepare_contexts:
         #   token_ids → UniMolEmbedding → gt_embeddings [Bz, L, dm]
         #   token_ids → CausalTransformer → contexts [Bz, L, d_model]
-        #   右移一位: ctx[i] 只看到 token 0..i-1
+        #   shifted so ctx[i] only sees tokens 0..i-1
 
         gt_w, ctx_w = self.model._prepare_contexts(token_ids_w, mask_w)
         gt_l, ctx_l = self.model._prepare_contexts(token_ids_l, mask_l)
@@ -155,20 +150,18 @@ class DPOTrainer:
             _, ctx_l_ref = self.ref_model._prepare_contexts(token_ids_l, mask_l)
             # ctx_w_ref/ctx_l_ref: [Bz, L, d_model]
 
-        # ── Step 2: Shared t and noise (paired variance reduction) ──
+        # Step 2: shared timestep and noise for paired variance reduction.
         t = torch.randint(1, self.T + 1, (Bz,), device=self.device)
-        # t: [Bz]  好/差 pair 共享同一个 timestep
 
         noise = torch.randn(Bz, L, self.dm, device=self.device)
-        # noise: [Bz, L, dm]  好/差样本共享同一份噪声 (方差缩减)
 
-        # ── Step 3: Forward diffusion ──
+        # Step 3: forward diffusion.
         # x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * noise
         x_w_noisy, _ = self.model.diffusion_engine.add_noise(gt_w, t, noise)
         x_l_noisy, _ = self.model.diffusion_engine.add_noise(gt_l, t, noise)
         # x_w_noisy, x_l_noisy: [Bz, L, dm]
 
-        # ── Step 4: Flatten valid positions for denoiser ──
+        # Step 4: flatten valid positions for the denoiser.
         # denoiser expects 2D input: [batch, dm], not 3D [Bz, L, dm]
         valid_w = mask_w.bool()   # [Bz, L]
         valid_l = mask_l.bool()   # [Bz, L]

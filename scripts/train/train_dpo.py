@@ -335,7 +335,7 @@ def evaluate_rewards(all_helms: list, dpo_cfg: dict):
         )
 
     # Combined reward
-    # Vina score 越负越好, 取负号使得越大越好 (与 DPO 的 "higher is better" 一致)
+    # Lower Vina is better; negate it so higher reward is better.
     reward_w_chem = float(dpo_cfg.get('reward_w_chemistry', 0.0))
     normalize_rewards = bool(dpo_cfg.get('reward_normalize', True))
     chemistry_target_len = dpo_cfg.get('chemistry_target_length', None)

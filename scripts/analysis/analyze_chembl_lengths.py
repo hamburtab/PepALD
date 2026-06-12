@@ -3,11 +3,11 @@ from collections import Counter
 
 def classify_topology(helm_seq):
     """
-    分类肽拓扑：
-    - linear: 无连接
-    - cyclic: 仅首尾成环 (1 <-> length)
-    - q_type: 第一个或最后一个单体与中间单体成环
-    - other: 其他类型环肽
+    Classify peptide topology:
+    - linear: no connection
+    - cyclic: only head-tail cyclization (1 <-> length)
+    - q_type: first or last monomer cyclized to an internal monomer
+    - other: other cyclic topologies
     """
     match = re.search(r'PEPTIDE1\{([^}]+)\}', helm_seq)
     if not match:
@@ -16,7 +16,7 @@ def classify_topology(helm_seq):
     monomers = match.group(1).split('.')
     length = len(monomers)
     
-    # 提取所有连接 (pos1:R*-pos2:R*)
+    # Extract all connections (pos1:R*-pos2:R*).
     connections = re.findall(r'(\d+):R\d+-(\d+):R\d+', helm_seq)
     if not connections:
         return 'linear', monomers
@@ -37,7 +37,7 @@ def classify_topology(helm_seq):
         else:
             has_other = True
     
-    # 优先级: Q型 > Other > Cyclic
+    # Priority: Q-type > other > cyclic.
     if has_q_type:
         return 'q_type', monomers
     elif has_other:
@@ -50,7 +50,7 @@ def analyze_lengths(file_path):
     lengths = []
     x_monomer_seq_count = 0
     
-    # 拓扑计数器
+    # Topology counts.
     topology_counts = {'linear': 0, 'cyclic': 0, 'q_type': 0, 'other': 0}
 
     with open(file_path, 'r') as f:

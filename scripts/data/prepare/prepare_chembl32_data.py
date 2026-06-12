@@ -2,17 +2,17 @@ import pandas as pd
 from pathlib import Path
 import argparse
 def extract_helm_sequences(input_csv, output_txt):
-    """从CSV文件直接提取HELM列的所有数据到txt文件"""
-    print(f"正在加载数据: {input_csv}")
+    """Extract the HELM column from a CSV file into a text file."""
+    print(f"Loading data: {input_csv}")
     
     if not Path(input_csv).exists():
-        raise FileNotFoundError(f"输入文件不存在: {input_csv}")
+        raise FileNotFoundError(f"Input file not found: {input_csv}")
     
     df = pd.read_csv(input_csv, low_memory=False)
-    print(f"成功读取 {len(df)} 行数据")
+    print(f"Loaded {len(df)} rows")
     
     if 'HELM' not in df.columns:
-        raise ValueError("CSV文件中未找到HELM列")
+        raise ValueError("CSV file does not contain a HELM column")
     
     helm_sequences = df['HELM'].dropna().astype(str).str.strip()
     
@@ -29,34 +29,34 @@ def extract_helm_sequences(input_csv, output_txt):
         for seq in helm_sequences:
             f.write(seq + '\n')
     
-    print(f"\n提取完成!")
-    print(f"总数据行数: {len(df):,}")
-    print(f"有效HELM序列: {len(helm_sequences):,}")
-    print(f"  - 线性肽 ($$$$): {linear_count:,}")
-    print(f"  - 环肽 (含连接信息，以$$$结尾): {cyclic_count:,}")
-    print(f"输出文件: {output_path}")
+    print("\nExtraction complete")
+    print(f"Total rows: {len(df):,}")
+    print(f"Valid HELM sequences: {len(helm_sequences):,}")
+    print(f"  - Linear peptides ($$$$): {linear_count:,}")
+    print(f"  - Cyclic peptides (connection info, ending with $$$): {cyclic_count:,}")
+    print(f"Output file: {output_path}")
     
     return str(output_path)
 
 
 def main():
-    """主函数"""
-    parser = argparse.ArgumentParser(description="从CSV文件提取HELM序列到txt文件")
+    """CLI entry point."""
+    parser = argparse.ArgumentParser(description="Extract HELM sequences from a CSV file")
     parser.add_argument("--input_csv", 
                        default="./data/raw/chembl32/biotherapeutics_dict_prot_flt.csv",
-                       help="输入的CSV文件路径")
+                       help="Input CSV path")
     parser.add_argument("--output_txt", 
                        default="./data/processed/helm_sequences_chembl32.txt",
-                       help="输出的txt文件路径")
+                       help="Output text path")
     
     args = parser.parse_args()
     
     try:
         output_file = extract_helm_sequences(args.input_csv, args.output_txt)
-        print(f"\n提取成功！输出文件: {output_file}")
+        print(f"\nExtraction succeeded: {output_file}")
         
     except Exception as e:
-        print(f"提取失败: {e}")
+        print(f"Extraction failed: {e}")
 
 
 if __name__ == "__main__":

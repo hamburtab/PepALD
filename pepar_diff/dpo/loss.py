@@ -5,14 +5,14 @@ Core formula:
     loss = -log σ( β · [(mse_ref_w - mse_θ_w) - (mse_ref_l - mse_θ_l)] )
 
 Where:
-    mse_ref_w - mse_θ_w = progress_w  (新模型在好样本上比老模型进步了多少)
-    mse_ref_l - mse_θ_l = progress_l  (新模型在差样本上比老模型进步了多少)
-    margin = progress_w - progress_l   (我们希望好样本上的进步远大于差样本)
+    mse_ref_w - mse_theta_w = progress_w
+    mse_ref_l - mse_theta_l = progress_l
+    margin = progress_w - progress_l
 
 Properties:
-    - logsigmoid 提供自稳定梯度: margin 大时梯度自动消失, 防止过拟合
-    - ref_model 提供 baseline: 消除样本本身难度差异
-    - beta 控制偏离 ref 的程度: β 大 → r(x)/β 小 → 最优策略接近 π_ref → 保守（KL 约束强）
+    - logsigmoid gives a stable, saturating preference loss.
+    - the reference model removes sample-difficulty bias.
+    - beta controls how strongly the policy can move from the reference.
 """
 
 import torch
@@ -30,15 +30,15 @@ def compute_diffusion_dpo_loss(
     Compute standard Diffusion-DPO loss.
 
     Args:
-        mse_theta_w: [Bz] 新模型在好样本上的 per-sample MSE
-        mse_ref_w:   [Bz] 老模型在好样本上的 per-sample MSE
-        mse_theta_l: [Bz] 新模型在差样本上的 per-sample MSE
-        mse_ref_l:   [Bz] 老模型在差样本上的 per-sample MSE
-        beta:        DPO 温度系数
+        mse_theta_w: [Bz] policy MSE on winners
+        mse_ref_w:   [Bz] reference MSE on winners
+        mse_theta_l: [Bz] policy MSE on losers
+        mse_ref_l:   [Bz] reference MSE on losers
+        beta:        DPO temperature
 
     Returns:
-        loss:   标量, batch 平均后的 DPO loss
-        margin: 标量, 监控用 (正值说明模型更偏好好样本)
+        loss: batch-averaged DPO loss
+        margin: mean preference margin
     """
     progress_w = mse_ref_w - mse_theta_w       # [Bz]
     progress_l = mse_ref_l - mse_theta_l       # [Bz]
@@ -55,24 +55,24 @@ def scatter_mean(
     device: torch.device
 ) -> torch.Tensor:
     """
-    Safe scatter mean: 手动算 sum/count, 避免 scatter_reduce_ 的 include_self 陷阱.
+    Safe scatter mean using explicit sum/count buffers.
 
-    用途: 将 flatten 后的 per-position MSE 按样本 index 聚合为 per-sample MSE.
+    Aggregates flattened per-position MSE values into per-sample MSE.
 
-    示例:
-        values = [0.5, 0.3, 0.4, 0.8, 0.6]   # 5 个 valid 位置的 MSE
-        index  = [  0,   0,   0,   1,   1]     # 前3个属于样本0, 后2个属于样本1
+    Example:
+        values = [0.5, 0.3, 0.4, 0.8, 0.6]
+        index  = [  0,   0,   0,   1,   1]
         num_segments = 2
-        → result = [0.4, 0.7]                  # 样本0: (0.5+0.3+0.4)/3, 样本1: (0.8+0.6)/2
+        -> result = [0.4, 0.7]
 
     Args:
-        values:       [N]   要聚合的值
-        index:        [N]   每个值所属的 segment (0 ~ num_segments-1)
-        num_segments: int   输出长度 (= Bz)
+        values: values to aggregate
+        index: segment id for each value
+        num_segments: output length
         device:       torch.device
 
     Returns:
-        result: [num_segments] 每个 segment 的均值
+        Mean value for each segment.
     """
     sum_buf = torch.zeros(num_segments, device=device)
     cnt_buf = torch.zeros(num_segments, device=device)

@@ -2,20 +2,20 @@
 Generation script for Autoregressive Latent Diffusion (ALD) model.
 
 Usage:
-    # 生成线性肽（预训练模型）
+    # Generate linear peptides with the pretrained model.
     python scripts/generate/generate_peptides.py
     python scripts/generate/generate_peptides.py --mode linear
     
-    # 生成环肽（微调模型）
+    # Generate cyclic peptides with the fine-tuned model.
     python scripts/generate/generate_peptides.py --mode cyclic
 
-    # 使用 Vina 配置生成样本
+    # Generate samples with the Vina config.
     python scripts/generate/generate_peptides.py --mode vina
 
-    # 使用 DPO 配置生成样本
+    # Generate samples with the DPO config.
     python scripts/generate/generate_peptides.py --mode dpo
     
-    # 自定义配置
+    # Use a custom config.
     python scripts/generate/generate_peptides.py --config configs/training/finetune_cyclic.json
 """
 
@@ -39,7 +39,7 @@ from pepar_diff.config import ALDConfig
 from pepar_diff.postprocess import is_head_tail_single_cycle
 
 # ============================================================
-# 默认配置路径
+# Default config paths
 # ============================================================
 DEFAULT_CONFIG = PROJECT_ROOT / "configs" / "training" / "pretrain.json"
 CYCLIC_CONFIG = PROJECT_ROOT / "configs" / "training" / "finetune_cyclic.json"
@@ -277,9 +277,9 @@ def generate_samples(
     if verbose:
         print("\n--- Generated HELM Sequences ---")
         for i, (helm_seq, ring_count, seq_len) in enumerate(zip(helm_sequences, ring_bond_counts, sequence_lengths)):
-            ring_info = f"[环键数: {ring_count}]" if ring_count > 0 else "[线性]"
-            print(f"样本 {i+1:3d} {ring_info} (长度: {seq_len:2d}): {helm_seq}")
-        print("--- 生成完毕 ---\n")
+            ring_info = f"[ring bonds: {ring_count}]" if ring_count > 0 else "[linear]"
+            print(f"Sample {i+1:3d} {ring_info} (length: {seq_len:2d}): {helm_seq}")
+        print("--- Generation complete ---\n")
     
     # Print statistics
     print("\n Generation Statistics:")

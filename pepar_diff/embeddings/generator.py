@@ -1,8 +1,7 @@
 """
-使用Uni-Mol模型将单体库中的CXSMILES结构转换为高维embedding向量
-支持批量处理和结果保存
+Generate Uni-Mol embeddings for monomer-library CXSMILES entries.
 
-参考: https://github.com/dptech-corp/Uni-Mol
+Reference: https://github.com/dptech-corp/Uni-Mol
 """
 
 import pandas as pd
@@ -21,27 +20,27 @@ warnings.filterwarnings('ignore')
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
-# 配置日志
+# Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 
 class SMILESProcessor:
-    """用于清理和标准化CXSMILES"""
+    """Clean and standardize CXSMILES strings."""
     
     def __init__(self):
         self.connection_pattern = re.compile(r'\|\$.*?\$\|')
         self.asterisk_pattern = re.compile(r'\[\*\]')
     
     def extract_smiles_from_cxsmiles(self, cxsmiles: str) -> str:
-        """从CXSMILES中提取标准SMILES部分"""
+        """Extract the standard SMILES part from a CXSMILES string."""
         if pd.isna(cxsmiles) or not isinstance(cxsmiles, str):
             return ""
         
-        # 移除CXSMILES的扩展标注部分
+        # Drop CXSMILES extension annotations.
         smiles = self.connection_pattern.sub('', cxsmiles).strip()
         
-        # 替换连接点占位符为碳原子
+        # Replace connection placeholders with carbon atoms.
         smiles = self.asterisk_pattern.sub('C', smiles)
         try:
             mol = Chem.MolFromSmiles(smiles)
@@ -53,7 +52,7 @@ class SMILESProcessor:
         return smiles
     
     def validate_smiles(self, smiles: str) -> bool:
-        """验证SMILES是否有效"""
+        """Return whether a SMILES string is valid."""
         if not smiles or len(smiles) < 1:
             return False
         try:
@@ -63,34 +62,23 @@ class SMILESProcessor:
             return False
     
     def extract_r_group_info(self, cxsmiles: str) -> tuple:
-        """
-        处理带有R基团标记的SMILES字符串
-        
-        参数:
-            cxsmiles: 带有位置标记的SMILES字符串，格式如：
-                    'COC(=O)[C@@H](...)[*] |$...;_R2;...;_R1$|'
-        
-        返回:
-            tuple: (cano_smiles, r1_site_idx, r2_site_idx, r3_site_idx)
-                其中不存在的R基团返回None
-        """
-        # 1. 分割SMILES和位置信息
+        """Return canonical SMILES and mapped R1/R2/R3 attachment-site indices."""
+        # Split SMILES and position annotations.
         smi = cxsmiles.split(' |')[0]
         mol_raw = Chem.MolFromSmiles(smi)
         
         if mol_raw is None:
-            raise ValueError("无法解析SMILES字符串")
+            raise ValueError("Failed to parse SMILES string")
         
-        # 2. 获取位置信息
+        # Read CXSMILES position annotations.
         pos_info = cxsmiles.split('$')[1]
         pos_list = pos_info.split(';')
         
-        # 3. 查找R1, R2, R3的原子索引及其连接位点
+        # Locate R1/R2/R3 atoms and their attachment sites.
         r1_atomidx = pos_list.index('_R1') if '_R1' in pos_list else None
         r2_atomidx = pos_list.index('_R2') if '_R2' in pos_list else None
         r3_atomidx = pos_list.index('_R3') if '_R3' in pos_list else None
         
-        # 4. 获取R基团连接位点的原子索引，并设置属性标记
         r1_site_idx = None
         r2_site_idx = None
         r3_site_idx = None
@@ -116,49 +104,42 @@ class SMILESProcessor:
                 r3_site_idx = neighbors[0].GetIdx()
                 mol_raw.GetAtomWithIdx(r3_site_idx).SetProp('R_site', 'R3')
         
-        # 5. 创建可编辑的分子并删除所有原子序数为0的原子（即[*]）
+        # Remove dummy atoms ([*]).
         mol_edit = Chem.EditableMol(mol_raw)
         atoms_to_remove = []
         for atom in mol_raw.GetAtoms():
             if atom.GetAtomicNum() == 0:
                 atoms_to_remove.append(atom.GetIdx())
         
-        # 从后往前删除，避免索引变化
+        # Delete in reverse order to keep indices stable.
         for idx in sorted(atoms_to_remove, reverse=True):
             mol_edit.RemoveAtom(idx)
         
         mol_raw = mol_edit.GetMol()
         
-        # 6. 生成规范SMILES
+        # Canonicalize and map old atom indices to canonical indices.
         cano_smiles = Chem.MolToSmiles(mol_raw)
         cano_mol = Chem.MolFromSmiles(cano_smiles)
         
-        # 7. 使用子结构匹配获取原子映射关系
         match = cano_mol.GetSubstructMatch(mol_raw)
         
         if not match:
-            # 尝试反向匹配
             match = mol_raw.GetSubstructMatch(cano_mol)
             if match:
-                # 创建反向映射
                 reverse_map = {v: k for k, v in enumerate(match)}
             else:
-                raise ValueError("无法建立原子映射关系")
+                raise ValueError("Failed to map atom indices")
         else:
-            # match[i] 表示 mol_raw 的原子 i 对应 cano_mol 的原子 match[i]
             reverse_map = {k: v for k, v in enumerate(match)}
         
-        # 8. 找到规范分子中对应的R基团连接位点
         cano_r1_site_idx = None
         cano_r2_site_idx = None
         cano_r3_site_idx = None
         
-        # 通过属性标记找到对应的原子
         for atom in mol_raw.GetAtoms():
             if atom.HasProp('R_site'):
                 r_type = atom.GetProp('R_site')
                 old_idx = atom.GetIdx()
-                # 在映射中找到对应的新索引
                 if old_idx in reverse_map:
                     new_idx = reverse_map[old_idx]
                     if r_type == 'R1':
@@ -172,18 +153,18 @@ class SMILESProcessor:
 
 
 class UniMolEmbeddingGenerator:
-    """Uni-Mol模型的embedding生成器"""
+    """Generate Uni-Mol embeddings."""
     
     def __init__(self, device: str = "auto"):
         self.device = self._get_device(device)
         self.model = None
         self.smiles_processor = SMILESProcessor()
         
-        logger.info(f"初始化Uni-Mol模型")
-        logger.info(f"使用设备: {self.device}")
+        logger.info("Initializing Uni-Mol model")
+        logger.info(f"Device: {self.device}")
     
     def _get_device(self, device: str) -> str:
-        """确定计算设备"""
+        """Resolve the compute device."""
         if device == "auto":
             if torch.cuda.is_available():
                 return "cuda"
@@ -192,39 +173,32 @@ class UniMolEmbeddingGenerator:
         return device
     
     def load_model(self):
-        """加载Uni-Mol模型"""
+        """Load the Uni-Mol model."""
         try:
-            logger.info("正在加载Uni-Mol模型...")
+            logger.info("Loading Uni-Mol model...")
             
-            # 尝试导入unimol_tools
             try:
                 from unimol_tools import UniMolRepr
             except ImportError:
-                logger.error("未安装unimol_tools: pip install unimol_tools")
+                logger.error("unimol_tools is not installed: pip install unimol_tools")
                 raise ImportError("unimol_tools not installed. Please run: pip install unimol_tools")
             
-            # 初始化Uni-Mol模型
-            # data_type可以是 'molecule' (2D) 或 'oled' 等
+            # data_type can be 'molecule' (2D), 'oled', etc.
             self.model = UniMolRepr(data_type='molecule', remove_hs=False)
             
-            logger.info("Uni-Mol模型加载成功!")
+            logger.info("Uni-Mol model loaded")
             
         except Exception as e:
-            logger.error(f"模型加载失败: {e}")
+            logger.error(f"Failed to load model: {e}")
             raise
     
     def generate_embedding(self, smiles: str) -> Optional[Dict]:
-        """
-        为单个SMILES生成embedding，返回CLS向量和原子级特征
-        
-        Returns:
-            dict: {'cls_repr': (512,), 'atomic_reprs': (N_atoms, 512)} 或 None
-        """
+        """Generate CLS and atom-level embeddings for one SMILES string."""
         if self.model is None:
-            raise ValueError("模型未加载，请先调用load_model()")
+            raise ValueError("Model is not loaded. Call load_model() first.")
         
         if not smiles or not self.smiles_processor.validate_smiles(smiles):
-            logger.warning(f"无效的SMILES: {smiles}")
+            logger.warning(f"Invalid SMILES: {smiles}")
             return None
         
         try:
@@ -234,7 +208,7 @@ class UniMolEmbeddingGenerator:
             atomic_reprs = None
             
             if isinstance(reprs, dict):
-                # Case 1: 返回 dict 格式 {'cls_repr': ..., 'atomic_reprs': ...}
+                # Dict output: {'cls_repr': ..., 'atomic_reprs': ...}
                 if 'cls_repr' in reprs:
                     cls_data = reprs['cls_repr']
                     if isinstance(cls_data, list) and len(cls_data) > 0:
@@ -250,37 +224,34 @@ class UniMolEmbeddingGenerator:
                         atomic_reprs = atomic_data[0] if len(atomic_data.shape) == 3 else atomic_data
                         
             elif isinstance(reprs, list) and len(reprs) > 0:
-                # Case 2: 返回 list 格式 [array([...], dtype=float32)]
-                # 这种情况下只有分子级别的 embedding，没有原子级别的
+                # List output may only include molecule-level embeddings.
                 item = reprs[0]
                 if isinstance(item, np.ndarray) and item.size > 0:
                     cls_repr = item
-                    atomic_reprs = None  # list 格式没有原子级特征
+                    atomic_reprs = None
             
-            # Fallback: 如果没有 cls_repr，用 atomic_reprs 的均值代替
+            # Fallback to the atom-embedding mean when CLS is absent.
             if cls_repr is None and atomic_reprs is not None and atomic_reprs.size > 0:
                 cls_repr = np.mean(atomic_reprs, axis=0)
-                logger.debug(f"使用atomic_reprs均值作为cls_repr: {smiles}")
+                logger.debug(f"Using mean atomic embedding as CLS: {smiles}")
             
-            # 如果都没有，返回 None
             if cls_repr is None:
-                logger.warning(f"无法获取embedding: {smiles}")
+                logger.warning(f"Failed to get embedding: {smiles}")
                 return None
             
             return {'cls_repr': cls_repr, 'atomic_reprs': atomic_reprs}
             
         except Exception as e:
-            logger.error(f"生成embedding失败 for SMILES '{smiles}': {e}")
+            logger.error(f"Failed to generate embedding for SMILES '{smiles}': {e}")
             traceback.print_exc()
             return None
     
     def process_monomer_library(self, csv_path: str, batch_size: int = 32) -> Dict:
-        """处理整个单体库文件"""
-        logger.info(f"开始处理单体库文件: {csv_path}")
+        """Process the monomer-library CSV file."""
+        logger.info(f"Processing monomer library: {csv_path}")
         
-        # 读取数据
         df = pd.read_csv(csv_path)
-        logger.info(f"读取到 {len(df)} 个单体")
+        logger.info(f"Loaded {len(df)} monomers")
         
         results = {
             'symbols': [],
@@ -297,20 +268,16 @@ class UniMolEmbeddingGenerator:
             }
         }
         
-        # 加载模型
         if self.model is None:
             self.load_model()
         
-        # 逐个处理（也可以改为批处理）
-        for idx, row in tqdm(df.iterrows(), total=len(df), desc="生成embeddings"):
+        for idx, row in tqdm(df.iterrows(), total=len(df), desc="Generating embeddings"):
             symbol = row['Symbol']
             cxsmiles = row['CXSMILES']
             monomer_type = row.get('Monomer_Type', '')
             
-            # 提取SMILES
             smiles, r1_site_idx, r2_site_idx, r3_site_idx = self.smiles_processor.extract_r_group_info(cxsmiles)
             
-            # 生成embedding（包含cls和atomic_reprs）
             emb_result = self.generate_embedding(smiles)
             
             if emb_result is not None:
@@ -318,7 +285,7 @@ class UniMolEmbeddingGenerator:
                 atomic_reprs = emb_result['atomic_reprs']
                 hidden_dim = len(cls_repr)
                 
-                # 提取 R1, R2, R3 原子的特征向量，不存在则填零
+                # Use zero vectors for missing R-site embeddings.
                 r1_vec = np.zeros(hidden_dim)
                 r2_vec = np.zeros(hidden_dim)
                 r3_vec = np.zeros(hidden_dim)
@@ -332,7 +299,7 @@ class UniMolEmbeddingGenerator:
                     if r3_site_idx is not None and r3_site_idx < n_atoms:
                         r3_vec = atomic_reprs[r3_site_idx]
                 
-                # 组装 full_embedding: [CLS, R1, R2, R3] -> (4, hidden_dim)
+                # [CLS, R1, R2, R3] -> (4, hidden_dim)
                 full_emb = np.stack([cls_repr, r1_vec, r2_vec, r3_vec], axis=0)
                 
                 results['symbols'].append(symbol)
@@ -345,45 +312,43 @@ class UniMolEmbeddingGenerator:
                     results['metadata']['embedding_dim'] = hidden_dim
             else:
                 results['failed_indices'].append(idx)
-                logger.warning(f"处理失败: {symbol} - {cxsmiles}")
+                logger.warning(f"Failed to process: {symbol} - {cxsmiles}")
         
-        # 转换为numpy数组
         if results['full_embeddings']:
             results['full_embeddings'] = np.array(results['full_embeddings'])  # (N, 4, 512)
         
-        # 更新统计信息
         results['metadata']['successful_count'] = len(results['symbols'])
         results['metadata']['failed_count'] = len(results['failed_indices'])
         
-        logger.info(f"处理完成! 成功: {results['metadata']['successful_count']}, "
-                   f"失败: {results['metadata']['failed_count']}")
+        logger.info(f"Done. Success: {results['metadata']['successful_count']}, "
+                   f"failed: {results['metadata']['failed_count']}")
         
         return results
     
     def save_embeddings(self, results: Dict, output_dir: str):
-        """保存embedding结果"""
+        """Save embedding outputs."""
         os.makedirs(output_dir, exist_ok=True)
         
-        # 保存为pickle格式（包含所有数据）
+        # Full result bundle.
         pickle_path = os.path.join(output_dir, 'monomer_embeddings.pkl')
         with open(pickle_path, 'wb') as f:
             pickle.dump(results, f)
-        logger.info(f"完整数据已保存到: {pickle_path}")
+        logger.info(f"Saved full data to: {pickle_path}")
         
-        # 保存full_embeddings矩阵为numpy格式 (N, 4, 512)
+        # Full embedding matrix: (N, 4, 512).
         npy_path = None
         cls_npy_path = None
         if len(results['full_embeddings']) > 0:
             npy_path = os.path.join(output_dir, 'full_embeddings.npy')
             np.save(npy_path, results['full_embeddings'])
-            logger.info(f"Full Embedding矩阵 (N, 4, {results['metadata']['embedding_dim']}) 已保存到: {npy_path}")
+            logger.info(f"Saved full embedding matrix (N, 4, {results['metadata']['embedding_dim']}) to: {npy_path}")
             
-            # 同时保存CLS-only矩阵 (N, 512)，供TokenMapper使用
+            # CLS-only matrix for TokenMapper.
             cls_npy_path = os.path.join(output_dir, 'embeddings_matrix.npy')
             np.save(cls_npy_path, results['full_embeddings'][:, 0, :])
-            logger.info(f"CLS Embedding矩阵 (N, {results['metadata']['embedding_dim']}) 已保存到: {cls_npy_path}")
+            logger.info(f"Saved CLS embedding matrix (N, {results['metadata']['embedding_dim']}) to: {cls_npy_path}")
         
-        # 保存映射信息为CSV
+        # Monomer mapping table.
         mapping_df = pd.DataFrame({
             'symbol': results['symbols'],
             'smiles': results['smiles'],
@@ -392,13 +357,12 @@ class UniMolEmbeddingGenerator:
         })
         csv_path = os.path.join(output_dir, 'monomer_mapping.csv')
         mapping_df.to_csv(csv_path, index=False)
-        logger.info(f"单体映射已保存到: {csv_path}")
+        logger.info(f"Saved monomer mapping to: {csv_path}")
         
-        # 保存元数据
         metadata_path = os.path.join(output_dir, 'metadata.json')
         with open(metadata_path, 'w') as f:
             json.dump(results['metadata'], f, indent=2)
-        logger.info(f"元数据已保存到: {metadata_path}")
+        logger.info(f"Saved metadata to: {metadata_path}")
         
         return {
             'pickle_path': pickle_path,
@@ -409,49 +373,41 @@ class UniMolEmbeddingGenerator:
 
 
 def main():
-    """主函数"""
-    # 输入文件路径
+    """CLI entry point."""
     csv_path = "./data/processed/monomer_library.csv"
-    # 输出目录（与molformer_embeddings区分）
     output_dir = "./data/processed/unimol_embeddings"
     
-    # 检查输入文件
     if not os.path.exists(csv_path):
-        # 尝试其他可能的路径
         alt_path = "./monomer_library.csv"
         if os.path.exists(alt_path):
             csv_path = alt_path
         else:
-            logger.error(f"输入文件不存在: {csv_path}")
+            logger.error(f"Input file does not exist: {csv_path}")
             return
     
-    # 创建embedding生成器
     generator = UniMolEmbeddingGenerator()
     
     try:
-        # 处理单体库
         results = generator.process_monomer_library(csv_path)
         
-        # 保存结果
         output_paths = generator.save_embeddings(results, output_dir)
         
-        # 打印总结
         print("\n" + "="*50)
-        print("Uni-Mol Embedding生成完成")
+        print("Uni-Mol embedding generation complete")
         print("="*50)
-        print(f"总单体数: {results['metadata']['total_monomers']}")
-        print(f"成功处理: {results['metadata']['successful_count']}")
-        print(f"失败数量: {results['metadata']['failed_count']}")
-        print(f"Embedding维度: {results['metadata']['embedding_dim']}")
-        print(f"输出目录: {output_dir}")
-        print("\n输出文件:")
+        print(f"Total monomers: {results['metadata']['total_monomers']}")
+        print(f"Successful: {results['metadata']['successful_count']}")
+        print(f"Failed: {results['metadata']['failed_count']}")
+        print(f"Embedding dim: {results['metadata']['embedding_dim']}")
+        print(f"Output dir: {output_dir}")
+        print("\nOutput files:")
         for key, path in output_paths.items():
             if path:
                 print(f"  {key}: {path}")
         print("="*50)
         
     except Exception as e:
-        logger.error(f"处理过程中出现错误: {e}")
+        logger.error(f"Processing failed: {e}")
         raise
 
 

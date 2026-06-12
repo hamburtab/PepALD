@@ -10,7 +10,7 @@ OUTPUT_FILE = PROJECT_ROOT / "outputs" / "samples" / "case1" / "train_candidates
 
 
 def load_rgroup_table(csv_path: Path) -> dict[str, set[str]]:
-    """加载 monomer_library.csv 中每个 monomer 的可用 R-group。"""
+    """Load available R-groups for each monomer."""
     rgroups: dict[str, set[str]] = {}
     with csv_path.open("r") as f:
         reader = csv.DictReader(f)
@@ -25,7 +25,7 @@ def load_rgroup_table(csv_path: Path) -> dict[str, set[str]]:
 
 
 def extract_tokens(helm_line: str) -> list[str]:
-    """提取 PEPTIDE1{...} 中的 monomer token。"""
+    """Extract monomer tokens from PEPTIDE1{...}."""
     match = re.search(r"PEPTIDE1\{([^}]*)\}", helm_line)
     if not match:
         return []
@@ -33,20 +33,20 @@ def extract_tokens(helm_line: str) -> list[str]:
 
 
 def normalize_token(token: str) -> str:
-    """将 [meA] 这类 token 转成 monomer_library.csv 中的 Symbol。"""
+    """Convert bracketed HELM tokens to monomer-library symbols."""
     if token.startswith("[") and token.endswith("]"):
         return token[1:-1].strip()
     return token
 
 
 def has_r1_r2(token: str, rgroups: dict[str, set[str]]) -> bool:
-    """判断 token 是否同时具有 R1 和 R2。"""
+    """Return whether a token has both R1 and R2."""
     available = rgroups.get(normalize_token(token))
     return available is not None and {"R1", "R2"}.issubset(available)
 
 
 def cyclize_if_valid(helm_line: str, rgroups: dict[str, set[str]]) -> str | None:
-    """若首尾 token 都有 R1/R2，则强制转换为 1:R1-N:R2 成环 HELM。"""
+    """Force a 1:R1-N:R2 head-tail cycle when both ends support R1/R2."""
     tokens = extract_tokens(helm_line)
     if not tokens:
         return None
@@ -98,9 +98,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     total, kept = cyclize_file(args.input, args.output, args.monomer_library)
-    print(f"总样本数: {total}")
-    print(f"保留并成环: {kept}")
-    print(f"输出文件: {args.output}")
+    print(f"Total samples: {total}")
+    print(f"Kept and cyclized: {kept}")
+    print(f"Output file: {args.output}")
 
 
 if __name__ == "__main__":

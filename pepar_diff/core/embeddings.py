@@ -197,7 +197,7 @@ class UniMolEmbeddingLoader(nn.Module):
         self,
         embeddings_dir: str = "./data/processed/unimol_embeddings",
         freeze_embeddings: bool = True,
-        r_weight: float = 0.0  # 可调整的权重
+        r_weight: float = 0.0
     ):
         super().__init__()
         
@@ -242,7 +242,7 @@ class UniMolEmbeddingLoader(nn.Module):
         print(f"  - Fusion: CLS + {self.r_weight} * (R1 + R2 + R3)")
     
     def _fuse(self, full: torch.Tensor) -> torch.Tensor:
-        """加权融合: CLS + r_weight * (R1 + R2 + R3)"""
+        """Fuse CLS and R-group embeddings."""
         cls_vec = full[..., 0, :]   # CLS
         r_sum = full[..., 1:, :].sum(dim=-2)  # R1 + R2 + R3
         return cls_vec + self.r_weight * r_sum

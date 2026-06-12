@@ -1,5 +1,4 @@
-"""评估阶段"""
-"""从预训练生成样本中提取环肽样本（以$$$结尾而非$$$$）。"""
+"""Extract cyclic samples from pretrained-generation outputs."""
 
 from pathlib import Path
 

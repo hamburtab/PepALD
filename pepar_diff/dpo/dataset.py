@@ -1,11 +1,11 @@
 """
 Preference Pair Dataset for Diffusion-DPO training.
 
-数据构造流程:
-    1. 用 pretrained model 生成 N 条 HELM 序列
-    2. 对每条计算 reward = w1 * Vina_score + w2 * Perm_score
-    3. 取 top-25% 为 winner, bottom-25% 为 loser
-    4. 随机配对构成 (winner, loser) pairs
+Typical construction:
+    1. Generate HELM candidates.
+    2. Score them with the target reward.
+    3. Select high-reward winners and low-reward losers.
+    4. Build (winner, loser) preference pairs.
 """
 
 import json
@@ -30,10 +30,10 @@ class PreferencePairDataset(Dataset):
     Dataset of (winner, loser) preference pairs for DPO training.
 
     Each item returns:
-        token_ids_w: [L]    好样本的 token id (padded)
-        mask_w:      [L]    好样本的 valid mask
-        token_ids_l: [L]    差样本的 token id (padded)
-        mask_l:      [L]    差样本的 valid mask
+        token_ids_w: [L] padded winner token ids
+        mask_w:      [L] winner valid mask
+        token_ids_l: [L] padded loser token ids
+        mask_l:      [L] loser valid mask
     """
 
     def __init__(
@@ -46,10 +46,10 @@ class PreferencePairDataset(Dataset):
     ):
         """
         Args:
-            winner_helms: 好样本 HELM 序列列表 (top-25% by reward)
-            loser_helms:  差样本 HELM 序列列表 (bottom-25% by reward)
-            vocab_file:   词表路径
-            max_seq_len:  序列最大长度 (pad 到此长度)
+            winner_helms: winner HELM sequences
+            loser_helms: loser HELM sequences
+            vocab_file: vocabulary path
+            max_seq_len: padding length
         """
         with open(vocab_file, 'r') as f:
             self.vocab = json.load(f)
@@ -71,16 +71,13 @@ class PreferencePairDataset(Dataset):
             print(f"[PreferencePairDataset] {len(self.pairs)} aligned pairs "
                   f"(from {len(winner_helms)} winners, {len(loser_helms)} losers)")
         else:
-            # 解析并过滤有效序列
             self.winners = self._parse_sequences(winner_helms)
             self.losers = self._parse_sequences(loser_helms)
 
-            # 配对: 取两组中较小的长度, 随机配对
             n_pairs = min(len(self.winners), len(self.losers))
             if n_pairs == 0:
                 raise ValueError("No valid preference pairs. Check HELM sequences and vocab.")
 
-            # 随机打乱后截断到相同长度
             w_idx = rng.permutation(len(self.winners))[:n_pairs]
             l_idx = rng.permutation(len(self.losers))[:n_pairs]
             self.winners = [self.winners[i] for i in w_idx]
@@ -183,17 +180,17 @@ def build_preference_pairs(
     loser_vina_score_max: Optional[float] = None,
 ):
     """
-    从生成结果中构造 winner/loser 列表.
+    Build winner/loser HELM lists from scored candidates.
 
     Args:
-        all_helms:    生成的 HELM 序列列表
-        all_rewards:  对应的 reward 数组 (= w1*(-vina) + w2*perm)
-        top_ratio:    取 reward 最高的比例作为 winner
-        bottom_ratio: 取 reward 最低的比例作为 loser
-        vina_scores:  原始 Vina docking 分数 (越负越好)
-        perm_scores:  透膜性分数
-        reward_w_vina: Vina 权重
-        reward_w_perm: 透膜性权重
+        all_helms: candidate HELM sequences
+        all_rewards: reward array
+        top_ratio: top fraction used as winners
+        bottom_ratio: bottom fraction used as losers
+        vina_scores: raw Vina scores, lower is better
+        perm_scores: permeability scores
+        reward_w_vina: Vina weight
+        reward_w_perm: permeability weight
 
     Returns:
         winner_helms: List[str]
@@ -280,7 +277,6 @@ def build_preference_pairs(
     winner_helms = [records[i].helm for i in winner_idx]
     loser_helms = [records[i].helm for i in loser_idx]
 
-    # ── 详细统计 ──
     w_rewards = all_rewards[winner_idx]
     l_rewards = all_rewards[loser_idx]
 

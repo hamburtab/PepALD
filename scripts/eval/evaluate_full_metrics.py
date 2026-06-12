@@ -1,6 +1,4 @@
-"""
-评估生成样本的完整指标：validity, uniqueness, diversity, snn, novelty
-"""
+"""Evaluate generated samples with validity, uniqueness, diversity, SNN, and novelty."""
 import argparse
 import sys
 from pathlib import Path
@@ -42,7 +40,7 @@ def parse_args():
 def main():
     args = parse_args()
 
-    # 读取生成的 HELM 序列
+    # Read generated HELM sequences.
     samples_file = resolve_path(args.input)
     prior_path = resolve_path(args.prior_path)
 
@@ -54,22 +52,21 @@ def main():
     with open(samples_file, 'r') as f:
         helms = [line.strip() for line in f if line.strip()]
     
-    print(f"输入文件: {samples_file}")
-    print(f"参考集:   {prior_path}")
-    print(f"加载了 {len(helms)} 个生成样本")
+    print(f"Input file: {samples_file}")
+    print(f"Reference set: {prior_path}")
+    print(f"Loaded {len(helms)} generated samples")
     
-    # 初始化 Metrics（使用训练集 prior_data.csv 中的 cano_smi 列作为参考）
+    # Use cano_smi from prior_data.csv as the reference set.
     metrics = Metrics(
         prior_path=str(prior_path),
-        n_jobs=1,  # 单线程避免多进程问题
+        n_jobs=1,
         input_type='helm'
     )
     
-    # 计算所有指标
-    print("\n计算指标中...")
+    print("\nComputing metrics...")
     results = metrics.get_metrics(helms)
     
-    print("\n=== 评估结果 ===")
+    print("\n=== Evaluation Results ===")
     for k, v in results.items():
         print(f"  {k}: {v:.4f}")
 

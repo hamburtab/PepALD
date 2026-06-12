@@ -1,16 +1,16 @@
 """
-环肽样本质量预评估工具 —— 在 Vina docking / DPO 训练之前快速判断生成样本的质量。
-所有样本均视为 7-mer 头尾环化环肽 (1:R1-N:R2)。
+Pre-screen cyclic-peptide samples before Vina docking or DPO training.
+Samples are treated as 7-mer head-tail cyclic peptides (1:R1-N:R2).
 
-评估维度 (5 大项, 满分 100):
-  1. Monomer 多样性       (20分): 种类数 + Shannon 熵 + 头部集中度
-  2. 功能团均衡性          (20分): 芳香/极性/N-甲基化/D-氨基酸
-  3. 单肽药理学特征分布     (25分): 每条肽的 NMe 数、HBD、极性/疏水比
-  4. 位置多样性            (15分): 每个位置的 Shannon 熵
-  5. 序列间距离            (20分): Jaccard 距离衡量整体探索广度
+Score components (100 total):
+  1. Monomer diversity (20): type count, Shannon entropy, head concentration
+  2. Functional balance (20): aromatic, polar, N-methylated, D-amino residues
+  3. Per-peptide pharmacology (25): NMe, HBD, polar/hydrophobic ratios
+  4. Positional diversity (15): Shannon entropy at each position
+  5. Pairwise distance (20): Jaccard distance over cyclic bigrams
 
-用法:
-    python scripts/eval/eval_add/evaluate_sample_quality.py <样本文件.txt> [--compare <文件2.txt> ...]
+Usage:
+    python scripts/eval/eval_add/evaluate_sample_quality.py <samples.txt> [--compare <file2.txt> ...]
 """
 
 import re
@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MONOMER_LIBRARY = PROJECT_ROOT / "data" / "processed" / "monomer_library.csv"
 
 # ============================================================
-# 常量
+# Constants
 # ============================================================
 TERMINAL_MODS = {"ac", "am", "am_G", "HOCOCH2_Bal"}
 
@@ -36,7 +36,7 @@ STANDARD_AA = {
     "S", "T", "C", "Y", "H", "K", "R", "D", "E", "N", "Q",
 }
 
-# --- 功能团分类 ---
+# --- Functional-group classes ---
 AROMATIC_TOKENS = {
     "F", "Y", "W", "H",
     "dF", "dY", "dW", "dH",
@@ -60,24 +60,24 @@ HYDROPHOBIC_TOKENS = {
     "Nle", "Tle", "dTle",
 }
 
-# 脯氨酸族: 影响环肽骨架 cis/trans 构象
+# Proline-like residues can affect cyclic-peptide cis/trans backbone states.
 PROLINE_LIKE_TOKENS = {
     "P", "dP", "Aze", "Hpr", "dHpr", "lalloHyp", "Hyp",
 }
 
 
 # ============================================================
-# 辅助函数: monomer 属性判断
+# Monomer property helpers
 # ============================================================
 def is_nmethylated(token: str) -> bool:
-    """N-甲基化残基: 减少骨架 NH, 降低 HBD, 有利透膜。"""
+    """Return whether a residue is N-methylated."""
     return (token.startswith("me") and len(token) > 2 and token[2:3].isupper()) \
         or token.startswith("Me_d") \
         or token == "Sar"
 
 
 def is_d_amino(token: str) -> bool:
-    """D-构型残基: 影响骨架构象, 有利代谢稳定性。"""
+    """Return whether a residue has D-amino-acid notation."""
     return (token.startswith("d") and len(token) > 1 and token[1:2].isupper()) \
         or token.startswith("Me_d")
 
@@ -102,7 +102,7 @@ def is_hydrophobic(token: str) -> bool:
 
 
 # ============================================================
-# 数据加载
+# Data loading
 # ============================================================
 def load_rgroup_table(csv_path: Path) -> Dict[str, Set[str]]:
     rgroups = {}
@@ -131,7 +131,7 @@ def parse_helm_file(filepath: str) -> List[dict]:
             m = re.search(r"PEPTIDE1\{(.+?)\}", line)
             if not m:
                 continue
-            # 过滤末端修饰, 只保留真正的 monomer
+            # Drop terminal modifiers and keep real monomers.
             raw_tokens = m.group(1).split(".")
             tokens = [t for t in raw_tokens if t not in TERMINAL_MODS]
             if not tokens:
@@ -141,7 +141,7 @@ def parse_helm_file(filepath: str) -> List[dict]:
 
 
 # ============================================================
-# 维度 1: Monomer 多样性
+# Component 1: monomer diversity
 # ============================================================
 def eval_diversity(samples: List[dict]) -> dict:
     all_monomers = []
@@ -152,7 +152,7 @@ def eval_diversity(samples: List[dict]) -> dict:
     total = sum(mc.values())
     num_types = len(mc)
 
-    # Shannon 熵
+    # Shannon entropy.
     entropy = 0.0
     for count in mc.values():
         p = count / total
@@ -178,7 +178,7 @@ def eval_diversity(samples: List[dict]) -> dict:
 
 
 # ============================================================
-# 维度 2: 功能团均衡性 (全局)
+# Component 2: global functional-group balance
 # ============================================================
 def eval_functional_groups(samples: List[dict]) -> dict:
     all_monomers = []
@@ -216,18 +216,17 @@ def eval_functional_groups(samples: List[dict]) -> dict:
 
 
 # ============================================================
-# 维度 3: 单肽药理学特征分布
+# Component 3: per-peptide pharmacology
 # ============================================================
 def eval_per_peptide_pharmacology(samples: List[dict]) -> dict:
     """
-    对每条环肽计算药理学相关特征, 分析其分布:
-      - NMe 数:   N-甲基化残基个数 (含 Sar)
-      - HBD 估计: 骨架 NH 数 ≈ 序列长度 - NMe数 - Pro数
-                   (环肽无末端 NH3+/COO-, 每个非NMe/非Pro残基贡献 1 个骨架 NH)
-      - 疏水比:   疏水残基 / 总长度
-      - 极性比:   极性残基 / 总长度
-      - Pro 数:   脯氨酸族个数 (影响 cis/trans 骨架构象)
-      - D-aa 数:  D-氨基酸个数 (影响骨架手性)
+    Compute per-peptide pharmacology-related features:
+      - NMe count: N-methylated residues, including Sar
+      - HBD estimate: backbone NH count ~= length - NMe - Pro
+      - Hydrophobic ratio: hydrophobic residues / length
+      - Polar ratio: polar residues / length
+      - Pro count: proline-like residues
+      - D-aa count: D-amino-acid residues
     """
     nme_counts = []
     hbd_estimates = []
@@ -250,8 +249,7 @@ def eval_per_peptide_pharmacology(samples: List[dict]) -> dict:
         n_d = sum(1 for t in tokens if is_d_amino(t))
         n_aro = sum(1 for t in tokens if is_aromatic(t))
 
-        # 环肽骨架 HBD ≈ N - NMe - Pro
-        # (每个残基有一个酰胺 NH, 但 N-甲基化和 Pro 没有)
+        # Cyclic-peptide backbone HBD ~= N - NMe - Pro.
         hbd = max(0, n - n_nme - n_pro)
 
         nme_counts.append(n_nme)
@@ -282,16 +280,16 @@ def eval_per_peptide_pharmacology(samples: List[dict]) -> dict:
         std = (sum((v - mean) ** 2 for v in values) / len(values)) ** 0.5
         return {"mean": round(mean, 3), "std": round(std, 3)}
 
-    # 药物化学理想值 (7-mer 头尾环肽):
-    #   NMe: 2-4 (Cyclosporine A 比例外推; 降低 HBD)
-    #   HBD: ≤4  (Veber rule for oral: HBD ≤ 5; 环肽更严格)
-    #   疏水: 0.3-0.6  (太高溶解性差, 太低透膜差)
+    # Medicinal-chemistry targets for 7-mer head-tail cyclic peptides:
+    #   NMe: 2-4, to reduce HBD
+    #   HBD: <=4, stricter than the oral Veber rule
+    #   Hydrophobic ratio: 0.3-0.6
 
-    # NMe ≥ 2 的肽占比 (有利于透膜)
+    # Fraction with NMe >= 2.
     nme_ge2_ratio = sum(1 for x in nme_counts if x >= 2) / max(len(nme_counts), 1)
-    # HBD ≤ 4 的肽占比 (有利于透膜)
+    # Fraction with HBD <= 4.
     hbd_le4_ratio = sum(1 for x in hbd_estimates if x <= 4) / max(len(hbd_estimates), 1)
-    # 含至少 1 个芳香残基的肽占比 (有利于蛋白结合)
+    # Fraction with at least one aromatic residue.
     aro_ge1_ratio = sum(1 for x in aromatic_counts if x >= 1) / max(len(aromatic_counts), 1)
 
     return {
@@ -309,13 +307,12 @@ def eval_per_peptide_pharmacology(samples: List[dict]) -> dict:
 
 
 # ============================================================
-# 维度 4: 位置多样性
+# Component 4: positional diversity
 # ============================================================
 def eval_positional_diversity(samples: List[dict]) -> dict:
     """
-    每个位置的 monomer Shannon 熵。
-    位置多样性高 → DPO 在各位置都有信号。
-    位置多样性低 → 某些位置被锁死, DPO 学习空间受限。
+    Compute monomer Shannon entropy at each position.
+    Low position entropy means that some positions are nearly fixed.
     """
     seq_len = max((len(s["tokens"]) for s in samples), default=0)
     position_counters = [Counter() for _ in range(seq_len)]
@@ -339,7 +336,7 @@ def eval_positional_diversity(samples: List[dict]) -> dict:
 
     mean_ent = sum(position_entropies) / max(len(position_entropies), 1)
     min_ent = min(position_entropies) if position_entropies else 0
-    # 最薄弱位置 = entropy 最低的
+    # Weakest position = lowest entropy.
     weakest_pos = position_entropies.index(min_ent) if position_entropies else -1
 
     return {
@@ -352,27 +349,26 @@ def eval_positional_diversity(samples: List[dict]) -> dict:
 
 
 # ============================================================
-# 维度 5: 序列间距离 (化学空间覆盖)
+# Component 5: pairwise distance as chemical-space coverage
 # ============================================================
 def eval_pairwise_distance(samples: List[dict], max_pairs: int = 5000) -> dict:
     """
-    采样序列对, 计算 Jaccard 距离 (基于 bigram 集合)。
-    衡量样本集覆盖的化学空间广度。
-    Jaccard 距离越高 → 样本越分散 → DPO winner/loser 差异越大。
+    Sample sequence pairs and compute Jaccard distance over cyclic bigrams.
+    Higher distance indicates broader sample-set coverage.
     """
-    # 每条肽转为 bigram 集合 (捕获相邻残基交互)
+    # Convert each peptide into a cyclic bigram set.
     bigram_sets = []
     for s in samples:
         tokens = s["tokens"]
         bigrams = set()
         for i in range(len(tokens) - 1):
             bigrams.add((tokens[i], tokens[i + 1]))
-        # 头尾环化: 最后一个 → 第一个
+        # Head-tail cyclization: last -> first.
         if len(tokens) >= 2:
             bigrams.add((tokens[-1], tokens[0]))
         bigram_sets.append(bigrams)
 
-    # 采样计算 pairwise Jaccard distance
+    # Sample pairwise Jaccard distances.
     n = len(bigram_sets)
     if n < 2:
         return {"mean_jaccard": 0, "std_jaccard": 0, "min_jaccard": 0, "max_jaccard": 0}
@@ -403,61 +399,56 @@ def eval_pairwise_distance(samples: List[dict], max_pairs: int = 5000) -> dict:
 
 
 # ============================================================
-# 综合评分
+# Overall score
 # ============================================================
 def compute_overall_score(diversity: dict, functional: dict,
                           pharmacology: dict, positional: dict,
                           pairwise: dict) -> Tuple[float, dict]:
     """
-    综合评分 (0-100):
-      1. Monomer 多样性       (20分)
-      2. 功能团均衡性          (20分)
-      3. 单肽药理学特征        (25分)
-      4. 位置多样性            (15分)
-      5. 序列间距离            (20分)
+    Overall score (0-100):
+      1. Monomer diversity (20)
+      2. Functional balance (20)
+      3. Per-peptide pharmacology (25)
+      4. Positional diversity (15)
+      5. Pairwise distance (20)
     """
     scores = {}
 
     def range_score(val, low, high, max_pts):
-        """值在 [low, high] 内满分, 超出线性衰减。"""
+        """Full score inside [low, high], linear decay outside."""
         if low <= val <= high:
             return max_pts
         if val < low:
             return max_pts * (val / low) if low > 0 else 0
         return max_pts * max(0, 1 - (val - high) / high)
 
-    # 1. Monomer 多样性 (20分)
+    # 1. Monomer diversity (20).
     type_score = min(diversity["num_monomer_types"] / 200, 1.0) * 10
     entropy_score = diversity["normalized_entropy"] * 10
     scores["monomer_diversity"] = type_score + entropy_score
 
-    # 2. 功能团均衡性 (20分)
+    # 2. Functional balance (20).
     aro_s = range_score(functional["aromatic_ratio"], 0.08, 0.25, 5)
     pol_s = range_score(functional["polar_charged_ratio"], 0.08, 0.25, 5)
     nme_s = range_score(functional["nmethylated_ratio"], 0.03, 0.20, 5)
     dam_s = min(functional["d_amino_ratio"] / 0.03, 1.0) * 5
     scores["functional_balance"] = aro_s + pol_s + nme_s + dam_s
 
-    # 3. 单肽药理学特征 (25分)
-    #    NMe≥2 占比 (10分) — 环肽透膜的关键
-    #    HBD≤4 占比  (8分) — Veber rule
-    #    含芳香≥1 占比 (7分) — 蛋白结合潜力
+    # 3. Per-peptide pharmacology (25).
+    #    NMe>=2 fraction (10), HBD<=4 fraction (8), aromatic>=1 fraction (7).
     scores["pharmacology"] = (
         pharmacology["nme_ge2_ratio"] * 10
         + pharmacology["hbd_le4_ratio"] * 8
         + pharmacology["aro_ge1_ratio"] * 7
     )
 
-    # 4. 位置多样性 (15分)
-    #    平均位置熵 (10分) — 以 log2(50)≈5.64 为参考上限
-    #    最弱位置熵 (5分) — 木桶效应
-    ref_ent = 5.0  # 约 32 种 monomer 均匀分布时的熵
+    # 4. Positional diversity (15).
+    ref_ent = 5.0  # Entropy for roughly 32 uniformly distributed monomer types.
     mean_pos = min(positional["mean_positional_entropy"] / ref_ent, 1.0) * 10
     min_pos = min(positional["min_positional_entropy"] / ref_ent, 1.0) * 5
     scores["positional_diversity"] = mean_pos + min_pos
 
-    # 5. 序列间距离 (20分)
-    #    mean Jaccard ≥ 0.8 满分 (完全不同的 bigram)
+    # 5. Pairwise distance (20); mean Jaccard >= 0.8 gets full credit.
     scores["pairwise_distance"] = min(pairwise["mean_jaccard"] / 0.8, 1.0) * 20
 
     total = sum(scores.values())
@@ -465,7 +456,7 @@ def compute_overall_score(diversity: dict, functional: dict,
 
 
 # ============================================================
-# 打印报告
+# Report printing
 # ============================================================
 def print_report(filepath: str, diversity: dict, functional: dict,
                  pharmacology: dict, positional: dict, pairwise: dict,
@@ -474,12 +465,12 @@ def print_report(filepath: str, diversity: dict, functional: dict,
     w = 64
 
     print(f"\n{'=' * w}")
-    print(f" 环肽样本质量评估: {name}  ({num_samples} 条)")
+    print(f" Cyclic Peptide Sample Quality: {name}  ({num_samples} samples)")
     print(f"{'=' * w}")
 
     grade = ("A+" if total_score >= 85 else "A" if total_score >= 75
              else "B" if total_score >= 60 else "C" if total_score >= 45 else "D")
-    print(f"\n  综合评分: {total_score}/100  ({grade})")
+    print(f"\n  Overall score: {total_score}/100  ({grade})")
     print(f"{'─' * w}")
 
     max_pts = {
@@ -488,11 +479,11 @@ def print_report(filepath: str, diversity: dict, functional: dict,
         "pairwise_distance": 20,
     }
     label = {
-        "monomer_diversity": "Monomer 多样性",
-        "functional_balance": "功能团均衡性",
-        "pharmacology": "单肽药理学特征",
-        "positional_diversity": "位置多样性",
-        "pairwise_distance": "序列间距离",
+        "monomer_diversity": "Monomer diversity",
+        "functional_balance": "Functional balance",
+        "pharmacology": "Pharmacology",
+        "positional_diversity": "Positional diversity",
+        "pairwise_distance": "Pairwise distance",
     }
     for k in max_pts:
         v = sub_scores[k]
@@ -501,29 +492,29 @@ def print_report(filepath: str, diversity: dict, functional: dict,
         bar = "█" * bar_len + "░" * (20 - bar_len)
         print(f"  {label[k]:14s}  {bar} {v:5.1f}/{mp}")
 
-    # --- Monomer 多样性 ---
+    # --- Monomer diversity ---
     print(f"\n{'─' * w}")
-    print(f" [1] Monomer 多样性")
-    print(f"  种类数:          {diversity['num_monomer_types']}")
-    print(f"  Shannon 熵:      {diversity['shannon_entropy']}  (归一化: {diversity['normalized_entropy']})")
-    print(f"  Top-3 集中度:    {diversity['top3_concentration']:.1%}")
-    print(f"  Top-10 集中度:   {diversity['top10_concentration']:.1%}")
-    print(f"  稀有 monomer:    {diversity['rare_monomer_count']} 种 (≤2次)")
+    print(" [1] Monomer diversity")
+    print(f"  Types:           {diversity['num_monomer_types']}")
+    print(f"  Shannon entropy: {diversity['shannon_entropy']}  (normalized: {diversity['normalized_entropy']})")
+    print(f"  Top-3 share:     {diversity['top3_concentration']:.1%}")
+    print(f"  Top-10 share:    {diversity['top10_concentration']:.1%}")
+    print(f"  Rare monomers:   {diversity['rare_monomer_count']} types (<=2 occurrences)")
     print(f"  Top-20:")
     for tok, cnt in diversity["top20_monomers"]:
         pct = cnt / diversity["total_monomer_count"] * 100
         print(f"    {tok:20s}: {cnt:4d} ({pct:.1f}%)")
 
-    # --- 功能团 ---
+    # --- Functional groups ---
     print(f"\n{'─' * w}")
-    print(f" [2] 功能团均衡性")
+    print(" [2] Functional balance")
     for name_key, ratio_key, ideal in [
-        ("芳香族",     "aromatic_ratio",       "8-25%"),
-        ("极性/带电",  "polar_charged_ratio",  "8-25%"),
-        ("N-甲基化",   "nmethylated_ratio",    "3-20%"),
-        ("D-氨基酸",   "d_amino_ratio",        "≥3%"),
-        ("脯氨酸族",   "proline_like_ratio",   "参考"),
-        ("疏水",       "hydrophobic_ratio",    "参考"),
+        ("Aromatic",       "aromatic_ratio",       "8-25%"),
+        ("Polar/charged",  "polar_charged_ratio",  "8-25%"),
+        ("N-methylated",   "nmethylated_ratio",    "3-20%"),
+        ("D-amino",        "d_amino_ratio",        ">=3%"),
+        ("Proline-like",   "proline_like_ratio",   "reference"),
+        ("Hydrophobic",    "hydrophobic_ratio",    "reference"),
     ]:
         v = functional[ratio_key]
         cnt_key = ratio_key.replace("_ratio", "_count")
@@ -531,71 +522,71 @@ def print_report(filepath: str, diversity: dict, functional: dict,
         ok = "✓" if ratio_key == "proline_like_ratio" or ratio_key == "hydrophobic_ratio" else ""
         if not ok:
             if ratio_key == "d_amino_ratio":
-                ok = "✓" if v >= 0.03 else "⚠ 偏低"
+                ok = "✓" if v >= 0.03 else "⚠ low"
             elif ratio_key in ("aromatic_ratio", "polar_charged_ratio"):
-                ok = "✓" if 0.08 <= v <= 0.25 else ("⚠ 偏低" if v < 0.08 else "⚠ 偏高")
+                ok = "✓" if 0.08 <= v <= 0.25 else ("⚠ low" if v < 0.08 else "⚠ high")
             elif ratio_key == "nmethylated_ratio":
-                ok = "✓" if 0.03 <= v <= 0.20 else ("⚠ 偏低" if v < 0.03 else "⚠ 偏高")
-        print(f"  {name_key:10s}: {cnt:5} ({v:5.1%})  理想: {ideal:6s}  {ok}")
+                ok = "✓" if 0.03 <= v <= 0.20 else ("⚠ low" if v < 0.03 else "⚠ high")
+        print(f"  {name_key:14s}: {cnt:5} ({v:5.1%})  target: {ideal:9s}  {ok}")
 
-    # --- 单肽药理学 ---
+    # --- Per-peptide pharmacology ---
     print(f"\n{'─' * w}")
-    print(f" [3] 单肽药理学特征分布 (每条肽)")
+    print(" [3] Per-peptide pharmacology")
     ph = pharmacology
-    print(f"  NMe/肽:  {ph['nme_per_peptide']['mean']:.1f} ± {ph['nme_per_peptide']['std']:.1f}  "
-          f"分布: {ph['nme_per_peptide']['dist']}")
-    print(f"    NMe ≥ 2 占比: {ph['nme_ge2_ratio']:.1%}  "
-          f"{'✓' if ph['nme_ge2_ratio'] >= 0.4 else '⚠ 偏低 (透膜性受限)'}")
-    print(f"  HBD/肽:  {ph['hbd_per_peptide']['mean']:.1f} ± {ph['hbd_per_peptide']['std']:.1f}  "
-          f"分布: {ph['hbd_per_peptide']['dist']}")
-    print(f"    HBD ≤ 4 占比:  {ph['hbd_le4_ratio']:.1%}  "
-          f"{'✓' if ph['hbd_le4_ratio'] >= 0.5 else '⚠ 偏低 (透膜性受限)'}")
-    print(f"  Pro/肽:  {ph['proline_per_peptide']['mean']:.1f} ± {ph['proline_per_peptide']['std']:.1f}  "
-          f"分布: {ph['proline_per_peptide']['dist']}")
-    print(f"  D-aa/肽: {ph['d_amino_per_peptide']['mean']:.1f} ± {ph['d_amino_per_peptide']['std']:.1f}  "
-          f"分布: {ph['d_amino_per_peptide']['dist']}")
-    print(f"  芳香/肽: {ph['aromatic_per_peptide']['mean']:.1f} ± {ph['aromatic_per_peptide']['std']:.1f}  "
-          f"分布: {ph['aromatic_per_peptide']['dist']}")
-    print(f"    含芳香 ≥ 1 占比: {ph['aro_ge1_ratio']:.1%}  "
-          f"{'✓' if ph['aro_ge1_ratio'] >= 0.5 else '⚠ 偏低 (蛋白结合潜力有限)'}")
-    print(f"  疏水比/肽: {ph['hydrophobic_ratio_per_peptide']['mean']:.1%} ± {ph['hydrophobic_ratio_per_peptide']['std']:.1%}")
-    print(f"  极性比/肽: {ph['polar_ratio_per_peptide']['mean']:.1%} ± {ph['polar_ratio_per_peptide']['std']:.1%}")
+    print(f"  NMe/peptide:      {ph['nme_per_peptide']['mean']:.1f} ± {ph['nme_per_peptide']['std']:.1f}  "
+          f"dist: {ph['nme_per_peptide']['dist']}")
+    print(f"    NMe >= 2 ratio: {ph['nme_ge2_ratio']:.1%}  "
+          f"{'✓' if ph['nme_ge2_ratio'] >= 0.4 else '⚠ low permeability signal'}")
+    print(f"  HBD/peptide:      {ph['hbd_per_peptide']['mean']:.1f} ± {ph['hbd_per_peptide']['std']:.1f}  "
+          f"dist: {ph['hbd_per_peptide']['dist']}")
+    print(f"    HBD <= 4 ratio: {ph['hbd_le4_ratio']:.1%}  "
+          f"{'✓' if ph['hbd_le4_ratio'] >= 0.5 else '⚠ low permeability signal'}")
+    print(f"  Pro/peptide:      {ph['proline_per_peptide']['mean']:.1f} ± {ph['proline_per_peptide']['std']:.1f}  "
+          f"dist: {ph['proline_per_peptide']['dist']}")
+    print(f"  D-aa/peptide:     {ph['d_amino_per_peptide']['mean']:.1f} ± {ph['d_amino_per_peptide']['std']:.1f}  "
+          f"dist: {ph['d_amino_per_peptide']['dist']}")
+    print(f"  Aromatic/peptide: {ph['aromatic_per_peptide']['mean']:.1f} ± {ph['aromatic_per_peptide']['std']:.1f}  "
+          f"dist: {ph['aromatic_per_peptide']['dist']}")
+    print(f"    Aromatic >= 1 ratio: {ph['aro_ge1_ratio']:.1%}  "
+          f"{'✓' if ph['aro_ge1_ratio'] >= 0.5 else '⚠ limited binding signal'}")
+    print(f"  Hydrophobic ratio/peptide: {ph['hydrophobic_ratio_per_peptide']['mean']:.1%} ± {ph['hydrophobic_ratio_per_peptide']['std']:.1%}")
+    print(f"  Polar ratio/peptide:       {ph['polar_ratio_per_peptide']['mean']:.1%} ± {ph['polar_ratio_per_peptide']['std']:.1%}")
 
-    # --- 位置多样性 ---
+    # --- Positional diversity ---
     print(f"\n{'─' * w}")
-    print(f" [4] 位置多样性 (每个位置的 Shannon 熵)")
+    print(" [4] Positional diversity")
     pos = positional
     for i, (ent, nt) in enumerate(zip(pos["position_entropies"], pos["position_num_types"])):
         bar_len = int(ent / 6.0 * 30)
         bar = "█" * bar_len + "░" * (30 - bar_len)
-        weak = " ← 最薄弱" if i == pos["weakest_position"] else ""
-        print(f"  位置 {i+1}: {bar} {ent:.2f} ({nt:3d} 种){weak}")
-    print(f"  平均: {pos['mean_positional_entropy']:.3f}   最低: {pos['min_positional_entropy']:.3f}")
+        weak = " ← weakest" if i == pos["weakest_position"] else ""
+        print(f"  Position {i+1}: {bar} {ent:.2f} ({nt:3d} types){weak}")
+    print(f"  Mean: {pos['mean_positional_entropy']:.3f}   Min: {pos['min_positional_entropy']:.3f}")
 
-    # --- 序列间距离 ---
+    # --- Pairwise distance ---
     print(f"\n{'─' * w}")
-    print(f" [5] 序列间 Jaccard 距离 (基于环 bigram)")
+    print(" [5] Pairwise Jaccard distance over cyclic bigrams")
     pw = pairwise
-    print(f"  平均距离: {pw['mean_jaccard']:.3f} ± {pw['std_jaccard']:.3f}")
-    print(f"  范围:     [{pw['min_jaccard']:.3f}, {pw['max_jaccard']:.3f}]")
-    print(f"  采样对数: {pw['num_pairs_sampled']}")
+    print(f"  Mean distance: {pw['mean_jaccard']:.3f} ± {pw['std_jaccard']:.3f}")
+    print(f"  Range:         [{pw['min_jaccard']:.3f}, {pw['max_jaccard']:.3f}]")
+    print(f"  Sampled pairs: {pw['num_pairs_sampled']}")
     if pw["mean_jaccard"] >= 0.8:
-        print(f"  ✓ 样本间差异大, 化学空间覆盖良好")
+        print("  ✓ High sample diversity and broad chemical-space coverage")
     elif pw["mean_jaccard"] >= 0.6:
-        print(f"  ~ 样本间差异中等")
+        print("  ~ Moderate sample diversity")
     else:
-        print(f"  ⚠ 样本间差异小, 化学空间覆盖不足")
+        print("  ⚠ Low sample diversity and limited chemical-space coverage")
 
     print(f"\n{'=' * w}\n")
 
 
 # ============================================================
-# 评估入口
+# Evaluation entry point
 # ============================================================
 def evaluate_file(filepath: str, rgroups: Dict[str, Set[str]], verbose: bool = True) -> dict:
     samples = parse_helm_file(filepath)
     if not samples:
-        print(f"⚠ 文件为空或无法解析: {filepath}")
+        print(f"⚠ Empty or unparsable file: {filepath}")
         return {}
 
     diversity = eval_diversity(samples)
@@ -625,13 +616,13 @@ def evaluate_file(filepath: str, rgroups: Dict[str, Set[str]], verbose: bool = T
 
 
 def main():
-    parser = argparse.ArgumentParser(description="环肽样本质量预评估 (Vina + 透膜性)")
-    parser.add_argument("input", type=str, help="待评估的 HELM 样本文件")
-    parser.add_argument("--compare", type=str, nargs="+", default=[], help="对比文件")
+    parser = argparse.ArgumentParser(description="Cyclic-peptide sample quality pre-screening")
+    parser.add_argument("input", type=str, help="HELM sample file to evaluate")
+    parser.add_argument("--compare", type=str, nargs="+", default=[], help="Comparison files")
     args = parser.parse_args()
 
     rgroups = load_rgroup_table(MONOMER_LIBRARY)
-    print(f"已加载 {len(rgroups)} 个 monomer 的 R-group 信息")
+    print(f"Loaded R-group info for {len(rgroups)} monomers")
 
     files = [args.input] + args.compare
     results = []
@@ -642,9 +633,9 @@ def main():
 
     if len(results) > 1:
         print("=" * 64)
-        print(" 对比总结")
+        print(" Comparison Summary")
         print("=" * 64)
-        print(f"  {'文件':32s} {'总分':>5s} {'种类':>5s} {'芳香':>6s} {'NMe≥2':>6s} {'HBD≤4':>6s} {'Jaccard':>7s}")
+        print(f"  {'File':32s} {'Score':>5s} {'Types':>5s} {'Aro':>6s} {'NMe>=2':>7s} {'HBD<=4':>7s} {'Jaccard':>7s}")
         print("  " + "─" * 62)
         for r in sorted(results, key=lambda x: x["total_score"], reverse=True):
             nm = Path(r["filepath"]).name[:32]
