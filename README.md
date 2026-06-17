@@ -506,7 +506,8 @@ If you use this codebase, please cite the associated paper:
 
 ## License
 
-[TODO: add license information and a LICENSE file.]
+This project is released under the MIT License. See [LICENSE](LICENSE) for
+details.
 
 ## Contact
 

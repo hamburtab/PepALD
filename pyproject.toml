@@ -8,12 +8,14 @@ version = "1.0.0"
 description = "PepAR-Diff: Cyclopeptide generation via autoregressive latent diffusion."
 readme = "README.md"
 requires-python = ">=3.8"
+license = { text = "MIT" }
 authors = [
   { name = "PepAR-Diff Authors" }
 ]
 keywords = ["peptide-generation", "diffusion-model", "HELM", "cyclopeptide", "ai4science"]
 classifiers = [
   "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
