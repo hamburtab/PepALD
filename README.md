@@ -2,6 +2,8 @@
 
 **Autoregressive latent diffusion for HELM-based macrocyclic peptide generation.**
 
+[![arXiv](https://img.shields.io/badge/arXiv-2606.14510-b31b1b.svg)](https://arxiv.org/abs/2606.14510)
+
 PepALD, implemented in this repository as `pepar_diff`, is a research codebase for
 de novo macrocyclic peptide design with non-natural monomers, explicit HELM
 connectivity, and target-aware optimization. The framework combines HELM
@@ -9,9 +11,10 @@ sequence modeling, Uni-Mol-derived monomer embeddings, autoregressive diffusion
 in a chemically informed latent space, R-group-aware ring prediction, and
 preference optimization driven by docking and permeability-related rewards.
 
-This repository accompanies an AI4Science / bioinformatics study on
-macrocyclic peptide generation and property optimization. It is organized as a
-reproducible research codebase rather than a packaged production service.
+This repository accompanies the arXiv preprint
+[PepALD: Macrocyclic Peptide Generation via Autoregressive Latent Diffusion](https://arxiv.org/abs/2606.14510).
+It is organized as a reproducible AI4Science / bioinformatics research codebase
+rather than a packaged production service.
 
 ## Overview
 
@@ -488,7 +491,18 @@ running generation or evaluation.
 
 If you use this codebase, please cite the associated paper:
 
-Preprint.
+```bibtex
+@misc{zhang2026pepald,
+  title = {PepALD: Macrocyclic Peptide Generation via Autoregressive Latent Diffusion},
+  author = {Zhang, Junming and Yi, Siyu and Ju, Wei and Gu, Zhonghui},
+  year = {2026},
+  eprint = {2606.14510},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.LG},
+  doi = {10.48550/arXiv.2606.14510},
+  url = {https://arxiv.org/abs/2606.14510}
+}
+```
 
 ## License
 
