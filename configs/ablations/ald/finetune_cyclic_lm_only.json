@@ -33,6 +33,7 @@
     "sample_positions": 45,
     "log_interval": 50,
     "save_interval": 500,
+    "save_epoch_interval": 5,
     "checkpoint_dir": "./checkpoints/ablations/wo_ald/finetune",
     "device": "cuda",
     "use_amp": false,

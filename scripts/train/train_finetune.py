@@ -386,8 +386,16 @@ class FinetuneTrainer:
                         ", ".join([f"{k}={v:.6f}" for k, v in avg_epoch_losses.items()]) +
                         f", Time={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             
-            # Save end-of-epoch checkpoint
-            self.save_checkpoint(f"checkpoint_epoch_{epoch + 1}.pt")
+            # Save every N epochs and always save the final numbered epoch.
+            completed_epoch = epoch + 1
+            save_epoch_interval = max(
+                1, int(getattr(train_cfg, 'save_epoch_interval', 1))
+            )
+            if (
+                completed_epoch % save_epoch_interval == 0
+                or completed_epoch == train_cfg.num_epochs
+            ):
+                self.save_checkpoint(f"checkpoint_epoch_{completed_epoch}.pt")
         
         print("\n" + "="*60)
         print("Fine-tuning Complete!")
