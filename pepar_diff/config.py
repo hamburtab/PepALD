@@ -132,6 +132,7 @@ class ALDGenerationConfig:
     mapping_top_p: float = 1.0
     mapping_temperature: float = 1.0
     mapping_frequency_penalty: float = 0.0
+    history_embedding_mode: Literal['token', 'latent'] = 'token'
     
     # Output
     output_file: Optional[str] = None
@@ -220,6 +221,7 @@ class ALDConfig:
         print(f"  use_embedding_norm: {self.generation.use_embedding_norm}")
         print(f"  lambda_gpt:         {self.generation.lambda_gpt}")
         print(f"  mapping_sample:     {self.generation.mapping_sample}")
+        print(f"  history_mode:       {self.generation.history_embedding_mode}")
         print("="*60 + "\n")
 
 

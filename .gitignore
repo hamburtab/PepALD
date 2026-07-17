@@ -195,6 +195,12 @@ deprecated/
 iptm_conclude
 scripts/figures/长方体.svg
 
+# Paper manuscripts, submission packages, and reference papers
+PepALD_AAAI2027/
+PepALD__1_/
+AAAI2027_refpaper/
+AuthorKit27/
+
 # Generated embedding caches
 data/processed/unimol_embeddings/
 

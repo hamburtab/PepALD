@@ -82,6 +82,16 @@ def parse_args():
         "--lambda_gpt", "--lambda", dest="lambda_gpt", type=float, default=None,
         help="Override generation.lambda_gpt for hybrid diffusion/GPT token selection"
     )
+    parser.add_argument(
+        "--history_embedding_mode",
+        choices=["token", "latent"],
+        default=None,
+        help=(
+            "Autoregressive history representation: 'token' stores the selected "
+            "monomer's reference Uni-Mol embedding; 'latent' stores the denoised "
+            "diffusion output (legacy behavior)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -204,6 +214,7 @@ def generate_samples(
         if gen_cfg.use_ddim:
             print(f"  ddim_steps:               {gen_cfg.ddim_steps}")
         print(f"  lambda_gpt:               {gen_cfg.lambda_gpt}")
+        print(f"  history_embedding_mode:   {gen_cfg.history_embedding_mode}")
         print(f"  predict_ring_bonds:       {gen_cfg.predict_ring_bonds}")
         print(f"  cyclization_mode:         {getattr(gen_cfg, 'cyclization_mode', 'predict_ring')}")
         print(f"  use_embedding_norm:       {gen_cfg.use_embedding_norm}")
@@ -228,6 +239,7 @@ def generate_samples(
             use_ddim=gen_cfg.use_ddim,
             ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
             lambda_gpt=gen_cfg.lambda_gpt,
+            history_embedding_mode=gen_cfg.history_embedding_mode,
             predict_ring_bonds=gen_cfg.predict_ring_bonds,
             ring_threshold=gen_cfg.ring_bond_threshold,
             ring_top_k=gen_cfg.ring_top_k,
@@ -351,6 +363,8 @@ def main():
         gen_cfg.output_file = args.output
     if args.lambda_gpt is not None:
         gen_cfg.lambda_gpt = args.lambda_gpt
+    if args.history_embedding_mode is not None:
+        gen_cfg.history_embedding_mode = args.history_embedding_mode
     
     # For explicit dpo.json generation, cyclization is controlled by generation.cyclization_mode.
     if is_dpo_config and cyclization_mode == "force_head_tail":

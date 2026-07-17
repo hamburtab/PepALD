@@ -45,6 +45,16 @@ def parse_args():
         "--lambda_gpt", "--lambda", dest="lambda_gpt", type=float, default=None,
         help="Override generation.lambda_gpt for every shard."
     )
+    parser.add_argument(
+        "--history_embedding_mode",
+        choices=["token", "latent"],
+        default=None,
+        help=(
+            "Override generation.history_embedding_mode for every shard: "
+            "'token' uses selected-token Uni-Mol embeddings; 'latent' keeps "
+            "the legacy diffusion-latent history."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -198,6 +208,8 @@ def main():
             shard_config["generation"]["seed"] = int(base_seed + shard_idx)
             if args.lambda_gpt is not None:
                 shard_config["generation"]["lambda_gpt"] = float(args.lambda_gpt)
+            if args.history_embedding_mode is not None:
+                shard_config["generation"]["history_embedding_mode"] = args.history_embedding_mode
 
             shard_config_path = shard_root / f"shard_{shard_idx:02d}_gpu{gpu_id}.json"
             shard_output = Path(shard_config["generation"]["output_file"])

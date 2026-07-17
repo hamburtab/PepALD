@@ -511,6 +511,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         use_ddim: Optional[bool] = None,
         ddim_steps: Optional[int] = None,
         lambda_gpt: Optional[float] = None,
+        history_embedding_mode: Optional[str] = None,
         predict_ring_bonds: Optional[bool] = None,
         ring_threshold: float = 0.5,
         ring_top_k: int = 1,
@@ -521,6 +522,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         Args:
             predict_ring_bonds: Whether to predict ring bonds during generation
+            history_embedding_mode:
+                'token' stores the selected monomer's reference Uni-Mol
+                embedding in the autoregressive history; 'latent' stores the
+                denoised diffusion output (legacy behavior).
             ring_threshold: Probability threshold (0-1) for ring bond prediction.
                 The AR ring predictor uses sigmoid-calibrated scores via BCE loss.
             ring_top_k: Number of top candidates to consider per position
@@ -536,6 +541,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
         predict_ring_bonds = predict_ring_bonds if predict_ring_bonds is not None else gen_cfg.predict_ring_bonds
         if lambda_gpt is None:
             lambda_gpt = getattr(gen_cfg, 'lambda_gpt', 0.0)
+        if history_embedding_mode is None:
+            history_embedding_mode = getattr(gen_cfg, 'history_embedding_mode', 'token')
+        if history_embedding_mode not in {'token', 'latent'}:
+            raise ValueError(
+                "history_embedding_mode must be 'token' or 'latent', "
+                f"got {history_embedding_mode!r}"
+            )
 
         mapping_sample = getattr(gen_cfg, 'mapping_sample', False)
         mapping_top_k = max(1, int(getattr(gen_cfg, 'mapping_top_k', 8)))
@@ -554,7 +566,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
         else:
             lengths = torch.full((num_samples,), max_seq_len, device=device)
         
-        # Storage: [num_samples, max_seq_len, embedding_dim]
+        # Autoregressive history storage: [num_samples, max_seq_len, embedding_dim].
+        # In token mode this contains reference Uni-Mol embeddings; in latent
+        # mode it contains denoised diffusion outputs for legacy compatibility.
         all_embeddings = torch.zeros(num_samples, max_seq_len, self.embedding_dim, device=device)
         all_tokens = torch.full((num_samples, max_seq_len), self.pad_id, dtype=torch.long, device=device)
         active_mask = torch.ones(num_samples, dtype=torch.bool, device=device)
@@ -656,8 +670,15 @@ class AutoregressiveLatentDiffusion(nn.Module):
                         embeddings, positions=t, seq_lens=lengths[active_idx]
                     )
             
-            # Store results
-            all_embeddings[active_idx, t, :] = embeddings
+            # Store the representation that will condition the next
+            # autoregressive step. Token mode matches teacher-forced training,
+            # where the context encoder receives reference Uni-Mol embeddings.
+            if history_embedding_mode == 'token':
+                history_embeddings = self.context_encoder.get_token_embedding(token_ids)
+            else:
+                history_embeddings = embeddings
+
+            all_embeddings[active_idx, t, :] = history_embeddings
             all_tokens[active_idx, t] = token_ids
             
             # 4. Ring Bond Prediction (if enabled)
@@ -811,6 +832,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
             result = {
                 'tokens': all_tokens[i, :seq_len],
                 'embeddings': all_embeddings[i, :seq_len, :],
+                'history_embedding_mode': history_embedding_mode,
                 'length': seq_len
             }
             
