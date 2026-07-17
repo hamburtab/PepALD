@@ -207,6 +207,7 @@ def generate_samples(
         print("\n" + "="*60)
         print("Generation Configuration")
         print("="*60)
+        print(f"  model_variant:             {config.model.model_variant}")
         print(f"  num_samples:              {gen_cfg.num_samples}")
         print(f"  max_length:               {gen_cfg.max_length}")
         print(f"  min_length:               {gen_cfg.min_length}")

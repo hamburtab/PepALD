@@ -13,6 +13,9 @@ import json
 @dataclass
 class ALDModelConfig:
     """Model architecture configuration."""
+
+    # Model ablation variant. The default preserves the full PepALD model.
+    model_variant: Literal['ald', 'lm_only'] = 'ald'
     
     # Embedding dimensions
     embedding_dim: int = 512  # Will be auto-updated from Uni-Mol embeddings
@@ -200,6 +203,7 @@ class ALDConfig:
         print("="*60)
         
         print("\n[Model]")
+        print(f"  model_variant:      {self.model.model_variant}")
         print(f"  d_model:            {self.model.d_model}")
         print(f"  chememb_mode:       {self.model.chememb_mode}")
         print(f"  chememb_seed:       {self.model.chememb_shuffle_seed}")

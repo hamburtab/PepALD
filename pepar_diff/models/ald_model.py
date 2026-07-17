@@ -9,6 +9,7 @@ from typing import Optional, Dict, List, Tuple
 
 from .context_encoder import CausalContextEncoder
 from .token_mapper import TokenMapper
+from .token_constraints import TokenConstraintSampler
 from .ring_predictor import RingBondPredictor, AutoregressiveRingPredictor, compute_ring_loss_ar
 from ..diffusion.engine import DiffusionEngine
 from ..config import ALDConfig
@@ -41,6 +42,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
         model_cfg = config.model
         gen_cfg = config.generation
         train_cfg = config.training
+
+        self.model_variant = getattr(model_cfg, 'model_variant', 'ald')
+        if self.model_variant not in {'ald', 'lm_only'}:
+            raise ValueError(
+                "model_variant must be 'ald' or 'lm_only', "
+                f"got {self.model_variant!r}"
+            )
         
         embeddings_dir = embeddings_dir or train_cfg.embeddings_dir
         data_dir = data_dir or train_cfg.data_dir
@@ -80,28 +88,33 @@ class AutoregressiveLatentDiffusion(nn.Module):
         if actual_embed_dim != model_cfg.embedding_dim:
             self.embedding_dim = actual_embed_dim
         
-        # 2. Diffusion Engine
-        self.diffusion_engine = DiffusionEngine(
-            embedding_dim=self.embedding_dim,
-            d_model=model_cfg.d_model,
-            n_heads=model_cfg.n_heads,
-            n_layers=model_cfg.denoiser_layers,
-            d_ff=model_cfg.d_ff,
-            dropout=model_cfg.dropout,
-            num_diffusion_steps=model_cfg.num_diffusion_steps,
-            variance_schedule=model_cfg.variance_schedule,
-            beta_start=model_cfg.beta_start,
-            beta_end=model_cfg.beta_end
-        )
-        
-        # 3. Token Mapper
-        self.token_mapper = TokenMapper(
-            vocab=vocab,
-            embeddings_dir=embeddings_dir,
-            data_dir=data_dir,
-            use_embedding_norm=gen_cfg.use_embedding_norm,
-            reference_embeddings=self.context_encoder.embedding.get_codebook(),
-        )
+        if self.model_variant == 'ald':
+            # 2. Diffusion Engine (unchanged full PepALD path)
+            self.diffusion_engine = DiffusionEngine(
+                embedding_dim=self.embedding_dim,
+                d_model=model_cfg.d_model,
+                n_heads=model_cfg.n_heads,
+                n_layers=model_cfg.denoiser_layers,
+                d_ff=model_cfg.d_ff,
+                dropout=model_cfg.dropout,
+                num_diffusion_steps=model_cfg.num_diffusion_steps,
+                variance_schedule=model_cfg.variance_schedule,
+                beta_start=model_cfg.beta_start,
+                beta_end=model_cfg.beta_end
+            )
+
+            # 3. Token Mapper (unchanged diffusion/hybrid mapping path)
+            self.token_mapper = TokenMapper(
+                vocab=vocab,
+                embeddings_dir=embeddings_dir,
+                data_dir=data_dir,
+                use_embedding_norm=gen_cfg.use_embedding_norm,
+                reference_embeddings=self.context_encoder.embedding.get_codebook(),
+            )
+        else:
+            # LM-only has neither a denoiser nor a reference-embedding mapper.
+            self.diffusion_engine = None
+            self.token_mapper = TokenConstraintSampler(vocab=vocab, data_dir=data_dir)
         
         # 4. Ring Bond Predictors
         self.ring_predictor = RingBondPredictor(
@@ -130,7 +143,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
     
     def _print_model_info(self, model_cfg):
         """Print model configuration summary."""
-        print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
+        if self.model_variant == 'lm_only':
+            print(
+                f"[LM-only] Model: d={model_cfg.d_model}, "
+                f"context_layers={model_cfg.context_layers}, no diffusion denoiser"
+            )
+        else:
+            print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
 
     @staticmethod
     def _is_special_token(token: str) -> bool:
@@ -149,6 +168,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
     def _validate_chememb_consistency(self) -> None:
         """Ensure context/z0 and mapper use the identical frozen codebook."""
         context_codebook = self.context_encoder.embedding.get_codebook()
+        if self.model_variant == 'lm_only':
+            if context_codebook.requires_grad:
+                raise RuntimeError("LM-only ChemEmb history codebook must remain frozen")
+            return
+
         mapper_codebook = self.token_mapper.reference_embeddings
         if context_codebook.shape != mapper_codebook.shape or not torch.equal(
             context_codebook.detach(), mapper_codebook.detach()
@@ -162,6 +186,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
 
     def load_state_dict(self, state_dict, strict: bool = True, **kwargs):
         """Load a checkpoint, then verify all ChemEmb consumers remain aligned."""
+        if self.model_variant == 'lm_only' and any(
+            key.startswith('diffusion_engine.') for key in state_dict
+        ):
+            raise RuntimeError(
+                "Cannot load an ALD checkpoint into model_variant='lm_only'. "
+                "Use the matching LM-only pretraining checkpoint."
+            )
         result = super().load_state_dict(state_dict, strict=strict, **kwargs)
         self._validate_chememb_consistency()
         return result
@@ -252,6 +283,63 @@ class AutoregressiveLatentDiffusion(nn.Module):
         if return_r_groups:
             return gt_embeddings, contexts_for_pred, r_emb
         return gt_embeddings, contexts_for_pred
+
+    def _forward_lm_only(
+        self,
+        token_ids: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+        ring_bonds: Optional[List[List[Dict]]] = None,
+        compute_ring_loss: bool = False,
+    ) -> Dict[str, torch.Tensor]:
+        """LM-only teacher-forced training with optional ring supervision."""
+        batch_size, seq_len = token_ids.shape
+        device = token_ids.device
+
+        if compute_ring_loss and ring_bonds is not None:
+            _, contexts_for_pred, r_emb = self._prepare_contexts(
+                token_ids, mask, return_r_groups=True
+            )
+        else:
+            _, contexts_for_pred = self._prepare_contexts(token_ids, mask)
+            r_emb = None
+
+        if mask is not None:
+            valid_mask = mask.bool()
+        else:
+            valid_mask = torch.ones(
+                batch_size, seq_len, dtype=torch.bool, device=device
+            )
+
+        token_logits = self.lm_head(contexts_for_pred)
+        ce_loss = F.cross_entropy(token_logits[valid_mask], token_ids[valid_mask])
+
+        ring_bond_loss = torch.tensor(0.0, device=device)
+        ring_position_loss = torch.tensor(0.0, device=device)
+        ring_type_loss = torch.tensor(0.0, device=device)
+        if compute_ring_loss and ring_bonds is not None and r_emb is not None:
+            ring_loss_result = self._compute_ring_loss_ar(
+                contexts_for_pred, r_emb, ring_bonds, mask
+            )
+            ring_bond_loss = ring_loss_result['total_loss']
+            ring_position_loss = ring_loss_result['position_loss']
+            ring_type_loss = ring_loss_result['type_loss']
+
+        # CE has unit weight by definition for the LM-only ablation. The cyclic
+        # stage retains exactly the configured ring-predictor auxiliary weight.
+        combined_loss = (
+            ce_loss + self.config.training.ring_loss_weight * ring_bond_loss
+        )
+        diffusion_loss = torch.tensor(0.0, device=device)
+
+        return {
+            'loss': combined_loss,
+            'total_loss': combined_loss,
+            'diffusion_loss': diffusion_loss,
+            'ring_bond_loss': ring_bond_loss,
+            'ring_position_loss': ring_position_loss,
+            'ring_type_loss': ring_type_loss,
+            'ce_loss': ce_loss,
+        }
         
     def forward(
         self,
@@ -275,6 +363,14 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         if seq_len <= 1:
             return self._empty_loss(device)
+
+        if self.model_variant == 'lm_only':
+            return self._forward_lm_only(
+                token_ids,
+                mask,
+                ring_bonds=ring_bonds,
+                compute_ring_loss=compute_ring_loss,
+            )
         
         # CE-only fine-tuning mode: skip diffusion & ring loss entirely
         ce_only = getattr(self.config.training, 'ce_only_finetune', False)
@@ -471,6 +567,16 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         if seq_len <= 1:
             return self._empty_loss(device)
+
+        if self.model_variant == 'lm_only':
+            # The LM-only objective is exact full-token cross-entropy; it does
+            # not position-subsample or invoke any diffusion operation.
+            return self._forward_lm_only(
+                token_ids,
+                mask,
+                ring_bonds=ring_bonds,
+                compute_ring_loss=compute_ring_loss,
+            )
         
         # Prepare contexts (with R-groups if computing ring loss)
         if compute_ring_loss and ring_bonds is not None:
@@ -544,6 +650,47 @@ class AutoregressiveLatentDiffusion(nn.Module):
             'ring_type_loss': ring_type_loss,
             'ce_loss': ce_loss
         }
+
+    def _select_lm_only_tokens(
+        self,
+        context: torch.Tensor,
+        position: int,
+        active_indices: torch.Tensor,
+        lengths: torch.Tensor,
+        all_tokens: torch.Tensor,
+        mapping_sample: bool,
+        mapping_top_k: int,
+        mapping_top_p: float,
+        mapping_temperature: float,
+        mapping_frequency_penalty: float,
+    ) -> torch.Tensor:
+        """Select monomer IDs directly from LM logits under existing constraints."""
+        logits = self.lm_head(context)
+        token_ids = torch.zeros(
+            context.size(0), dtype=torch.long, device=context.device
+        )
+
+        for i in range(context.size(0)):
+            seq_len = lengths[active_indices[i]].item()
+            allowed = self.token_mapper._get_allowed_tokens(position, seq_len)
+            if mapping_sample:
+                history_tokens = None
+                if position > 0:
+                    history_tokens = all_tokens[active_indices[i], :position]
+                token_ids[i] = self.token_mapper.sample_from_scores(
+                    logits[i],
+                    allowed,
+                    history_tokens=history_tokens,
+                    top_k=mapping_top_k,
+                    top_p=mapping_top_p,
+                    temperature=mapping_temperature,
+                    frequency_penalty=mapping_frequency_penalty,
+                )
+            else:
+                best_idx = torch.argmax(logits[i, allowed]).item()
+                token_ids[i] = allowed[best_idx]
+
+        return token_ids
     
     @torch.no_grad()
     def sample(
@@ -591,6 +738,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
             raise ValueError(
                 "history_embedding_mode must be 'token' or 'latent', "
                 f"got {history_embedding_mode!r}"
+            )
+        if self.model_variant == 'lm_only' and history_embedding_mode != 'token':
+            raise ValueError(
+                "model_variant='lm_only' requires history_embedding_mode='token' "
+                "because no diffusion latent is generated"
             )
 
         mapping_sample = getattr(gen_cfg, 'mapping_sample', False)
@@ -645,82 +797,98 @@ class AutoregressiveLatentDiffusion(nn.Module):
             
             context = self.context_encoder.get_context_for_next_token(history)  # [num_active, d_model]
             
-            # 2. Diffusion Generation
-            context_cond = context.unsqueeze(1)  # [num_active, 1, d_model]
-            if use_ddim:
-                embeddings = self.diffusion_engine.sample_ddim(
-                    batch_size=num_active, context=context_cond, device=device,
-                    num_inference_steps=ddim_steps
+            if self.model_variant == 'lm_only':
+                # Direct categorical prediction: no denoising, latent sampling,
+                # embedding distance, or nearest-neighbor token mapping.
+                token_ids = self._select_lm_only_tokens(
+                    context=context,
+                    position=t,
+                    active_indices=active_idx,
+                    lengths=lengths,
+                    all_tokens=all_tokens,
+                    mapping_sample=mapping_sample,
+                    mapping_top_k=mapping_top_k,
+                    mapping_top_p=mapping_top_p,
+                    mapping_temperature=mapping_temperature,
+                    mapping_frequency_penalty=mapping_frequency_penalty,
                 )
+                history_embeddings = self.context_encoder.get_token_embedding(token_ids)
             else:
-                embeddings = self.diffusion_engine.sample(
-                    batch_size=num_active, context=context_cond, device=device
-                )
-            embeddings = embeddings.squeeze(1)  # [num_active, embedding_dim]
-            
-            # 3. Joint Decision (Hybrid Sampling)
-            if lambda_gpt > 0.0:
-                # A. Diffusion Distance Score (lower is better)
-                dists = self.token_mapper._compute_distances(embeddings)
-                
-                # B. GPT Probability Score (higher is better -> -log_prob lower is better)
-                gpt_logits = self.lm_head(context)
-                gpt_log_probs = F.log_softmax(gpt_logits, dim=-1)
-                
-                # C. Fused Score: Score = Dist - lambda * LogProb
-                final_scores = dists - lambda_gpt * gpt_log_probs
-                
-                # D. Apply Mask & Select (with chemical constraints)
-                token_ids = torch.zeros(num_active, dtype=torch.long, device=device)
-                for i in range(num_active):
-                    # Get allowed tokens for this specific sample based on position t and its total length
-                    current_seq_len = lengths[active_idx[i]].item()
-                    allowed = self.token_mapper._get_allowed_tokens(t, current_seq_len)
+                # 2. Diffusion Generation (unchanged full PepALD path)
+                context_cond = context.unsqueeze(1)  # [num_active, 1, d_model]
+                if use_ddim:
+                    embeddings = self.diffusion_engine.sample_ddim(
+                        batch_size=num_active, context=context_cond, device=device,
+                        num_inference_steps=ddim_steps
+                    )
+                else:
+                    embeddings = self.diffusion_engine.sample(
+                        batch_size=num_active, context=context_cond, device=device
+                    )
+                embeddings = embeddings.squeeze(1)  # [num_active, embedding_dim]
 
+                # 3. Joint Decision (Hybrid Sampling)
+                if lambda_gpt > 0.0:
+                    # A. Diffusion Distance Score (lower is better)
+                    dists = self.token_mapper._compute_distances(embeddings)
+
+                    # B. GPT Probability Score (higher is better -> -log_prob lower is better)
+                    gpt_logits = self.lm_head(context)
+                    gpt_log_probs = F.log_softmax(gpt_logits, dim=-1)
+
+                    # C. Fused Score: Score = Dist - lambda * LogProb
+                    final_scores = dists - lambda_gpt * gpt_log_probs
+
+                    # D. Apply Mask & Select (with chemical constraints)
+                    token_ids = torch.zeros(num_active, dtype=torch.long, device=device)
+                    for i in range(num_active):
+                        # Get allowed tokens for this specific sample based on position t and its total length
+                        current_seq_len = lengths[active_idx[i]].item()
+                        allowed = self.token_mapper._get_allowed_tokens(t, current_seq_len)
+
+                        if mapping_sample:
+                            history_tokens = None
+                            if t > 0:
+                                history_tokens = all_tokens[active_idx[i], :t]
+                            token_ids[i] = self.token_mapper.sample_from_scores(
+                                -final_scores[i],
+                                allowed,
+                                history_tokens=history_tokens,
+                                top_k=mapping_top_k,
+                                top_p=mapping_top_p,
+                                temperature=mapping_temperature,
+                                frequency_penalty=mapping_frequency_penalty,
+                            )
+                        else:
+                            # Select best token ONLY from allowed list
+                            best_idx_in_allowed = torch.argmin(final_scores[i, allowed]).item()
+                            token_ids[i] = allowed[best_idx_in_allowed]
+                else:
+                    # Pure Diffusion: nearest neighbor token mapping
                     if mapping_sample:
-                        history_tokens = None
-                        if t > 0:
-                            history_tokens = all_tokens[active_idx[i], :t]
-                        token_ids[i] = self.token_mapper.sample_from_scores(
-                            -final_scores[i],
-                            allowed,
-                            history_tokens=history_tokens,
+                        token_histories = None if t == 0 else all_tokens[active_idx, :t]
+                        token_ids = self.token_mapper.batch_sample(
+                            embeddings,
+                            positions=t,
+                            seq_lens=lengths[active_idx],
+                            token_histories=token_histories,
                             top_k=mapping_top_k,
                             top_p=mapping_top_p,
                             temperature=mapping_temperature,
                             frequency_penalty=mapping_frequency_penalty,
                         )
                     else:
-                        # Select best token ONLY from allowed list
-                        # final_scores[i, allowed] extracts scores for allowed tokens
-                        best_idx_in_allowed = torch.argmin(final_scores[i, allowed]).item()
-                        token_ids[i] = allowed[best_idx_in_allowed]
-            else:
-                # Pure Diffusion: nearest neighbor token mapping
-                if mapping_sample:
-                    token_histories = None if t == 0 else all_tokens[active_idx, :t]
-                    token_ids = self.token_mapper.batch_sample(
-                        embeddings,
-                        positions=t,
-                        seq_lens=lengths[active_idx],
-                        token_histories=token_histories,
-                        top_k=mapping_top_k,
-                        top_p=mapping_top_p,
-                        temperature=mapping_temperature,
-                        frequency_penalty=mapping_frequency_penalty,
-                    )
+                        token_ids = self.token_mapper.batch_map(
+                            embeddings, positions=t, seq_lens=lengths[active_idx]
+                        )
+
+                # Store the representation that will condition the next
+                # autoregressive step. Token mode matches teacher-forced training,
+                # where the context encoder receives reference Uni-Mol embeddings.
+                if history_embedding_mode == 'token':
+                    history_embeddings = self.context_encoder.get_token_embedding(token_ids)
                 else:
-                    token_ids = self.token_mapper.batch_map(
-                        embeddings, positions=t, seq_lens=lengths[active_idx]
-                    )
-            
-            # Store the representation that will condition the next
-            # autoregressive step. Token mode matches teacher-forced training,
-            # where the context encoder receives reference Uni-Mol embeddings.
-            if history_embedding_mode == 'token':
-                history_embeddings = self.context_encoder.get_token_embedding(token_ids)
-            else:
-                history_embeddings = embeddings
+                    history_embeddings = embeddings
 
             all_embeddings[active_idx, t, :] = history_embeddings
             all_tokens[active_idx, t] = token_ids

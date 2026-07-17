@@ -201,6 +201,10 @@ class FinetuneTrainer:
                     param.requires_grad = False
             
             if train_cfg.freeze_diffusion:
+                if self.model.diffusion_engine is None:
+                    raise ValueError(
+                        "freeze_diffusion is not applicable to model_variant='lm_only'"
+                    )
                 print("❄️ Freezing diffusion engine")
                 for param in self.model.diffusion_engine.parameters():
                     param.requires_grad = False
