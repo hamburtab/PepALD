@@ -54,6 +54,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         self.idx_to_token = {v: k for k, v in vocab.items()}
         self.pad_id = vocab.get('<PAD>', self.vocab_size - 1)
+        ordinary_token_ids = [
+            token_id for token, token_id in vocab.items()
+            if not self._is_special_token(token)
+        ]
         
         # 1. Context Encoder
         self.context_encoder = CausalContextEncoder(
@@ -65,7 +69,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
             max_seq_len=model_cfg.max_seq_len,
             dropout=model_cfg.dropout,
             embeddings_dir=embeddings_dir,
-            freeze_embeddings=True
+            freeze_embeddings=True,
+            chememb_mode=model_cfg.chememb_mode,
+            chememb_shuffle_seed=model_cfg.chememb_shuffle_seed,
+            shuffle_token_ids=ordinary_token_ids,
         )
         
         # Update embedding_dim from actual loaded embeddings
@@ -92,7 +99,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
             vocab=vocab,
             embeddings_dir=embeddings_dir,
             data_dir=data_dir,
-            use_embedding_norm=gen_cfg.use_embedding_norm
+            use_embedding_norm=gen_cfg.use_embedding_norm,
+            reference_embeddings=self.context_encoder.embedding.get_codebook(),
         )
         
         # 4. Ring Bond Predictors
@@ -114,6 +122,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         # 6. R-group lookup table for generation-time validation
         self.token_rgroups = self._build_rgroup_table(data_dir)
+
+        self._validate_chememb_consistency()
         
         if verbose:
             self._print_model_info(model_cfg)
@@ -121,6 +131,40 @@ class AutoregressiveLatentDiffusion(nn.Module):
     def _print_model_info(self, model_cfg):
         """Print model configuration summary."""
         print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
+
+    @staticmethod
+    def _is_special_token(token: str) -> bool:
+        """Identify vocabulary control tokens that must not be shuffled."""
+        normalized = token.strip().upper()
+        named_specials = {
+            'PAD', 'BOS', 'EOS', 'UNK', 'MASK',
+            '<PAD>', '<BOS>', '<EOS>', '<UNK>', '<MASK>',
+            '[PAD]', '[BOS]', '[EOS]', '[UNK]', '[MASK]',
+        }
+        return (
+            normalized in named_specials
+            or (normalized.startswith('<') and normalized.endswith('>'))
+        )
+
+    def _validate_chememb_consistency(self) -> None:
+        """Ensure context/z0 and mapper use the identical frozen codebook."""
+        context_codebook = self.context_encoder.embedding.get_codebook()
+        mapper_codebook = self.token_mapper.reference_embeddings
+        if context_codebook.shape != mapper_codebook.shape or not torch.equal(
+            context_codebook.detach(), mapper_codebook.detach()
+        ):
+            raise RuntimeError(
+                "ChemEmb codebook mismatch: context/z0 and token mapper references "
+                "must be identical"
+            )
+        if context_codebook.requires_grad or mapper_codebook.requires_grad:
+            raise RuntimeError("ChemEmb codebook must remain frozen")
+
+    def load_state_dict(self, state_dict, strict: bool = True, **kwargs):
+        """Load a checkpoint, then verify all ChemEmb consumers remain aligned."""
+        result = super().load_state_dict(state_dict, strict=strict, **kwargs)
+        self._validate_chememb_consistency()
+        return result
 
     def _build_rgroup_table(self, data_dir) -> Dict[int, set]:
         """Build lookup: token_id -> set of available R-groups ('R1','R2','R3')."""

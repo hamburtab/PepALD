@@ -17,6 +17,10 @@ class ALDModelConfig:
     # Embedding dimensions
     embedding_dim: int = 512  # Will be auto-updated from Uni-Mol embeddings
     d_model: int = 512
+
+    # Chemical embedding ablation
+    chememb_mode: Literal['original', 'shuffled'] = 'original'
+    chememb_shuffle_seed: int = 42
     
     # Attention configuration
     n_heads: int = 8
@@ -197,6 +201,8 @@ class ALDConfig:
         
         print("\n[Model]")
         print(f"  d_model:            {self.model.d_model}")
+        print(f"  chememb_mode:       {self.model.chememb_mode}")
+        print(f"  chememb_seed:       {self.model.chememb_shuffle_seed}")
         print(f"  n_heads:            {self.model.n_heads}")
         print(f"  context_layers:     {self.model.context_layers}")
         print(f"  denoiser_layers:    {self.model.denoiser_layers}")

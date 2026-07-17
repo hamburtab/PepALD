@@ -14,7 +14,7 @@ import numpy as np
 import json
 import math
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict, Tuple, Sequence
 
 
 class SinusoidalPositionalEncoding(nn.Module):
@@ -197,13 +197,29 @@ class UniMolEmbeddingLoader(nn.Module):
         self,
         embeddings_dir: str = "./data/processed/unimol_embeddings",
         freeze_embeddings: bool = True,
-        r_weight: float = 0.0
+        r_weight: float = 0.0,
+        chememb_mode: str = "original",
+        chememb_shuffle_seed: int = 42,
+        shuffle_token_ids: Optional[Sequence[int]] = None,
     ):
         super().__init__()
-        
+
+        if chememb_mode not in ("original", "shuffled"):
+            raise ValueError(
+                f"chememb_mode must be 'original' or 'shuffled', got {chememb_mode!r}"
+            )
+        if chememb_mode == "shuffled" and not freeze_embeddings:
+            raise ValueError("Shuffled ChemEmb must remain frozen")
+
         self.embeddings_dir = Path(embeddings_dir)
         self.freeze_embeddings = freeze_embeddings
         self.r_weight = r_weight
+        self.chememb_mode = chememb_mode
+        self.chememb_shuffle_seed = int(chememb_shuffle_seed)
+        self.shuffle_token_ids = (
+            tuple(sorted(int(token_id) for token_id in shuffle_token_ids))
+            if shuffle_token_ids is not None else None
+        )
         
         self._load_embeddings()
         
@@ -227,12 +243,29 @@ class UniMolEmbeddingLoader(nn.Module):
         # Add PAD token embedding (zero vector)
         pad_embedding = torch.zeros(1, 4, self.embedding_dim)  # (1, 4, 512)
         full_embeddings = torch.cat([embeddings_tensor, pad_embedding], dim=0)  # (N+1, 4, 512)
-        
-        # Register as buffer (not nn.Embedding since shape is 3D)
-        self.register_buffer('_embeddings', full_embeddings)
-        
+
         self.vocab_size = self.num_monomers + 1
         self.pad_idx = self.num_monomers
+
+        # permutation[target_token_id] = source_token_id. Only the molecule-level
+        # CLS slot is shuffled; R1/R2/R3 and all excluded special tokens stay intact.
+        permutation = torch.arange(self.vocab_size, dtype=torch.long)
+        ordinary_ids = self._validate_shuffle_token_ids()
+        if self.chememb_mode == "shuffled":
+            generator = torch.Generator(device="cpu")
+            generator.manual_seed(self.chememb_shuffle_seed)
+            source_ids = ordinary_ids[
+                torch.randperm(ordinary_ids.numel(), generator=generator)
+            ]
+            permutation[ordinary_ids] = source_ids
+            shuffled_embeddings = full_embeddings.clone()
+            shuffled_embeddings[ordinary_ids, 0, :] = full_embeddings[source_ids, 0, :]
+            full_embeddings = shuffled_embeddings
+
+        # Persistent frozen buffers: both the codebook and its permutation are saved
+        # in checkpoints. They are never optimizer parameters.
+        self.register_buffer('_embeddings', full_embeddings)
+        self.register_buffer('chememb_permutation', permutation)
         
         print(f"[UniMolEmbeddingLoader] Loaded embeddings:")
         print(f"  - Embedding dim: {self.embedding_dim}")
@@ -240,6 +273,82 @@ class UniMolEmbeddingLoader(nn.Module):
         print(f"  - Vocab size: {self.vocab_size} (including <PAD>)")
         print(f"  - Frozen: {self.freeze_embeddings}")
         print(f"  - Fusion: CLS + {self.r_weight} * (R1 + R2 + R3)")
+        print(f"  - ChemEmb mode: {self.chememb_mode}")
+        if self.chememb_mode == "shuffled":
+            preview = self.chememb_permutation[ordinary_ids[:8]].tolist()
+            print(f"  - Shuffle seed: {self.chememb_shuffle_seed}")
+            print(f"  - Shuffled ordinary monomers: {ordinary_ids.numel()}")
+            print(f"  - Permutation preview: {preview}")
+
+    def _validate_shuffle_token_ids(self) -> torch.Tensor:
+        """Return validated IDs eligible for CLS shuffling."""
+        if self.shuffle_token_ids is None:
+            # Backward-compatible direct use: all real monomer rows, never PAD.
+            token_ids = torch.arange(self.num_monomers, dtype=torch.long)
+        else:
+            token_ids = torch.tensor(self.shuffle_token_ids, dtype=torch.long)
+
+        if token_ids.numel() == 0:
+            if self.chememb_mode == "shuffled":
+                raise ValueError("No ordinary monomer IDs were provided for ChemEmb shuffling")
+            return token_ids
+        if token_ids.unique().numel() != token_ids.numel():
+            raise ValueError("shuffle_token_ids contains duplicate token IDs")
+        if token_ids.min().item() < 0 or token_ids.max().item() >= self.vocab_size:
+            raise ValueError(
+                f"shuffle_token_ids must be within [0, {self.vocab_size - 1}]"
+            )
+        return token_ids
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        """Restore and validate the checkpointed permutation.
+
+        Old checkpoints have no permutation tensor. They are accepted only in
+        original mode, where the implied permutation is identity. A shuffled
+        run must always restore the exact saved permutation.
+        """
+        permutation_key = prefix + "chememb_permutation"
+        saved_permutation = state_dict.get(permutation_key)
+        if saved_permutation is None:
+            if self.chememb_mode == "original":
+                state_dict[permutation_key] = self.chememb_permutation.detach().clone()
+            else:
+                error_msgs.append(
+                    "Cannot load a checkpoint without a saved ChemEmb permutation "
+                    "into chememb_mode='shuffled'. Use the shuffled pretraining "
+                    "checkpoint and the same chememb_shuffle_seed."
+                )
+        elif (
+            saved_permutation.shape != self.chememb_permutation.shape
+            or not torch.equal(
+                saved_permutation.detach().cpu(),
+                self.chememb_permutation.detach().cpu(),
+            )
+        ):
+            error_msgs.append(
+                "Checkpoint ChemEmb permutation does not match the configured "
+                f"mode={self.chememb_mode!r}, seed={self.chememb_shuffle_seed}. "
+                "Use the same ChemEmb configuration as the checkpoint."
+            )
+
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
     
     def _fuse(self, full: torch.Tensor) -> torch.Tensor:
         """Fuse CLS and R-group embeddings."""
@@ -297,6 +406,10 @@ class UniMolEmbeddingLoader(nn.Module):
             Embedding matrix [num_monomers, embedding_dim]
         """
         return self._fuse(self._embeddings[:self.num_monomers])
+
+    def get_codebook(self) -> torch.Tensor:
+        """Get the frozen fused codebook including special/PAD rows."""
+        return self._fuse(self._embeddings)
     
     def get_embedding_for_token(self, token_id: int) -> torch.Tensor:
         """

@@ -8,7 +8,7 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 class TokenMapper(nn.Module):
@@ -19,7 +19,8 @@ class TokenMapper(nn.Module):
         vocab: Dict[str, int],
         embeddings_dir: str = "./data/processed/unimol_embeddings",
         data_dir: str = "./data/processed",
-        use_embedding_norm: bool = True
+        use_embedding_norm: bool = True,
+        reference_embeddings: Optional[torch.Tensor] = None,
     ):
         super().__init__()
         
@@ -31,11 +32,34 @@ class TokenMapper(nn.Module):
         self.embeddings_dir = Path(embeddings_dir)
         self.data_dir = Path(data_dir)
         
-        self._load_embeddings()
+        self._load_embeddings(reference_embeddings)
         self._classify_monomers()
         
-    def _load_embeddings(self) -> None:
+    def _load_embeddings(
+        self, reference_embeddings: Optional[torch.Tensor] = None
+    ) -> None:
         """Load the Uni-Mol embedding matrix."""
+        if reference_embeddings is not None:
+            if reference_embeddings.ndim != 2:
+                raise ValueError(
+                    "reference_embeddings must have shape [vocab_size, embedding_dim]"
+                )
+            if reference_embeddings.shape[0] != self.vocab_size:
+                raise ValueError(
+                    "Reference codebook/vocabulary size mismatch: "
+                    f"{reference_embeddings.shape[0]} vs {self.vocab_size}"
+                )
+            self.embedding_dim = reference_embeddings.shape[1]
+            self.register_buffer(
+                'reference_embeddings',
+                reference_embeddings.detach().clone(),
+            )
+            print(
+                "[TokenMapper] Using shared ChemEmb codebook: "
+                f"{self.reference_embeddings.shape}"
+            )
+            return
+
         embeddings_path = self.embeddings_dir / "embeddings_matrix.npy"
         embeddings_matrix = np.load(embeddings_path, allow_pickle=True)
         self.embedding_dim = embeddings_matrix.shape[1]

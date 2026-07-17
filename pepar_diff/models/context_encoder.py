@@ -5,7 +5,7 @@ for conditioning the diffusion process.
 
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import Optional, Sequence
 
 from ..core.layers import CausalTransformerLayer
 from ..core.embeddings import (
@@ -31,7 +31,10 @@ class CausalContextEncoder(nn.Module):
         max_seq_len: int = 256,
         dropout: float = 0.1,
         embeddings_dir: str = "./data/processed/unimol_embeddings",
-        freeze_embeddings: bool = True
+        freeze_embeddings: bool = True,
+        chememb_mode: str = "original",
+        chememb_shuffle_seed: int = 42,
+        shuffle_token_ids: Optional[Sequence[int]] = None,
     ):
         super().__init__()
         
@@ -40,7 +43,10 @@ class CausalContextEncoder(nn.Module):
         # Uni-Mol embedding layer
         self.embedding = UniMolEmbeddingLoader(
             embeddings_dir=embeddings_dir,
-            freeze_embeddings=freeze_embeddings
+            freeze_embeddings=freeze_embeddings,
+            chememb_mode=chememb_mode,
+            chememb_shuffle_seed=chememb_shuffle_seed,
+            shuffle_token_ids=shuffle_token_ids,
         )
         self.embedding_dim = self.embedding.embedding_dim
         

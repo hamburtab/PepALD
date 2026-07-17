@@ -6,12 +6,14 @@ Modify that file to change training settings.
 
 Usage:
     python scripts/train/train_pretrain.py
+    python scripts/train/train_pretrain.py --config configs/ablations/chememb/pretrain_shuffled.json
 """
 
 import os
 import sys
 import json
 import time
+import argparse
 from pathlib import Path
 from dataclasses import asdict
 
@@ -34,6 +36,18 @@ from pepar_diff.config import ALDConfig
 # ============================================================
 CONFIG_FILE = PROJECT_ROOT / "configs" / "training" / "pretrain.json"
 # ============================================================
+
+
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Pre-train the ALD model")
+    parser.add_argument(
+        "--config",
+        type=str,
+        default=str(CONFIG_FILE),
+        help="Path to configuration file",
+    )
+    return parser.parse_args()
 
 
 class Trainer:
@@ -226,15 +240,19 @@ class Trainer:
 
 def main():
     """Main function."""
+    args = parse_args()
+    config_file = Path(args.config)
+    if not config_file.is_absolute():
+        config_file = PROJECT_ROOT / config_file
     
     # Load config from file
-    print(f"📄 Loading config from: {CONFIG_FILE}")
-    if not CONFIG_FILE.exists():
-        print(f"❌ Config file not found: {CONFIG_FILE}")
+    print(f"📄 Loading config from: {config_file}")
+    if not config_file.exists():
+        print(f"❌ Config file not found: {config_file}")
         print("   Please create it or copy from configs/training/pretrain.json")
         sys.exit(1)
     
-    config = ALDConfig.load(str(CONFIG_FILE))
+    config = ALDConfig.load(str(config_file))
     
     # Load vocab
     with open(config.training.vocab_file, 'r') as f:
