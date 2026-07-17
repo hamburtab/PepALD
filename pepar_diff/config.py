@@ -80,6 +80,7 @@ class ALDTrainingConfig:
     # Logging and checkpointing
     log_interval: int = 100
     save_interval: int = 1000
+    save_epoch_interval: int = 1
     checkpoint_dir: str = "./checkpoints/ald"
     
     # Device
