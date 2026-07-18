@@ -29,7 +29,7 @@ DEFAULT_CASE_CONFIGS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Controlled Standard-DPO (alpha_win=0) vs WP-DPO ablation"
+        description="Run Standard-DPO (alpha_win=0) loss ablations"
     )
     parser.add_argument("--case", choices=["case1", "case2", "all"], default="all")
     parser.add_argument(
@@ -53,6 +53,15 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Number of actual DPO training rounds per case/arm (default: 8). "
             "Use 1 for the original shared-pair single-round protocol."
+        ),
+    )
+    parser.add_argument(
+        "--arms",
+        choices=["standard", "both"],
+        default="standard",
+        help=(
+            "Arms to train in multi-round mode. 'standard' trains only the "
+            "alpha_win=0 ablation (default); 'both' also retrains WP-DPO."
         ),
     )
     parser.add_argument("--output_root", default="outputs/ablations/wp_dpo")
@@ -658,6 +667,10 @@ def main() -> None:
         raise ValueError("--rounds must be >= 1")
     if args.rounds > 1 and args.stage != "all":
         raise ValueError("Multi-round mode currently requires --stage all")
+    if args.rounds == 1 and args.arms != "both":
+        raise ValueError(
+            "The shared-pair single-round protocol requires --arms both."
+        )
     if args.rounds > 1 and (
         args.candidate_file_case1
         or args.candidate_file_case2
@@ -686,6 +699,7 @@ def main() -> None:
     print(f"Cases: {', '.join(selected_cases)}")
     print(f"Seed: {args.seed}")
     print(f"DPO rounds per arm: {args.rounds}")
+    print(f"Training arms: {args.arms}")
 
     for case_name in selected_cases:
         base_config_path = resolve_path(getattr(args, f"{case_name}_config"))
@@ -724,7 +738,7 @@ def main() -> None:
             if wp_alpha_override is not None
             else dpo_cfg.get("dpop_winner_reg_alpha", 0.0)
         )
-        if wp_alpha <= 0:
+        if args.arms == "both" and wp_alpha <= 0:
             raise ValueError(
                 f"{case_name} WP-DPO alpha_win must be > 0, got {wp_alpha}"
             )
@@ -755,31 +769,33 @@ def main() -> None:
                 unidock_gpu_ids,
                 args.python,
             )
-            wp_config = build_multiround_arm_config(
-                multiround_base,
-                checkpoint_path,
-                args.seed,
-                wp_alpha,
-                args.samples_per_epoch,
-                args.rounds,
-                "wp_dpo",
-                case_round_output_root,
-                case_round_checkpoint_root,
-                generation_gpu_ids,
-                unidock_gpu_ids,
-                args.python,
-            )
-            expected_differences = {
-                "dpo.dpop_winner_reg_alpha",
-                "dpo_rounds.run_name",
-            }
-            actual_differences = set(differing_paths(standard_config, wp_config))
-            if actual_differences != expected_differences:
-                raise AssertionError(
-                    "Uncontrolled multi-round config differences: "
-                    f"expected={sorted(expected_differences)}, "
-                    f"actual={sorted(actual_differences)}"
+            wp_config = None
+            if args.arms == "both":
+                wp_config = build_multiround_arm_config(
+                    multiround_base,
+                    checkpoint_path,
+                    args.seed,
+                    wp_alpha,
+                    args.samples_per_epoch,
+                    args.rounds,
+                    "wp_dpo",
+                    case_round_output_root,
+                    case_round_checkpoint_root,
+                    generation_gpu_ids,
+                    unidock_gpu_ids,
+                    args.python,
                 )
+                expected_differences = {
+                    "dpo.dpop_winner_reg_alpha",
+                    "dpo_rounds.run_name",
+                }
+                actual_differences = set(differing_paths(standard_config, wp_config))
+                if actual_differences != expected_differences:
+                    raise AssertionError(
+                        "Uncontrolled multi-round config differences: "
+                        f"expected={sorted(expected_differences)}, "
+                        f"actual={sorted(actual_differences)}"
+                    )
 
             standard_config_path = (
                 output_root / case_name / f"standard_dpo_{args.rounds}rounds.json"
@@ -788,27 +804,33 @@ def main() -> None:
                 output_root / case_name / f"wp_dpo_{args.rounds}rounds.json"
             )
             save_json(standard_config, standard_config_path)
-            save_json(wp_config, wp_config_path)
+            if wp_config is not None:
+                save_json(wp_config, wp_config_path)
             candidates_per_round = int(
                 standard_config["dpo_rounds"].get("num_samples_per_round", 2000)
             )
+            trained_arms = ["standard_dpo"]
+            if wp_config is not None:
+                trained_arms.append("wp_dpo")
             manifest = {
                 "case": case_name,
                 "run_name": run_name,
                 "protocol": "independent_multiround",
+                "trained_arms": trained_arms,
                 "rounds_per_arm": args.rounds,
                 "round_indices": list(range(args.rounds)),
                 "candidates_per_round": candidates_per_round,
-                "estimated_candidates_both_arms": (
-                    candidates_per_round * args.rounds * 2
+                "estimated_candidates_all_trained_arms": (
+                    candidates_per_round * args.rounds * len(trained_arms)
                 ),
                 "pepald_perm_checkpoint": str(checkpoint_path),
                 "pepald_perm_checkpoint_sha256": checkpoint_sha256,
                 "seed": args.seed,
                 "standard_alpha_win": 0.0,
-                "wp_alpha_win": wp_alpha,
+                "wp_alpha_win": wp_alpha if wp_config is not None else None,
                 "standard_config": str(standard_config_path),
-                "wp_config": str(wp_config_path),
+                "wp_config": str(wp_config_path) if wp_config is not None else None,
+                "main_wp_dpo_retrained": wp_config is not None,
                 "elite_sft_enabled": False,
                 "elite_replay_enabled": False,
                 "samples_per_epoch": args.samples_per_epoch,
@@ -826,29 +848,32 @@ def main() -> None:
                 generation_gpu_ids,
                 unidock_gpu_ids,
             )
-            print(f"\n=== {case_name}: WP-DPO, {args.rounds} rounds ===")
-            run_multiround_arm(
-                args,
-                python_command,
-                wp_config_path,
-                wp_config,
-                generation_gpu_ids,
-                unidock_gpu_ids,
-            )
+            if wp_config is not None:
+                print(f"\n=== {case_name}: WP-DPO, {args.rounds} rounds ===")
+                run_multiround_arm(
+                    args,
+                    python_command,
+                    wp_config_path,
+                    wp_config,
+                    generation_gpu_ids,
+                    unidock_gpu_ids,
+                )
             if not args.dry_run:
                 current_checkpoint_sha256 = sha256_file(checkpoint_path)
                 if current_checkpoint_sha256 != checkpoint_sha256:
                     raise RuntimeError(
                         "PepALD_perm checkpoint changed during the multi-round run."
                     )
-                manifest["verification"] = {
+                verification = {
                     "standard_dpo": verify_multiround_arm(
                         standard_config, args.rounds, args.samples_per_epoch
-                    ),
-                    "wp_dpo": verify_multiround_arm(
-                        wp_config, args.rounds, args.samples_per_epoch
-                    ),
+                    )
                 }
+                if wp_config is not None:
+                    verification["wp_dpo"] = verify_multiround_arm(
+                        wp_config, args.rounds, args.samples_per_epoch
+                    )
+                manifest["verification"] = verification
                 manifest["status"] = "complete_verified"
                 save_json(manifest, manifest_path)
                 print(f"Verified multi-round ablation: {manifest_path}")
@@ -955,7 +980,7 @@ def main() -> None:
                 save_json(manifest, manifest_path)
                 print(f"Verified controlled ablation: {manifest_path}")
 
-    print("\nAll requested WP-DPO ablation work completed.")
+    print("\nAll requested DPO ablation work completed.")
 
 
 if __name__ == "__main__":
