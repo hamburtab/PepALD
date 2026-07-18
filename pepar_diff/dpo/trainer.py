@@ -467,5 +467,11 @@ class DPOTrainer:
         self.epoch = checkpoint.get('epoch', 0)
         sampling_generator_state = checkpoint.get('sampling_generator_state')
         if self.sampling_generator is not None and sampling_generator_state is not None:
+            # Generator.set_state requires a CPU uint8 tensor even when the
+            # generator itself is CUDA-backed. torch.load(map_location=cuda)
+            # otherwise moves this checkpoint tensor to CUDA and resume fails.
+            sampling_generator_state = sampling_generator_state.detach().to(
+                device='cpu', dtype=torch.uint8
+            )
             self.sampling_generator.set_state(sampling_generator_state)
         print(f"Loaded DPO checkpoint from {path} (epoch={self.epoch}, step={self.global_step})")

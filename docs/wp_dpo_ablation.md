@@ -7,9 +7,10 @@ only when a fresh Standard-DPO-versus-WP-DPO comparison is required.
 
 Each case starts directly from PepALD_perm, generates, docks, and pairs its own
 candidates in every round, and resumes from its own previous-round DPO
-checkpoint. The runner does not insert elite-SFT or elite replay. After every
-training epoch, it generates 100 samples while restoring all RNG states
-afterward, so epoch sampling cannot perturb later training steps.
+checkpoint. Elite SFT and elite replay are inherited unchanged from each main
+model config, so `alpha_win` remains the intended ablation variable. After
+every DPO training epoch, it generates 100 samples while restoring all RNG
+states afterward, so epoch sampling cannot perturb later training steps.
 
 ## Full two-case run
 

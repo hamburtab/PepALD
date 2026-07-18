@@ -94,6 +94,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--generation_gpu_ids", default=None)
     parser.add_argument("--unidock_gpu_ids", default=None)
+    parser.add_argument(
+        "--resume_existing",
+        action="store_true",
+        help=(
+            "Resume each independent arm at its first round without both a "
+            "round summary and dpo_latest.pt; completed rounds are reused."
+        ),
+    )
     parser.add_argument("--wp_alpha_case1", type=float, default=None)
     parser.add_argument("--wp_alpha_case2", type=float, default=None)
     parser.add_argument(
@@ -259,8 +267,6 @@ def build_multiround_arm_config(
     rounds_cfg["checkpoint_root"] = str(case_checkpoint_root)
     rounds_cfg["run_name"] = arm_name
     rounds_cfg["generation_gpu_ids"] = [int(item) for item in generation_gpu_ids]
-    rounds_cfg["elite_replay_enabled"] = False
-    rounds_cfg["elite_sft_enabled"] = False
     rounds_cfg["carry_forward_previous_candidates"] = False
     rounds_cfg["base_candidate_file"] = None
     rounds_cfg["base_vina_score_file"] = None
@@ -563,20 +569,41 @@ def run_multiround_arm(
     unidock_gpu_ids: list[str],
 ) -> None:
     rounds_cfg = config["dpo_rounds"]
-    first_checkpoint_dir = (
-        Path(rounds_cfg["checkpoint_root"])
-        / f"{rounds_cfg['run_name']}_r0"
-    )
-    if not args.dry_run and (first_checkpoint_dir / "dpo_latest.pt").exists():
-        raise FileExistsError(
-            f"Multi-round arm already exists at {first_checkpoint_dir}. "
-            "Use a new --run_name."
-        )
+    checkpoint_root = Path(rounds_cfg["checkpoint_root"])
+    output_root = Path(rounds_cfg["output_root"])
+    arm_name = str(rounds_cfg["run_name"])
+    start_round = 0
+
+    if not args.dry_run and args.resume_existing:
+        while start_round < args.rounds:
+            checkpoint_path = (
+                checkpoint_root / f"{arm_name}_r{start_round}" / "dpo_latest.pt"
+            )
+            summary_path = (
+                output_root / f"{arm_name}_r{start_round}" / "round_summary.json"
+            )
+            if not checkpoint_path.exists() or not summary_path.exists():
+                break
+            start_round += 1
+        if start_round == args.rounds:
+            print(
+                f"All {args.rounds} rounds already complete for {arm_name}; "
+                "skipping training."
+            )
+            return
+        print(f"Resuming {arm_name} at round r{start_round}.")
+    elif not args.dry_run:
+        first_checkpoint_dir = checkpoint_root / f"{arm_name}_r0"
+        if (first_checkpoint_dir / "dpo_latest.pt").exists():
+            raise FileExistsError(
+                f"Multi-round arm already exists at {first_checkpoint_dir}. "
+                "Use a new --run_name or pass --resume_existing."
+            )
 
     command = python_command + [
         "scripts/train/run_dpo_rounds.py",
         "--config", str(config_path),
-        "--start_round", "0",
+        "--start_round", str(start_round),
         "--num_rounds", str(args.rounds - 1),
     ]
     if generation_gpu_ids:
@@ -847,8 +874,13 @@ def main() -> None:
                 "standard_config": str(standard_config_path),
                 "wp_config": str(wp_config_path) if wp_config is not None else None,
                 "main_wp_dpo_retrained": wp_config is not None,
-                "elite_sft_enabled": False,
-                "elite_replay_enabled": False,
+                "resume_existing": bool(args.resume_existing),
+                "elite_sft_enabled": bool(
+                    standard_config["dpo_rounds"].get("elite_sft_enabled", False)
+                ),
+                "elite_replay_enabled": bool(
+                    standard_config["dpo_rounds"].get("elite_replay_enabled", False)
+                ),
                 "samples_per_epoch": args.samples_per_epoch,
                 "batch_size": standard_config["training"]["batch_size"],
                 "status": "configured",
