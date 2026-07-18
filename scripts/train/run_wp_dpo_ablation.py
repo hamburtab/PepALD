@@ -52,7 +52,8 @@ def parse_args() -> argparse.Namespace:
         default=8,
         help=(
             "Number of actual DPO training rounds per case/arm (default: 8). "
-            "Use 1 for the original shared-pair single-round protocol."
+            "With --arms standard, 1 runs an independent one-round smoke test; "
+            "with --arms both, 1 uses the original shared-pair protocol."
         ),
     )
     parser.add_argument(
@@ -81,6 +82,15 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=100,
         help="Samples generated from each arm after every epoch (default: 100).",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=None,
+        help=(
+            "Optional per-run training batch-size override. Use 1 for a minimal "
+            "pipeline smoke test; base config files are not modified."
+        ),
     )
     parser.add_argument("--generation_gpu_ids", default=None)
     parser.add_argument("--unidock_gpu_ids", default=None)
@@ -214,9 +224,9 @@ def build_multiround_arm_config(
     unidock_gpu_ids: list[str],
     python_prefix: str,
 ) -> dict:
-    """Build one independent eight-round arm config for run_dpo_rounds.py."""
-    if rounds <= 1:
-        raise ValueError("Multi-round config requires rounds > 1")
+    """Build one independent arm config for run_dpo_rounds.py."""
+    if rounds < 1:
+        raise ValueError("Independent-round config requires rounds >= 1")
     if samples_per_epoch < 0:
         raise ValueError("samples_per_epoch must be >= 0")
     config = deepcopy(base_config)
@@ -668,13 +678,12 @@ def main() -> None:
     args = parse_args()
     if args.rounds < 1:
         raise ValueError("--rounds must be >= 1")
-    if args.rounds > 1 and args.stage != "all":
-        raise ValueError("Multi-round mode currently requires --stage all")
-    if args.rounds == 1 and args.arms != "both":
-        raise ValueError(
-            "The shared-pair single-round protocol requires --arms both."
-        )
-    if args.rounds > 1 and (
+    if args.batch_size is not None and args.batch_size < 1:
+        raise ValueError("--batch_size must be >= 1")
+    independent_round_mode = args.arms == "standard" or args.rounds > 1
+    if independent_round_mode and args.stage != "all":
+        raise ValueError("Independent-round mode currently requires --stage all")
+    if independent_round_mode and (
         args.candidate_file_case1
         or args.candidate_file_case2
         or args.vina_score_file_case1
@@ -707,6 +716,10 @@ def main() -> None:
     for case_name in selected_cases:
         base_config_path = resolve_path(getattr(args, f"{case_name}_config"))
         base_config = load_json(base_config_path)
+        if args.batch_size is not None:
+            base_config.setdefault("training", {})["batch_size"] = int(
+                args.batch_size
+            )
         shared_dir = output_root / case_name / "shared"
         shared_pair_dir = shared_dir / "dpo_data"
         standard_checkpoint_dir = checkpoint_root / case_name / "standard_dpo"
@@ -746,7 +759,7 @@ def main() -> None:
                 f"{case_name} WP-DPO alpha_win must be > 0, got {wp_alpha}"
             )
 
-        if args.rounds > 1:
+        if independent_round_mode:
             multiround_base = deepcopy(base_config)
             if args.num_samples is not None:
                 multiround_base.setdefault("generation", {})["num_samples"] = int(
@@ -837,6 +850,7 @@ def main() -> None:
                 "elite_sft_enabled": False,
                 "elite_replay_enabled": False,
                 "samples_per_epoch": args.samples_per_epoch,
+                "batch_size": standard_config["training"]["batch_size"],
                 "status": "configured",
             }
             manifest_path = output_root / case_name / "ablation_manifest.json"
