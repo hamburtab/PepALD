@@ -25,6 +25,13 @@ DEFAULT_CASE_CONFIGS = {
     "case1": PROJECT_ROOT / "configs" / "training" / "dpo.json",
     "case2": PROJECT_ROOT / "configs" / "training" / "dpo_case2.json",
 }
+AUTODL_DATA_ROOT = Path("/root/autodl-tmp")
+if AUTODL_DATA_ROOT.is_dir():
+    DEFAULT_OUTPUT_ROOT = AUTODL_DATA_ROOT / "wp_dpo_ablation" / "outputs"
+    DEFAULT_CHECKPOINT_ROOT = AUTODL_DATA_ROOT / "wp_dpo_ablation" / "checkpoints"
+else:
+    DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "ablations" / "wp_dpo"
+    DEFAULT_CHECKPOINT_ROOT = PROJECT_ROOT / "checkpoints" / "ablations" / "wp_dpo"
 
 
 def parse_args() -> argparse.Namespace:
@@ -65,8 +72,8 @@ def parse_args() -> argparse.Namespace:
             "alpha_win=0 ablation (default); 'both' also retrains WP-DPO."
         ),
     )
-    parser.add_argument("--output_root", default="outputs/ablations/wp_dpo")
-    parser.add_argument("--checkpoint_root", default="checkpoints/ablations/wp_dpo")
+    parser.add_argument("--output_root", default=str(DEFAULT_OUTPUT_ROOT))
+    parser.add_argument("--checkpoint_root", default=str(DEFAULT_CHECKPOINT_ROOT))
     parser.add_argument("--candidate_file_case1", default=None)
     parser.add_argument("--candidate_file_case2", default=None)
     parser.add_argument("--vina_score_file_case1", default=None)
@@ -739,6 +746,8 @@ def main() -> None:
     print(f"Seed: {args.seed}")
     print(f"DPO rounds per arm: {args.rounds}")
     print(f"Training arms: {args.arms}")
+    print(f"Output root: {output_root}")
+    print(f"Checkpoint root: {checkpoint_root}")
 
     for case_name in selected_cases:
         base_config_path = resolve_path(getattr(args, f"{case_name}_config"))
