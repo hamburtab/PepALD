@@ -43,6 +43,7 @@ class PreferencePairDataset(Dataset):
         vocab_file: str = "./data/processed/helm_vocab.json",
         max_seq_len: int = 45,
         preserve_pairing: bool = False,
+        shuffle_seed: int = 42,
     ):
         """
         Args:
@@ -50,6 +51,7 @@ class PreferencePairDataset(Dataset):
             loser_helms: loser HELM sequences
             vocab_file: vocabulary path
             max_seq_len: padding length
+            shuffle_seed: deterministic seed used for the initial pair order
         """
         with open(vocab_file, 'r') as f:
             self.vocab = json.load(f)
@@ -58,7 +60,7 @@ class PreferencePairDataset(Dataset):
         self.topology_analyzer = HELMTopologyAnalyzer()
         self.preserve_pairing = preserve_pairing
 
-        rng = np.random.default_rng(42)
+        rng = np.random.default_rng(shuffle_seed)
         if preserve_pairing:
             self.pairs = self._parse_pairs(winner_helms, loser_helms)
             if len(self.pairs) == 0:

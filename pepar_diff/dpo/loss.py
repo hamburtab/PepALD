@@ -52,7 +52,8 @@ def scatter_mean(
     values: torch.Tensor,
     index: torch.Tensor,
     num_segments: int,
-    device: torch.device
+    device: torch.device,
+    deterministic: bool = False,
 ) -> torch.Tensor:
     """
     Safe scatter mean using explicit sum/count buffers.
@@ -74,6 +75,18 @@ def scatter_mean(
     Returns:
         Mean value for each segment.
     """
+    if deterministic:
+        # CUDA scatter_add_ uses atomic updates. Explicit per-segment means are
+        # slower but deterministic, which is preferable for loss-only ablations.
+        means = []
+        for segment_idx in range(num_segments):
+            segment_values = values[index == segment_idx]
+            if segment_values.numel() == 0:
+                means.append(torch.zeros((), device=device, dtype=values.dtype))
+            else:
+                means.append(segment_values.mean())
+        return torch.stack(means)
+
     sum_buf = torch.zeros(num_segments, device=device)
     cnt_buf = torch.zeros(num_segments, device=device)
     sum_buf.scatter_add_(0, index, values)

@@ -9,6 +9,8 @@ Training flow per step:
     5. Backpropagate DPO loss plus optional winner protection.
 """
 
+import hashlib
+import json
 import math
 import time
 from copy import deepcopy
@@ -52,6 +54,9 @@ class DPOTrainer:
         dpop_winner_reg_mode: str = 'external_reg',
         checkpoint_dir: str = './checkpoints/ald_dpo',
         device: str = 'cuda',
+        sampling_seed: Optional[int] = None,
+        deterministic: bool = False,
+        audit_sampling_trace: bool = False,
     ):
         self.config = config
         self.train_loader = train_loader
@@ -59,6 +64,9 @@ class DPOTrainer:
         self.max_grad_norm = max_grad_norm
         self.dpop_winner_reg_alpha = float(dpop_winner_reg_alpha)
         self.dpop_winner_reg_mode = str(dpop_winner_reg_mode or 'external_reg')
+        self.sampling_seed = None if sampling_seed is None else int(sampling_seed)
+        self.deterministic = bool(deterministic)
+        self.audit_sampling_trace = bool(audit_sampling_trace)
         valid_dpop_modes = {'none', 'external_reg', 'margin_max'}
         if self.dpop_winner_reg_mode not in valid_dpop_modes:
             raise ValueError(
@@ -92,11 +100,72 @@ class DPOTrainer:
         self.checkpoint_dir = Path(checkpoint_dir)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
+        self.sampling_generator = None
+        if self.sampling_seed is not None:
+            self.sampling_generator = torch.Generator(device=self.device)
+            self.sampling_generator.manual_seed(self.sampling_seed)
+
+        self.sampling_trace_path = self.checkpoint_dir / 'sampling_trace.jsonl'
+        if self.audit_sampling_trace:
+            with open(self.sampling_trace_path, 'w', encoding='utf-8') as f:
+                f.write('')
+            print(f"[DPOTrainer] Sampling trace: {self.sampling_trace_path}")
+        if self.sampling_seed is not None:
+            print(f"[DPOTrainer] Timestep/noise sampling seed: {self.sampling_seed}")
+        if self.deterministic:
+            print("[DPOTrainer] Deterministic segment reductions enabled")
+
         self.global_step = 0
         self.epoch = 0
 
         self.T = self.model.diffusion_engine.num_steps
         self.dm = self.model.embedding_dim
+
+    @staticmethod
+    def _tensor_sha256(tensor: torch.Tensor) -> str:
+        """Hash tensor content, dtype, and shape for cross-arm audit traces."""
+        tensor_cpu = tensor.detach().to('cpu').contiguous()
+        digest = hashlib.sha256()
+        digest.update(str(tensor_cpu.dtype).encode('utf-8'))
+        digest.update(str(tuple(tensor_cpu.shape)).encode('utf-8'))
+        digest.update(tensor_cpu.numpy().tobytes())
+        return digest.hexdigest()
+
+    def _sampling_state_sha256(self) -> str:
+        if self.sampling_generator is not None:
+            state = self.sampling_generator.get_state()
+        elif self.device.type == 'cuda':
+            state = torch.cuda.get_rng_state(self.device)
+        else:
+            state = torch.random.get_rng_state()
+        return self._tensor_sha256(state)
+
+    def _write_sampling_trace(
+        self,
+        token_ids_w: torch.Tensor,
+        mask_w: torch.Tensor,
+        token_ids_l: torch.Tensor,
+        mask_l: torch.Tensor,
+        sampling_state_sha256: str,
+        timesteps: torch.Tensor,
+        noise: torch.Tensor,
+    ) -> None:
+        if not self.audit_sampling_trace:
+            return
+
+        batch_digest = hashlib.sha256()
+        for tensor in (token_ids_w, mask_w, token_ids_l, mask_l):
+            batch_digest.update(self._tensor_sha256(tensor).encode('ascii'))
+        record = {
+            'step': self.global_step,
+            'batch_sha256': batch_digest.hexdigest(),
+            'sampling_rng_state_sha256': sampling_state_sha256,
+            'timestep_sha256': self._tensor_sha256(timesteps),
+            # Equal generator state plus equal shape and code implies equal noise.
+            'noise_shape': list(noise.shape),
+        }
+        with open(self.sampling_trace_path, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(record, sort_keys=True) + '\n')
 
     def _setup_freeze(self, freeze_mode: str):
         """Setup parameter freezing."""
@@ -151,9 +220,31 @@ class DPOTrainer:
             # ctx_w_ref/ctx_l_ref: [Bz, L, d_model]
 
         # Step 2: shared timestep and noise for paired variance reduction.
-        t = torch.randint(1, self.T + 1, (Bz,), device=self.device)
+        sampling_state_sha256 = self._sampling_state_sha256()
+        t = torch.randint(
+            1,
+            self.T + 1,
+            (Bz,),
+            device=self.device,
+            generator=self.sampling_generator,
+        )
 
-        noise = torch.randn(Bz, L, self.dm, device=self.device)
+        noise = torch.randn(
+            Bz,
+            L,
+            self.dm,
+            device=self.device,
+            generator=self.sampling_generator,
+        )
+        self._write_sampling_trace(
+            token_ids_w,
+            mask_w,
+            token_ids_l,
+            mask_l,
+            sampling_state_sha256,
+            t,
+            noise,
+        )
 
         # Step 3: forward diffusion.
         # x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * noise
@@ -211,10 +302,22 @@ class DPOTrainer:
         sample_idx_w = torch.arange(Bz, device=self.device).unsqueeze(1).expand(-1, L)[valid_w]  # [N_w]
         sample_idx_l = torch.arange(Bz, device=self.device).unsqueeze(1).expand(-1, L)[valid_l]  # [N_l]
 
-        mse_theta_w = scatter_mean(mse_per_pos_theta_w, sample_idx_w, Bz, self.device)  # [Bz]
-        mse_theta_l = scatter_mean(mse_per_pos_theta_l, sample_idx_l, Bz, self.device)  # [Bz]
-        mse_ref_w = scatter_mean(mse_per_pos_ref_w, sample_idx_w, Bz, self.device)      # [Bz]
-        mse_ref_l = scatter_mean(mse_per_pos_ref_l, sample_idx_l, Bz, self.device)      # [Bz]
+        mse_theta_w = scatter_mean(
+            mse_per_pos_theta_w, sample_idx_w, Bz, self.device,
+            deterministic=self.deterministic,
+        )  # [Bz]
+        mse_theta_l = scatter_mean(
+            mse_per_pos_theta_l, sample_idx_l, Bz, self.device,
+            deterministic=self.deterministic,
+        )  # [Bz]
+        mse_ref_w = scatter_mean(
+            mse_per_pos_ref_w, sample_idx_w, Bz, self.device,
+            deterministic=self.deterministic,
+        )  # [Bz]
+        mse_ref_l = scatter_mean(
+            mse_per_pos_ref_l, sample_idx_l, Bz, self.device,
+            deterministic=self.deterministic,
+        )  # [Bz]
 
         # ── Step 6: DPO / DPOP loss ──
         progress_w = mse_ref_w - mse_theta_w       # A ~= log pi_theta(w) / pi_ref(w)
@@ -332,6 +435,13 @@ class DPOTrainer:
             'beta_dpo': self.beta_dpo,
             'dpop_winner_reg_alpha': self.dpop_winner_reg_alpha,
             'dpop_winner_reg_mode': self.dpop_winner_reg_mode,
+            'sampling_seed': self.sampling_seed,
+            'sampling_generator_state': (
+                self.sampling_generator.get_state()
+                if self.sampling_generator is not None
+                else None
+            ),
+            'deterministic': self.deterministic,
             'vocab': self.model.vocab,
         }
 
@@ -355,4 +465,7 @@ class DPOTrainer:
                 print("Warning: Could not load optimizer state, starting fresh")
         self.global_step = checkpoint.get('global_step', 0)
         self.epoch = checkpoint.get('epoch', 0)
+        sampling_generator_state = checkpoint.get('sampling_generator_state')
+        if self.sampling_generator is not None and sampling_generator_state is not None:
+            self.sampling_generator.set_state(sampling_generator_state)
         print(f"Loaded DPO checkpoint from {path} (epoch={self.epoch}, step={self.global_step})")

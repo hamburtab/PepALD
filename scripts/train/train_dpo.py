@@ -17,6 +17,8 @@ Usage:
 import sys
 import json
 import argparse
+import os
+import random
 import time
 import csv
 from datetime import datetime
@@ -35,6 +37,7 @@ from pepar_diff import AutoregressiveLatentDiffusion
 from pepar_diff.config import ALDConfig
 from pepar_diff.dpo.candidate_utils import compute_chemistry_scores, robust_normalize
 from pepar_diff.dpo.dataset import PreferencePairDataset, PreferencePairCollator, build_preference_pairs
+from pepar_diff.dpo.pair_io import save_preference_pair_snapshot
 from pepar_diff.dpo.trainer import DPOTrainer
 from pepar_diff.vina.constants import INVALID_SCORE
 
@@ -90,6 +93,14 @@ def parse_args():
         help="Resume DPO training from checkpoint"
     )
     parser.add_argument(
+        "--prepare_pairs_only", action="store_true",
+        help="Build, validate, and save preference pairs, then exit before DPO training"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Override dpo.seed for reproducible data order, timestep, and noise sampling"
+    )
+    parser.add_argument(
         "--perm_score_file", type=str, default=None,
         help="Optional CSV/TSV file with precomputed permeability scores. "
              "Overrides dpo.perm_score_file in config."
@@ -122,6 +133,35 @@ def setup_output_logging(checkpoint_dir: str) -> Path:
     sys.stdout = TeeStream(sys.stdout, log_file)
     sys.stderr = TeeStream(sys.stderr, log_file)
     return log_path
+
+
+def configure_reproducibility(seed: int | None, deterministic: bool = False) -> None:
+    """Configure the RNGs and CUDA behavior used by DPO training."""
+    if seed is None:
+        print("DPO seed: unset (run is not guaranteed to be reproducible)")
+        return
+
+    seed = int(seed)
+    os.environ.setdefault("PYTHONHASHSEED", str(seed))
+    if deterministic:
+        # This must be present before the first CUDA BLAS operation.
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+    if deterministic:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False
+        torch.use_deterministic_algorithms(True)
+
+    print(f"DPO seed: {seed}")
+    print(f"Deterministic algorithms: {'enabled' if deterministic else 'disabled'}")
 
 
 def load_pretrained_model(config: ALDConfig, device: torch.device):
@@ -746,12 +786,19 @@ def main():
     checkpoint_dir = raw_config.get('training', {}).get('checkpoint_dir', './checkpoints/ald_dpo')
     log_path = setup_output_logging(checkpoint_dir)
 
+    dpo_cfg = raw_config.setdefault('dpo', {})
+    if args.seed is not None:
+        dpo_cfg['seed'] = int(args.seed)
+    training_seed = dpo_cfg.get('seed')
+    training_seed = None if training_seed is None else int(training_seed)
+    deterministic = bool(dpo_cfg.get('deterministic', False))
+    configure_reproducibility(training_seed, deterministic=deterministic)
+
     config = ALDConfig.load(args.config)
     print(f"Loading config from: {args.config}")
     print(f"Training log will be written to: {log_path}")
 
     # Load DPO-specific config
-    dpo_cfg = raw_config.get('dpo', {})
     if args.perm_score_file:
         dpo_cfg['perm_score_file'] = args.perm_score_file
     if args.vina_score_file:
@@ -845,18 +892,30 @@ def main():
             loser_vina_score_max=dpo_cfg.get('loser_vina_score_max'),
         )
 
-        # Save for reproducibility
-        save_dir = Path(config.training.checkpoint_dir) / 'dpo_data'
+    # Snapshot aligned pairs for both newly constructed and pre-computed inputs.
+    save_dir = Path(config.training.checkpoint_dir) / 'dpo_data'
+    pair_manifest_path = save_preference_pair_snapshot(
+        winner_helms,
+        loser_helms,
+        save_dir,
+        preserve_pairing=bool(dpo_cfg.get('preserve_pairing', True)),
+        source_winner_file=args.winner_file if args.skip_generate else None,
+        source_loser_file=args.loser_file if args.skip_generate else None,
+    )
+    if not args.skip_generate:
         save_helm_list(all_helms, str(save_dir / 'candidates.txt'))
-        save_helm_list(winner_helms, str(save_dir / 'winners.txt'))
-        save_helm_list(loser_helms, str(save_dir / 'losers.txt'))
         np.save(str(save_dir / 'rewards.npy'), all_rewards)
         if reward_info:
             for key, value in reward_info.items():
                 np.save(str(save_dir / f"{key}.npy"), np.asarray(value))
         with open(save_dir / 'sources.json', 'w') as f:
             json.dump(source_labels, f, ensure_ascii=False, indent=2)
-        print(f"Saved preference data to {save_dir}")
+    print(f"Saved preference data to {save_dir}")
+    print(f"Preference manifest: {pair_manifest_path}")
+
+    if args.prepare_pairs_only:
+        print("Preference-pair preparation complete; skipping DPO training.")
+        return
 
     # ── Create dataset & dataloader ──
     dataset = PreferencePairDataset(
@@ -865,7 +924,13 @@ def main():
         vocab_file=config.training.vocab_file,
         max_seq_len=config.model.max_seq_len,
         preserve_pairing=bool(dpo_cfg.get('preserve_pairing', True)),
+        shuffle_seed=training_seed if training_seed is not None else 42,
     )
+
+    dataloader_generator = None
+    if training_seed is not None:
+        dataloader_generator = torch.Generator()
+        dataloader_generator.manual_seed(training_seed)
 
     dataloader = DataLoader(
         dataset,
@@ -874,6 +939,7 @@ def main():
         num_workers=config.training.num_workers,
         collate_fn=PreferencePairCollator(),
         drop_last=True,
+        generator=dataloader_generator,
     )
 
     # ── Create DPO trainer ──
@@ -890,6 +956,9 @@ def main():
         dpop_winner_reg_mode=dpo_cfg.get('dpop_winner_reg_mode', 'external_reg'),
         checkpoint_dir=config.training.checkpoint_dir,
         device=str(device),
+        sampling_seed=training_seed,
+        deterministic=deterministic,
+        audit_sampling_trace=bool(dpo_cfg.get('audit_sampling_trace', False)),
     )
 
     # Resume if specified
@@ -911,6 +980,8 @@ def main():
     print(f"  freeze_mode:    {dpo_cfg.get('freeze_mode', 'denoiser_only')}")
     print(f"  dpop_w_reg_alpha:{dpo_cfg.get('dpop_winner_reg_alpha', 0.0)}")
     print(f"  dpop_w_reg_mode: {dpo_cfg.get('dpop_winner_reg_mode', 'external_reg')}")
+    print(f"  seed:             {training_seed}")
+    print(f"  deterministic:    {deterministic}")
     print(f"  dataset_size:   {len(dataset)}")
     print(f"  steps/epoch:    {len(dataloader)}")
     print(f"{'='*60}\n")
