@@ -48,6 +48,7 @@ class ALDModelConfig:
     beta_end: float = 0.02
     
     # Ring predictor configuration
+    ring_feature_mode: Literal['context_rsite', 'context_only'] = 'context_rsite'
     r_group_dim: int = 512  # R-group embedding dimension
     ring_hidden_dim: int = 256  # Hidden dimension for ring predictor
     num_ring_types: int = 4  # Number of ring bond types (R3R3, R1R2, R1R3, R3R2)
@@ -208,6 +209,7 @@ class ALDConfig:
         print(f"  d_model:            {self.model.d_model}")
         print(f"  chememb_mode:       {self.model.chememb_mode}")
         print(f"  chememb_seed:       {self.model.chememb_shuffle_seed}")
+        print(f"  ring_features:      {self.model.ring_feature_mode}")
         print(f"  n_heads:            {self.model.n_heads}")
         print(f"  context_layers:     {self.model.context_layers}")
         print(f"  denoiser_layers:    {self.model.denoiser_layers}")

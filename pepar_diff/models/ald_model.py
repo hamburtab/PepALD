@@ -10,7 +10,12 @@ from typing import Optional, Dict, List, Tuple
 from .context_encoder import CausalContextEncoder
 from .token_mapper import TokenMapper
 from .token_constraints import TokenConstraintSampler
-from .ring_predictor import RingBondPredictor, AutoregressiveRingPredictor, compute_ring_loss_ar
+from .ring_predictor import (
+    RingBondPredictor,
+    AutoregressiveRingPredictor,
+    ContextOnlyAutoregressiveRingPredictor,
+    compute_ring_loss_ar,
+)
 from ..diffusion.engine import DiffusionEngine
 from ..config import ALDConfig
 
@@ -49,6 +54,15 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 "model_variant must be 'ald' or 'lm_only', "
                 f"got {self.model_variant!r}"
             )
+        self.ring_feature_mode = getattr(
+            model_cfg, 'ring_feature_mode', 'context_rsite'
+        )
+        if self.ring_feature_mode not in {'context_rsite', 'context_only'}:
+            raise ValueError(
+                "ring_feature_mode must be 'context_rsite' or 'context_only', "
+                f"got {self.ring_feature_mode!r}"
+            )
+        self.use_r_site_embeddings = self.ring_feature_mode == 'context_rsite'
         
         embeddings_dir = embeddings_dir or train_cfg.embeddings_dir
         data_dir = data_dir or train_cfg.data_dir
@@ -122,13 +136,20 @@ class AutoregressiveLatentDiffusion(nn.Module):
             hidden_dim=model_cfg.d_model // 2,
             num_bond_types=5
         )
-        # New autoregressive ring predictor with R-group awareness
-        self.ar_ring_predictor = AutoregressiveRingPredictor(
-            d_model=model_cfg.d_model,
-            r_dim=self.embedding_dim,
-            hidden_dim=model_cfg.d_model // 2,
-            dropout=model_cfg.dropout
-        )
+        # New autoregressive ring predictor with optional R-site ablation.
+        if self.use_r_site_embeddings:
+            self.ar_ring_predictor = AutoregressiveRingPredictor(
+                d_model=model_cfg.d_model,
+                r_dim=self.embedding_dim,
+                hidden_dim=model_cfg.d_model // 2,
+                dropout=model_cfg.dropout
+            )
+        else:
+            self.ar_ring_predictor = ContextOnlyAutoregressiveRingPredictor(
+                d_model=model_cfg.d_model,
+                hidden_dim=model_cfg.d_model // 2,
+                dropout=model_cfg.dropout,
+            )
         
         # 5. LM Head for Hybrid Modeling (Next Token Prediction)
         self.lm_head = nn.Linear(self.d_model, self.vocab_size)
@@ -150,6 +171,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
             )
         else:
             print(f"[ALD] Model: d={model_cfg.d_model}, layers={model_cfg.context_layers}+{model_cfg.denoiser_layers}, T={model_cfg.num_diffusion_steps}")
+        print(f"[ALD] Ring features: {self.ring_feature_mode}")
 
     @staticmethod
     def _is_special_token(token: str) -> bool:
@@ -295,7 +317,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
         batch_size, seq_len = token_ids.shape
         device = token_ids.device
 
-        if compute_ring_loss and ring_bonds is not None:
+        if (
+            compute_ring_loss
+            and ring_bonds is not None
+            and self.use_r_site_embeddings
+        ):
             _, contexts_for_pred, r_emb = self._prepare_contexts(
                 token_ids, mask, return_r_groups=True
             )
@@ -316,7 +342,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         ring_bond_loss = torch.tensor(0.0, device=device)
         ring_position_loss = torch.tensor(0.0, device=device)
         ring_type_loss = torch.tensor(0.0, device=device)
-        if compute_ring_loss and ring_bonds is not None and r_emb is not None:
+        if compute_ring_loss and ring_bonds is not None:
             ring_loss_result = self._compute_ring_loss_ar(
                 contexts_for_pred, r_emb, ring_bonds, mask
             )
@@ -376,7 +402,12 @@ class AutoregressiveLatentDiffusion(nn.Module):
         ce_only = getattr(self.config.training, 'ce_only_finetune', False)
 
         # Prepare contexts (with R-groups if computing ring loss)
-        if compute_ring_loss and ring_bonds is not None and not ce_only:
+        if (
+            compute_ring_loss
+            and ring_bonds is not None
+            and not ce_only
+            and self.use_r_site_embeddings
+        ):
             gt_embeddings, contexts_for_pred, r_emb = self._prepare_contexts(
                 token_ids, mask, return_r_groups=True
             )
@@ -409,7 +440,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         ring_position_loss = torch.tensor(0.0, device=device)
         ring_type_loss = torch.tensor(0.0, device=device)
 
-        if not ce_only and compute_ring_loss and ring_bonds is not None and r_emb is not None:
+        if not ce_only and compute_ring_loss and ring_bonds is not None:
             ring_loss_result = self._compute_ring_loss_ar(
                 contexts_for_pred, r_emb, ring_bonds, mask
             )
@@ -437,7 +468,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
     def _compute_ring_loss_ar(
         self,
         context: torch.Tensor,
-        r_emb: torch.Tensor,
+        r_emb: Optional[torch.Tensor],
         ring_bonds: List[List[Dict]],
         mask: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
@@ -449,7 +480,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         Args:
             context: [B, L, d_model] - context vectors (shifted for prediction)
-            r_emb: [B, L, 3, r_dim] - R-group embeddings
+            r_emb: [B, L, 3, r_dim] or None in context-only mode
             ring_bonds: List of ring bond info per sample
             mask: [B, L] - valid position mask
         """
@@ -474,18 +505,24 @@ class AutoregressiveLatentDiffusion(nn.Module):
             if not active_mask.any():
                 continue
             
-            # Current position context and R-groups
+            # Current and history causal contexts h_t and h_j.
             current_ctx = context[:, t, :]  # [B, d_model]
-            current_r = r_emb[:, t, :, :]   # [B, 3, r_dim]
-            
-            # History context and R-groups (positions 0 to t-1)
             history_ctx = context[:, :t, :]  # [B, t, d_model]
-            history_r = r_emb[:, :t, :, :]   # [B, t, 3, r_dim]
-            
-            # Predict
-            position_scores, type_logits = self.ar_ring_predictor(
-                current_ctx, current_r, history_ctx, history_r
-            )
+
+            if self.use_r_site_embeddings:
+                if r_emb is None:
+                    raise RuntimeError(
+                        "R-site ring prediction requires R1/R2/R3 embeddings"
+                    )
+                current_r = r_emb[:, t, :, :]   # [B, 3, r_dim]
+                history_r = r_emb[:, :t, :, :]  # [B, t, 3, r_dim]
+                position_scores, type_logits = self.ar_ring_predictor(
+                    current_ctx, current_r, history_ctx, history_r
+                )
+            else:
+                position_scores, type_logits = self.ar_ring_predictor(
+                    current_ctx, history_ctx
+                )
             # position_scores: [B, t], type_logits: [B, t, 4]
             
             # Build BCE targets for each sample
@@ -579,7 +616,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
             )
         
         # Prepare contexts (with R-groups if computing ring loss)
-        if compute_ring_loss and ring_bonds is not None:
+        if (
+            compute_ring_loss
+            and ring_bonds is not None
+            and self.use_r_site_embeddings
+        ):
             gt_embeddings, contexts_for_pred, r_emb = self._prepare_contexts(
                 token_ids, mask, return_r_groups=True
             )
@@ -629,7 +670,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         ring_position_loss = torch.tensor(0.0, device=device)
         ring_type_loss = torch.tensor(0.0, device=device)
         
-        if compute_ring_loss and ring_bonds is not None and r_emb is not None:
+        if compute_ring_loss and ring_bonds is not None:
             ring_loss_result = self._compute_ring_loss_ar(
                 contexts_for_pred, r_emb, ring_bonds, mask
             )
@@ -771,7 +812,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         
         # R-group embeddings storage for ring prediction
         all_r_embeddings = None
-        if predict_ring_bonds:
+        if predict_ring_bonds and self.use_r_site_embeddings:
             r_dim = self.config.model.r_group_dim  # 512
             all_r_embeddings = torch.zeros(num_samples, max_seq_len, 3, r_dim, device=device)
         
@@ -894,7 +935,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
             all_tokens[active_idx, t] = token_ids
             
             # 4. Ring Bond Prediction (if enabled)
-            if predict_ring_bonds and t > 0:
+            if predict_ring_bonds and self.use_r_site_embeddings and t > 0:
                 # Always store R-group embeddings for later use
                 _, r_emb_current = self.embedding_loader(token_ids, return_r_groups=True)
                 # r_emb_current: [num_active, 3, r_dim]
@@ -916,9 +957,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 for i in range(num_active):
                     sample_idx = active_idx[i].item()
                     
-                    # Get current context and R-groups
+                    # Get current causal context h_t.
                     current_ctx = context[i:i+1]  # [1, d_model]
-                    current_r = r_emb_current[i:i+1]  # [1, 3, r_dim]
                     
                     # Get history context for positions 0..t-1
                     # During training, contexts_for_pred is built as:
@@ -945,13 +985,19 @@ class AutoregressiveLatentDiffusion(nn.Module):
                             full_ctx[:, :-1, :]
                         ], dim=1)  # [1, t, d_model]
                     
-                    history_r = all_r_embeddings[sample_idx:sample_idx+1, :t, :, :]  # [1, t, 3, r_dim]
-                    
-                    # Predict
-                    position_scores, type_logits = self.ar_ring_predictor(
-                        current_ctx, current_r,
-                        history_ctx, history_r
-                    )
+                    if self.use_r_site_embeddings:
+                        current_r = r_emb_current[i:i+1]  # [1, 3, r_dim]
+                        history_r = all_r_embeddings[
+                            sample_idx:sample_idx+1, :t, :, :
+                        ]  # [1, t, 3, r_dim]
+                        position_scores, type_logits = self.ar_ring_predictor(
+                            current_ctx, current_r, history_ctx, history_r
+                        )
+                    else:
+                        # w/o R-site: both position and type use h_t/h_j only.
+                        position_scores, type_logits = self.ar_ring_predictor(
+                            current_ctx, history_ctx
+                        )
                     # position_scores: [1, t], type_logits: [1, t, 4]
                     
                     # Get top-K candidates with minimum distance constraint

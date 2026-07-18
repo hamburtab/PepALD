@@ -398,6 +398,89 @@ class AutoregressiveRingPredictor(nn.Module):
         }
 
 
+class ContextOnlyAutoregressiveRingPredictor(nn.Module):
+    """Autoregressive ring predictor using only the pair ``(h_t, h_j)``.
+
+    This is the w/o R-site ablation counterpart of
+    :class:`AutoregressiveRingPredictor`. It contains no R-site encoder and its
+    position/type heads receive only the encoded causal-context pair.
+    """
+
+    BOND_TYPES = ['R3R3', 'R1R2', 'R1R3', 'R3R2']
+
+    def __init__(
+        self,
+        d_model: int = 512,
+        hidden_dim: int = 256,
+        dropout: float = 0.1,
+    ):
+        super().__init__()
+        self.d_model = d_model
+        self.hidden_dim = hidden_dim
+        self.num_bond_types = 4
+
+        # MLP_H([h_t, h_j]); there is intentionally no MLP_R/r_encoder.
+        self.ctx_encoder = nn.Sequential(
+            nn.Linear(d_model * 2, hidden_dim),
+            nn.LayerNorm(hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+        )
+
+        # Distinct checkpoint names prevent accidental loading of the full
+        # predictor heads, whose input dimensions include R-site features.
+        self.context_position_head = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.GELU(),
+            nn.Linear(64, 1),
+        )
+        self.context_type_head = nn.Sequential(
+            nn.Linear(hidden_dim, 64),
+            nn.GELU(),
+            nn.Linear(64, self.num_bond_types),
+        )
+
+    def forward(
+        self,
+        current_context: torch.Tensor,
+        history_context: torch.Tensor,
+        history_mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Predict ring positions and types from ``h_t`` and history ``h_j``."""
+        batch_size = current_context.size(0)
+        history_len = history_context.size(1)
+        device = current_context.device
+
+        if history_len == 0:
+            return (
+                torch.zeros(batch_size, 0, device=device),
+                torch.zeros(
+                    batch_size, 0, self.num_bond_types, device=device
+                ),
+            )
+
+        current_expanded = current_context.unsqueeze(1).expand(
+            -1, history_len, -1
+        )
+        context_pairs = torch.cat(
+            [current_expanded, history_context], dim=-1
+        )
+        context_features = self.ctx_encoder(context_pairs)
+        position_scores = self.context_position_head(context_features).squeeze(-1)
+        type_logits = self.context_type_head(context_features)
+
+        if history_mask is not None:
+            valid_history = history_mask.bool()
+            position_scores = position_scores.masked_fill(
+                ~valid_history, float('-inf')
+            )
+            type_logits = type_logits.masked_fill(
+                ~valid_history.unsqueeze(-1), float('-inf')
+            )
+
+        return position_scores, type_logits
+
+
 def compute_ring_loss_ar(
     position_scores: torch.Tensor,
     type_logits: torch.Tensor,

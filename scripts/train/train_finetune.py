@@ -473,8 +473,21 @@ def main():
         if pretrained_path.exists():
             print(f"📂 Loading pretrained model from {pretrained_path}")
             checkpoint = torch.load(pretrained_path, map_location='cpu')
-            # Load state dict, allowing missing keys (for ring predictor)
-            model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+            pretrained_state = checkpoint['model_state_dict']
+            if getattr(config.model, 'ring_feature_mode', 'context_rsite') == 'context_only':
+                # ChEMBL does not supervise ring prediction. For w/o R-site,
+                # initialize the structurally different h_t/h_j-only predictor
+                # from scratch and load every other main-model component.
+                pretrained_state = {
+                    key: value for key, value in pretrained_state.items()
+                    if not key.startswith('ar_ring_predictor.')
+                }
+                print(
+                    "🧪 w/o R-site: initializing the context-only ring "
+                    "predictor from scratch"
+                )
+            # Load state dict, allowing the intentionally new ring predictor.
+            model.load_state_dict(pretrained_state, strict=False)
             print("✅ Pretrained model loaded successfully")
         else:
             print(f"⚠️ Pretrained checkpoint not found: {pretrained_path}")
