@@ -180,6 +180,7 @@ def build_preference_pairs(
     min_reward_gap: float = 0.0,
     loser_vina_score_min: Optional[float] = None,
     loser_vina_score_max: Optional[float] = None,
+    allow_loser_pool_fallback: bool = False,
 ):
     """
     Build winner/loser HELM lists from scored candidates.
@@ -219,7 +220,8 @@ def build_preference_pairs(
     n_loser_pool = max(n_bottom, int(n * loser_pool_ratio))
 
     winner_pool_idx = sorted_idx[-n_winner_pool:][::-1].tolist()
-    loser_pool_idx = sorted_idx[:n_loser_pool].tolist()
+    default_loser_pool_idx = sorted_idx[:n_loser_pool].tolist()
+    loser_pool_idx = list(default_loser_pool_idx)
     loser_label = f"bottom {bottom_ratio*100:.0f}%"
     use_loser_vina_window = (
         vina_scores is not None
@@ -236,9 +238,19 @@ def build_preference_pairs(
         loser_pool_idx = np.flatnonzero(window_mask).tolist()
         loser_label = f"vina window [{lower:.3f}, {upper:.3f}]"
         if not loser_pool_idx:
-            raise ValueError(
-                f"No loser candidates found in requested Vina window [{lower:.4f}, {upper:.4f}]."
+            if not allow_loser_pool_fallback:
+                raise ValueError(
+                    "No loser candidates found in requested Vina window "
+                    f"[{lower:.4f}, {upper:.4f}]."
+                )
+            print(
+                "WARNING: No candidates found in requested loser Vina window "
+                f"[{lower:.4f}, {upper:.4f}]; falling back to the configured "
+                f"bottom {bottom_ratio * 100:.0f}% reward pool."
             )
+            loser_pool_idx = list(default_loser_pool_idx)
+            loser_label = f"bottom {bottom_ratio*100:.0f}% (Vina-window fallback)"
+            use_loser_vina_window = False
 
     winner_idx = select_diverse_subset(
         records,
@@ -251,7 +263,25 @@ def build_preference_pairs(
         winner_set = set(winner_idx)
         loser_pool_idx = [idx for idx in loser_pool_idx if idx not in winner_set]
         if not loser_pool_idx:
-            raise ValueError("No loser candidates remain after excluding selected winners.")
+            if not allow_loser_pool_fallback:
+                raise ValueError(
+                    "No loser candidates remain after excluding selected winners."
+                )
+            print(
+                "WARNING: The requested loser Vina window was fully consumed by "
+                "the selected winners; falling back to the configured bottom "
+                f"{bottom_ratio * 100:.0f}% reward pool."
+            )
+            loser_pool_idx = [
+                idx for idx in default_loser_pool_idx if idx not in winner_set
+            ]
+            if not loser_pool_idx:
+                raise ValueError(
+                    "No loser candidates remain after excluding selected winners, "
+                    "including in the bottom-reward fallback pool."
+                )
+            loser_label = f"bottom {bottom_ratio*100:.0f}% (Vina-window fallback)"
+            use_loser_vina_window = False
 
     loser_idx = select_diverse_subset(
         records,

@@ -891,6 +891,9 @@ def main():
             min_reward_gap=float(dpo_cfg.get('min_reward_gap', 0.0)),
             loser_vina_score_min=dpo_cfg.get('loser_vina_score_min'),
             loser_vina_score_max=dpo_cfg.get('loser_vina_score_max'),
+            allow_loser_pool_fallback=bool(
+                dpo_cfg.get('allow_loser_pool_fallback', False)
+            ),
         )
 
     # Snapshot aligned pairs for both newly constructed and pre-computed inputs.

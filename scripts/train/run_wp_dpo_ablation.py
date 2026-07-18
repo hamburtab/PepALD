@@ -233,6 +233,9 @@ def build_multiround_arm_config(
     config["dpo"]["deterministic"] = True
     config["dpo"]["audit_sampling_trace"] = True
     config["dpo"]["preserve_pairing"] = True
+    # This data-dependent safeguard is scoped to generated ablation configs.
+    # Existing/main-model configs retain the original strict window behavior.
+    config["dpo"]["allow_loser_pool_fallback"] = True
     config["dpo"]["epoch_sample_count"] = int(samples_per_epoch)
     config["dpo"]["epoch_sample_seed"] = int(seed) + 1_000_000
     config["dpo"]["unidock_gpu_ids"] = [int(item) for item in unidock_gpu_ids]
