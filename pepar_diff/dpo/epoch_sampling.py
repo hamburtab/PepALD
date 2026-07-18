@@ -70,6 +70,9 @@ def generate_epoch_samples(
                 ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
                 lambda_gpt=gen_cfg.lambda_gpt,
                 history_embedding_mode=gen_cfg.history_embedding_mode,
+                enforce_r1r2_constraints=getattr(
+                    gen_cfg, "enforce_r1r2_constraints", True
+                ),
                 predict_ring_bonds=gen_cfg.predict_ring_bonds,
                 ring_threshold=gen_cfg.ring_bond_threshold,
                 ring_top_k=gen_cfg.ring_top_k,
@@ -109,6 +112,9 @@ def generate_epoch_samples(
             "ddim_steps": gen_cfg.ddim_steps,
             "lambda_gpt": gen_cfg.lambda_gpt,
             "history_embedding_mode": gen_cfg.history_embedding_mode,
+            "enforce_r1r2_constraints": getattr(
+                gen_cfg, "enforce_r1r2_constraints", True
+            ),
             "predict_ring_bonds": gen_cfg.predict_ring_bonds,
         },
     }

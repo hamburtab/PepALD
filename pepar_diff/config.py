@@ -135,6 +135,10 @@ class ALDGenerationConfig:
     
     # Token mapping
     use_embedding_norm: bool = True  # Use cosine distance
+    # Enforce backbone-connectivity masks during token selection:
+    # first residue has R2, middle residues have R1+R2, last residue has R1.
+    # Disable this for an unconstrained-generation ablation.
+    enforce_r1r2_constraints: bool = True
     lambda_gpt: float = 0.0
     mapping_sample: bool = False
     mapping_top_k: int = 8
@@ -232,6 +236,7 @@ class ALDConfig:
         print(f"  use_ddim:           {self.generation.use_ddim}")
         print(f"  ddim_steps:         {self.generation.ddim_steps}")
         print(f"  use_embedding_norm: {self.generation.use_embedding_norm}")
+        print(f"  enforce_r1r2:       {self.generation.enforce_r1r2_constraints}")
         print(f"  lambda_gpt:         {self.generation.lambda_gpt}")
         print(f"  mapping_sample:     {self.generation.mapping_sample}")
         print(f"  history_mode:       {self.generation.history_embedding_mode}")

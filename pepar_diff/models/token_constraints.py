@@ -15,13 +15,39 @@ class TokenConstraintSampler(nn.Module):
     codebook and exposes no nearest-neighbor/distance mapping path.
     """
 
-    def __init__(self, vocab: Dict[str, int], data_dir: str = "./data/processed"):
+    def __init__(
+        self,
+        vocab: Dict[str, int],
+        data_dir: str = "./data/processed",
+        allowed_token_ids: Optional[List[int]] = None,
+    ):
         super().__init__()
         self.vocab = vocab
         self.vocab_size = len(vocab)
         self.idx_to_token = {v: k for k, v in vocab.items()}
         self.data_dir = Path(data_dir)
+        if allowed_token_ids is None:
+            allowed_token_ids = [
+                token_id
+                for token, token_id in vocab.items()
+                if not self._is_special_token(token)
+            ]
+        self.unconstrained_tokens = list(dict.fromkeys(int(x) for x in allowed_token_ids))
         self._classify_monomers()
+
+    @staticmethod
+    def _is_special_token(token: str) -> bool:
+        """Return whether a vocabulary entry is a generation control token."""
+        normalized = token.strip().upper()
+        named_specials = {
+            'PAD', 'BOS', 'EOS', 'UNK', 'MASK',
+            '<PAD>', '<BOS>', '<EOS>', '<UNK>', '<MASK>',
+            '[PAD]', '[BOS]', '[EOS]', '[UNK]', '[MASK]',
+        }
+        return (
+            normalized in named_specials
+            or (normalized.startswith('<') and normalized.endswith('>'))
+        )
 
     def _classify_monomers(self) -> None:
         """Classify monomers using the same R1/R2 rules as TokenMapper."""
@@ -56,18 +82,25 @@ class TokenConstraintSampler(nn.Module):
                 print(f"  Class 3 (last): {len(self.class3_tokens)}")
         except Exception as exc:
             print(f"[TokenConstraintSampler] Warning: Could not classify monomers: {exc}")
-            all_tokens = list(range(self.vocab_size))
+            all_tokens = self.unconstrained_tokens
             self.class1_tokens = all_tokens
             self.class2_tokens = all_tokens
             self.class3_tokens = all_tokens
 
-    def _get_allowed_tokens(self, position: int, seq_len: int) -> List[int]:
-        """Get the same admissible token set used by TokenMapper."""
+    def _get_allowed_tokens(
+        self,
+        position: int,
+        seq_len: int,
+        enforce_r1r2_constraints: bool = True,
+    ) -> List[int]:
+        """Get ordinary monomers, optionally masked by positional R1/R2 rules."""
+        if not enforce_r1r2_constraints:
+            return self.unconstrained_tokens
         if position == 0:
-            return self.class1_tokens or list(range(self.vocab_size))
+            return self.class1_tokens or self.unconstrained_tokens
         if position == seq_len - 1:
-            return self.class3_tokens or list(range(self.vocab_size))
-        return self.class2_tokens or list(range(self.vocab_size))
+            return self.class3_tokens or self.unconstrained_tokens
+        return self.class2_tokens or self.unconstrained_tokens
 
     def _apply_frequency_penalty(
         self,

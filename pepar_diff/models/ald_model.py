@@ -124,11 +124,16 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 data_dir=data_dir,
                 use_embedding_norm=gen_cfg.use_embedding_norm,
                 reference_embeddings=self.context_encoder.embedding.get_codebook(),
+                allowed_token_ids=ordinary_token_ids,
             )
         else:
             # LM-only has neither a denoiser nor a reference-embedding mapper.
             self.diffusion_engine = None
-            self.token_mapper = TokenConstraintSampler(vocab=vocab, data_dir=data_dir)
+            self.token_mapper = TokenConstraintSampler(
+                vocab=vocab,
+                data_dir=data_dir,
+                allowed_token_ids=ordinary_token_ids,
+            )
         
         # 4. Ring Bond Predictors
         self.ring_predictor = RingBondPredictor(
@@ -704,6 +709,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
         mapping_top_p: float,
         mapping_temperature: float,
         mapping_frequency_penalty: float,
+        enforce_r1r2_constraints: bool,
     ) -> torch.Tensor:
         """Select monomer IDs directly from LM logits under existing constraints."""
         logits = self.lm_head(context)
@@ -713,7 +719,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
 
         for i in range(context.size(0)):
             seq_len = lengths[active_indices[i]].item()
-            allowed = self.token_mapper._get_allowed_tokens(position, seq_len)
+            allowed = self.token_mapper._get_allowed_tokens(
+                position,
+                seq_len,
+                enforce_r1r2_constraints=enforce_r1r2_constraints,
+            )
             if mapping_sample:
                 history_tokens = None
                 if position > 0:
@@ -747,7 +757,8 @@ class AutoregressiveLatentDiffusion(nn.Module):
         predict_ring_bonds: Optional[bool] = None,
         ring_threshold: float = 0.5,
         ring_top_k: int = 1,
-        verbose: bool = False
+        verbose: bool = False,
+        enforce_r1r2_constraints: Optional[bool] = None,
     ) -> List[Dict]:
         """
         Batch-parallel generation with optional Hybrid Sampling (Diffusion + GPT).
@@ -758,6 +769,9 @@ class AutoregressiveLatentDiffusion(nn.Module):
                 'token' stores the selected monomer's reference Uni-Mol
                 embedding in the autoregressive history; 'latent' stores the
                 denoised diffusion output (legacy behavior).
+            enforce_r1r2_constraints: If True, require R2 at the first residue,
+                R1+R2 at middle residues, and R1 at the final residue. If False,
+                token selection may use any ordinary monomer in the vocabulary.
             ring_threshold: Probability threshold (0-1) for ring bond prediction.
                 The AR ring predictor uses sigmoid-calibrated scores via BCE loss.
             ring_top_k: Number of top candidates to consider per position
@@ -775,6 +789,10 @@ class AutoregressiveLatentDiffusion(nn.Module):
             lambda_gpt = getattr(gen_cfg, 'lambda_gpt', 0.0)
         if history_embedding_mode is None:
             history_embedding_mode = getattr(gen_cfg, 'history_embedding_mode', 'token')
+        if enforce_r1r2_constraints is None:
+            enforce_r1r2_constraints = bool(
+                getattr(gen_cfg, 'enforce_r1r2_constraints', True)
+            )
         if history_embedding_mode not in {'token', 'latent'}:
             raise ValueError(
                 "history_embedding_mode must be 'token' or 'latent', "
@@ -852,6 +870,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     mapping_top_p=mapping_top_p,
                     mapping_temperature=mapping_temperature,
                     mapping_frequency_penalty=mapping_frequency_penalty,
+                    enforce_r1r2_constraints=enforce_r1r2_constraints,
                 )
                 history_embeddings = self.context_encoder.get_token_embedding(token_ids)
             else:
@@ -885,7 +904,11 @@ class AutoregressiveLatentDiffusion(nn.Module):
                     for i in range(num_active):
                         # Get allowed tokens for this specific sample based on position t and its total length
                         current_seq_len = lengths[active_idx[i]].item()
-                        allowed = self.token_mapper._get_allowed_tokens(t, current_seq_len)
+                        allowed = self.token_mapper._get_allowed_tokens(
+                            t,
+                            current_seq_len,
+                            enforce_r1r2_constraints=enforce_r1r2_constraints,
+                        )
 
                         if mapping_sample:
                             history_tokens = None
@@ -917,10 +940,14 @@ class AutoregressiveLatentDiffusion(nn.Module):
                             top_p=mapping_top_p,
                             temperature=mapping_temperature,
                             frequency_penalty=mapping_frequency_penalty,
+                            enforce_r1r2_constraints=enforce_r1r2_constraints,
                         )
                     else:
                         token_ids = self.token_mapper.batch_map(
-                            embeddings, positions=t, seq_lens=lengths[active_idx]
+                            embeddings,
+                            positions=t,
+                            seq_lens=lengths[active_idx],
+                            enforce_r1r2_constraints=enforce_r1r2_constraints,
                         )
 
                 # Store the representation that will condition the next

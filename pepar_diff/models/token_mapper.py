@@ -21,6 +21,7 @@ class TokenMapper(nn.Module):
         data_dir: str = "./data/processed",
         use_embedding_norm: bool = True,
         reference_embeddings: Optional[torch.Tensor] = None,
+        allowed_token_ids: Optional[List[int]] = None,
     ):
         super().__init__()
         
@@ -28,12 +29,33 @@ class TokenMapper(nn.Module):
         self.vocab_size = len(vocab)
         self.idx_to_token = {v: k for k, v in vocab.items()}
         self.use_embedding_norm = use_embedding_norm
+        if allowed_token_ids is None:
+            allowed_token_ids = [
+                token_id
+                for token, token_id in vocab.items()
+                if not self._is_special_token(token)
+            ]
+        self.unconstrained_tokens = list(dict.fromkeys(int(x) for x in allowed_token_ids))
         
         self.embeddings_dir = Path(embeddings_dir)
         self.data_dir = Path(data_dir)
         
         self._load_embeddings(reference_embeddings)
         self._classify_monomers()
+
+    @staticmethod
+    def _is_special_token(token: str) -> bool:
+        """Return whether a vocabulary entry is a generation control token."""
+        normalized = token.strip().upper()
+        named_specials = {
+            'PAD', 'BOS', 'EOS', 'UNK', 'MASK',
+            '<PAD>', '<BOS>', '<EOS>', '<UNK>', '<MASK>',
+            '[PAD]', '[BOS]', '[EOS]', '[UNK]', '[MASK]',
+        }
+        return (
+            normalized in named_specials
+            or (normalized.startswith('<') and normalized.endswith('>'))
+        )
         
     def _load_embeddings(
         self, reference_embeddings: Optional[torch.Tensor] = None
@@ -98,7 +120,7 @@ class TokenMapper(nn.Module):
                 print(f"  Class 3 (last): {len(self.class3_tokens)}")
         except Exception as e:
             print(f"[TokenMapper] Warning: Could not classify monomers: {e}")
-            all_tokens = list(range(self.vocab_size))
+            all_tokens = self.unconstrained_tokens
             self.class1_tokens = self.class2_tokens = self.class3_tokens = all_tokens
     
     def _compute_distances(self, embeddings: torch.Tensor) -> torch.Tensor:
@@ -110,14 +132,20 @@ class TokenMapper(nn.Module):
             return 1.0 - torch.mm(emb_norm, ref_norm.t())
         return torch.cdist(embeddings, ref_embs)
     
-    def _get_allowed_tokens(self, position: int, seq_len: int) -> List[int]:
-        """Get allowed tokens based on position constraints."""
+    def _get_allowed_tokens(
+        self,
+        position: int,
+        seq_len: int,
+        enforce_r1r2_constraints: bool = True,
+    ) -> List[int]:
+        """Get ordinary monomers, optionally masked by positional R1/R2 rules."""
+        if not enforce_r1r2_constraints:
+            return self.unconstrained_tokens
         if position == 0:
-            return self.class1_tokens or list(range(self.vocab_size))
+            return self.class1_tokens or self.unconstrained_tokens
         elif position == seq_len - 1:
-            return self.class3_tokens or list(range(self.vocab_size))
-        return self.class2_tokens or list(range(self.vocab_size))
-        # return list(range(self.vocab_size))
+            return self.class3_tokens or self.unconstrained_tokens
+        return self.class2_tokens or self.unconstrained_tokens
     
     def _select_token(self, distances: torch.Tensor, allowed: List[int]) -> int:
         """Select nearest token from allowed tokens."""
@@ -206,7 +234,11 @@ class TokenMapper(nn.Module):
         device = embeddings.device
         distances = self._compute_distances(embeddings)
         
-        allowed = list(range(self.vocab_size)) if allow_all else self._get_allowed_tokens(position, seq_len)
+        allowed = (
+            self.unconstrained_tokens
+            if allow_all
+            else self._get_allowed_tokens(position, seq_len)
+        )
         tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
         
         for b in range(batch_size):
@@ -217,7 +249,8 @@ class TokenMapper(nn.Module):
         self,
         embeddings: torch.Tensor,
         positions: int,
-        seq_lens: torch.Tensor
+        seq_lens: torch.Tensor,
+        enforce_r1r2_constraints: bool = True,
     ) -> torch.Tensor:
         """Batch map at same position with different target lengths. [batch_size, embedding_dim] -> [batch_size]"""
         batch_size = embeddings.size(0)
@@ -226,7 +259,11 @@ class TokenMapper(nn.Module):
         tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
         
         for b in range(batch_size):
-            allowed = self._get_allowed_tokens(positions, seq_lens[b].item())
+            allowed = self._get_allowed_tokens(
+                positions,
+                seq_lens[b].item(),
+                enforce_r1r2_constraints=enforce_r1r2_constraints,
+            )
             tokens[b] = self._select_token(distances[b], allowed)
         return tokens
 
@@ -240,6 +277,7 @@ class TokenMapper(nn.Module):
         top_p: float = 1.0,
         temperature: float = 1.0,
         frequency_penalty: float = 0.0,
+        enforce_r1r2_constraints: bool = True,
     ) -> torch.Tensor:
         """Sample tokens from top-ranked neighbors instead of greedy nearest-neighbor decode."""
         batch_size = embeddings.size(0)
@@ -249,7 +287,11 @@ class TokenMapper(nn.Module):
         tokens = torch.zeros(batch_size, dtype=torch.long, device=device)
 
         for b in range(batch_size):
-            allowed = self._get_allowed_tokens(positions, seq_lens[b].item())
+            allowed = self._get_allowed_tokens(
+                positions,
+                seq_lens[b].item(),
+                enforce_r1r2_constraints=enforce_r1r2_constraints,
+            )
             history = None if token_histories is None else token_histories[b]
             tokens[b] = self.sample_from_scores(
                 scores[b],

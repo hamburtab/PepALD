@@ -185,6 +185,34 @@ class LMOnlyAblationTest(unittest.TestCase):
                 predict_ring_bonds=False,
             )
 
+    def test_generation_can_disable_r1r2_constraints_without_selecting_specials(self):
+        model = self.make_model()
+        with torch.no_grad():
+            model.lm_head.weight.zero_()
+            model.lm_head.bias.zero_()
+            model.lm_head.bias[8] = 100.0  # <PAD> must never become a monomer.
+            model.lm_head.bias[4] = 20.0   # M2 has R1 but no R2.
+
+        model.config.generation.enforce_r1r2_constraints = False
+        unconstrained = model.sample(
+            num_samples=1,
+            min_seq_len=4,
+            max_seq_len=4,
+            predict_ring_bonds=False,
+        )[0]["tokens"].tolist()
+        self.assertEqual(unconstrained, [4, 4, 4, 4])
+
+        constrained = model.sample(
+            num_samples=1,
+            min_seq_len=4,
+            max_seq_len=4,
+            enforce_r1r2_constraints=True,
+            predict_ring_bonds=False,
+        )[0]["tokens"].tolist()
+        self.assertNotEqual(constrained[0], 4)
+        self.assertNotEqual(constrained[1], 4)
+        self.assertEqual(constrained[-1], 4)
+
     def test_default_ald_still_calls_diffusion_and_mapper(self):
         self.assertEqual(ALDConfig().model.model_variant, "ald")
         model = self.make_model("ald")

@@ -55,6 +55,23 @@ def parse_args():
             "the legacy diffusion-latent history."
         ),
     )
+    constraint_group = parser.add_mutually_exclusive_group()
+    constraint_group.add_argument(
+        "--enforce_r1r2_constraints",
+        "--enforce-r1r2-constraints",
+        dest="enforce_r1r2_constraints",
+        action="store_true",
+        help="Enable the positional R1/R2 monomer mask for every shard.",
+    )
+    constraint_group.add_argument(
+        "--disable_r1r2_constraints",
+        "--disable-r1r2-constraints",
+        "--no-r1r2-constraints",
+        dest="enforce_r1r2_constraints",
+        action="store_false",
+        help="Disable the positional R1/R2 monomer mask for every shard.",
+    )
+    parser.set_defaults(enforce_r1r2_constraints=None)
     return parser.parse_args()
 
 
@@ -210,6 +227,10 @@ def main():
                 shard_config["generation"]["lambda_gpt"] = float(args.lambda_gpt)
             if args.history_embedding_mode is not None:
                 shard_config["generation"]["history_embedding_mode"] = args.history_embedding_mode
+            if args.enforce_r1r2_constraints is not None:
+                shard_config["generation"]["enforce_r1r2_constraints"] = (
+                    args.enforce_r1r2_constraints
+                )
 
             shard_config_path = shard_root / f"shard_{shard_idx:02d}_gpu{gpu_id}.json"
             shard_output = Path(shard_config["generation"]["output_file"])

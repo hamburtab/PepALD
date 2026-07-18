@@ -92,6 +92,26 @@ def parse_args():
             "diffusion output (legacy behavior)."
         ),
     )
+    constraint_group = parser.add_mutually_exclusive_group()
+    constraint_group.add_argument(
+        "--enforce_r1r2_constraints",
+        "--enforce-r1r2-constraints",
+        dest="enforce_r1r2_constraints",
+        action="store_true",
+        help=(
+            "Require R2 at the first residue, R1+R2 in the middle, and R1 at "
+            "the last residue (the default/config behavior)."
+        ),
+    )
+    constraint_group.add_argument(
+        "--disable_r1r2_constraints",
+        "--disable-r1r2-constraints",
+        "--no-r1r2-constraints",
+        dest="enforce_r1r2_constraints",
+        action="store_false",
+        help="Disable the positional R1/R2 monomer mask during generation.",
+    )
+    parser.set_defaults(enforce_r1r2_constraints=None)
     return parser.parse_args()
 
 
@@ -219,6 +239,7 @@ def generate_samples(
         print(f"  predict_ring_bonds:       {gen_cfg.predict_ring_bonds}")
         print(f"  cyclization_mode:         {getattr(gen_cfg, 'cyclization_mode', 'predict_ring')}")
         print(f"  use_embedding_norm:       {gen_cfg.use_embedding_norm}")
+        print(f"  enforce_r1r2_constraints: {getattr(gen_cfg, 'enforce_r1r2_constraints', True)}")
         print(f"  mapping_sample:           {gen_cfg.mapping_sample}")
         if gen_cfg.mapping_sample:
             print(f"  mapping_top_k:            {gen_cfg.mapping_top_k}")
@@ -241,6 +262,9 @@ def generate_samples(
             ddim_steps=gen_cfg.ddim_steps if gen_cfg.use_ddim else None,
             lambda_gpt=gen_cfg.lambda_gpt,
             history_embedding_mode=gen_cfg.history_embedding_mode,
+            enforce_r1r2_constraints=getattr(
+                gen_cfg, "enforce_r1r2_constraints", True
+            ),
             predict_ring_bonds=gen_cfg.predict_ring_bonds,
             ring_threshold=gen_cfg.ring_bond_threshold,
             ring_top_k=gen_cfg.ring_top_k,
@@ -366,6 +390,8 @@ def main():
         gen_cfg.lambda_gpt = args.lambda_gpt
     if args.history_embedding_mode is not None:
         gen_cfg.history_embedding_mode = args.history_embedding_mode
+    if args.enforce_r1r2_constraints is not None:
+        gen_cfg.enforce_r1r2_constraints = args.enforce_r1r2_constraints
     
     # For explicit dpo.json generation, cyclization is controlled by generation.cyclization_mode.
     if is_dpo_config and cyclization_mode == "force_head_tail":
