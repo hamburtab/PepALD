@@ -37,6 +37,7 @@ from pepar_diff import AutoregressiveLatentDiffusion
 from pepar_diff.config import ALDConfig
 from pepar_diff.dpo.candidate_utils import compute_chemistry_scores, robust_normalize
 from pepar_diff.dpo.dataset import PreferencePairDataset, PreferencePairCollator, build_preference_pairs
+from pepar_diff.dpo.epoch_sampling import generate_epoch_samples
 from pepar_diff.dpo.pair_io import save_preference_pair_snapshot
 from pepar_diff.dpo.trainer import DPOTrainer
 from pepar_diff.vina.constants import INVALID_SCORE
@@ -969,6 +970,18 @@ def main():
     num_epochs = dpo_cfg.get('num_epochs', 10)
     log_interval = dpo_cfg.get('log_interval', 10)
     save_interval = dpo_cfg.get('save_interval_epochs', 1)
+    epoch_sample_count = int(dpo_cfg.get('epoch_sample_count', 0))
+    epoch_sample_seed = int(
+        dpo_cfg.get(
+            'epoch_sample_seed',
+            (training_seed if training_seed is not None else 42) + 1_000_000,
+        )
+    )
+    epoch_sample_dir = Path(config.training.checkpoint_dir) / 'epoch_samples'
+    if epoch_sample_count > 0 and not args.resume:
+        epoch_sample_dir.mkdir(parents=True, exist_ok=True)
+        with open(epoch_sample_dir / 'manifest.jsonl', 'w', encoding='utf-8') as f:
+            f.write('')
 
     print(f"\n{'='*60}")
     print(f"DPO Training")
@@ -982,6 +995,9 @@ def main():
     print(f"  dpop_w_reg_mode: {dpo_cfg.get('dpop_winner_reg_mode', 'external_reg')}")
     print(f"  seed:             {training_seed}")
     print(f"  deterministic:    {deterministic}")
+    print(f"  samples/epoch:    {epoch_sample_count}")
+    if epoch_sample_count > 0:
+        print(f"  epoch_sample_seed:{epoch_sample_seed} + epoch")
     print(f"  dataset_size:   {len(dataset)}")
     print(f"  steps/epoch:    {len(dataloader)}")
     print(f"{'='*60}\n")
@@ -1006,6 +1022,22 @@ def main():
         # Save checkpoint
         if epoch % save_interval == 0:
             trainer.save_checkpoint()
+
+        if epoch_sample_count > 0:
+            sample_path = generate_epoch_samples(
+                model=trainer.model,
+                config=config,
+                device=device,
+                epoch=trainer.epoch,
+                num_samples=epoch_sample_count,
+                base_seed=epoch_sample_seed,
+                output_dir=epoch_sample_dir,
+                alpha_win=trainer.dpop_winner_reg_alpha,
+            )
+            print(
+                f"Generated {epoch_sample_count} epoch-{trainer.epoch} samples: "
+                f"{sample_path}"
+            )
 
         # Health check
         if metrics['margin'] < -0.5:

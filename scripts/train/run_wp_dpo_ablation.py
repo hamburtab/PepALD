@@ -46,6 +46,15 @@ def parse_args() -> argparse.Namespace:
         help="Stable run name. Required for a later --stage train invocation.",
     )
     parser.add_argument("--stage", choices=["all", "prepare", "train"], default="all")
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=8,
+        help=(
+            "Number of actual DPO training rounds per case/arm (default: 8). "
+            "Use 1 for the original shared-pair single-round protocol."
+        ),
+    )
     parser.add_argument("--output_root", default="outputs/ablations/wp_dpo")
     parser.add_argument("--checkpoint_root", default="checkpoints/ablations/wp_dpo")
     parser.add_argument("--candidate_file_case1", default=None)
@@ -57,6 +66,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Candidates per case; defaults to dpo_rounds.num_samples_per_round.",
+    )
+    parser.add_argument(
+        "--samples_per_epoch",
+        type=int,
+        default=100,
+        help="Samples generated from each arm after every epoch (default: 100).",
     )
     parser.add_argument("--generation_gpu_ids", default=None)
     parser.add_argument("--unidock_gpu_ids", default=None)
@@ -133,10 +148,13 @@ def build_arm_configs(
     wp_checkpoint_dir: Path,
     seed: int,
     wp_alpha: float,
+    samples_per_epoch: int = 100,
 ) -> tuple[dict, dict]:
     """Create both configs and enforce the allowed difference set."""
     if wp_alpha <= 0:
         raise ValueError(f"WP-DPO alpha_win must be > 0, got {wp_alpha}")
+    if samples_per_epoch < 0:
+        raise ValueError("samples_per_epoch must be >= 0")
 
     common = deepcopy(base_config)
     common.setdefault("training", {})
@@ -149,6 +167,8 @@ def build_arm_configs(
     common["dpo"]["deterministic"] = True
     common["dpo"]["audit_sampling_trace"] = True
     common["dpo"]["preserve_pairing"] = True
+    common["dpo"]["epoch_sample_count"] = int(samples_per_epoch)
+    common["dpo"]["epoch_sample_seed"] = int(seed) + 1_000_000
     winner_reg_mode = str(common["dpo"].get("dpop_winner_reg_mode", "external_reg"))
     if winner_reg_mode == "none":
         raise ValueError("WP-DPO arm cannot use dpop_winner_reg_mode='none'.")
@@ -169,6 +189,88 @@ def build_arm_configs(
             f"expected={sorted(expected)}, actual={sorted(actual)}"
         )
     return standard, wp
+
+
+def build_multiround_arm_config(
+    base_config: dict,
+    checkpoint_path: Path,
+    seed: int,
+    alpha_win: float,
+    samples_per_epoch: int,
+    rounds: int,
+    arm_name: str,
+    case_output_root: Path,
+    case_checkpoint_root: Path,
+    generation_gpu_ids: list[str],
+    unidock_gpu_ids: list[str],
+    python_prefix: str,
+) -> dict:
+    """Build one independent eight-round arm config for run_dpo_rounds.py."""
+    if rounds <= 1:
+        raise ValueError("Multi-round config requires rounds > 1")
+    if samples_per_epoch < 0:
+        raise ValueError("samples_per_epoch must be >= 0")
+    config = deepcopy(base_config)
+    config.setdefault("training", {})
+    config.setdefault("generation", {})
+    config.setdefault("dpo", {})
+    config.setdefault("dpo_rounds", {})
+
+    config["training"]["pretrained_checkpoint"] = str(checkpoint_path)
+    config["generation"]["checkpoint_path"] = str(checkpoint_path)
+    config["generation"]["seed"] = int(seed)
+    config["dpo"]["dpop_winner_reg_alpha"] = float(alpha_win)
+    config["dpo"]["seed"] = int(seed)
+    config["dpo"]["deterministic"] = True
+    config["dpo"]["audit_sampling_trace"] = True
+    config["dpo"]["preserve_pairing"] = True
+    config["dpo"]["epoch_sample_count"] = int(samples_per_epoch)
+    config["dpo"]["epoch_sample_seed"] = int(seed) + 1_000_000
+    config["dpo"]["unidock_gpu_ids"] = [int(item) for item in unidock_gpu_ids]
+
+    rounds_cfg = config["dpo_rounds"]
+    # run_dpo_rounds uses inclusive round indices r0..rN.
+    rounds_cfg["num_rounds"] = int(rounds) - 1
+    rounds_cfg["initial_checkpoint"] = str(checkpoint_path)
+    rounds_cfg["bootstrap_generate"] = True
+    rounds_cfg["output_root"] = str(case_output_root)
+    rounds_cfg["checkpoint_root"] = str(case_checkpoint_root)
+    rounds_cfg["run_name"] = arm_name
+    rounds_cfg["generation_gpu_ids"] = [int(item) for item in generation_gpu_ids]
+    rounds_cfg["elite_replay_enabled"] = False
+    rounds_cfg["elite_sft_enabled"] = False
+    rounds_cfg["carry_forward_previous_candidates"] = False
+    rounds_cfg["base_candidate_file"] = None
+    rounds_cfg["base_vina_score_file"] = None
+    rounds_cfg["base_perm_score_file"] = None
+    rounds_cfg["base_merge_rounds"] = 0
+    rounds_cfg["resume_dpo_training"] = True
+    rounds_cfg["seed_vina_cache"] = False
+    rounds_cfg["python"] = python_prefix
+    return config
+
+
+def configured_round_epochs(rounds_cfg: dict, round_idx: int) -> int:
+    """Mirror run_dpo_rounds.get_round_epochs for artifact verification."""
+    if round_idx == 0:
+        bootstrap_epochs = rounds_cfg.get("bootstrap_num_epochs")
+        if bootstrap_epochs is not None:
+            return int(bootstrap_epochs)
+        schedule = rounds_cfg.get("epochs_per_round")
+        if isinstance(schedule, list) and schedule:
+            return int(schedule[0])
+        return int(rounds_cfg.get("max_epochs", 5))
+
+    schedule = rounds_cfg.get("epochs_per_round")
+    if isinstance(schedule, list) and schedule:
+        index = min(round_idx - 1, len(schedule) - 1)
+        return int(schedule[index])
+    max_epochs = int(rounds_cfg.get("max_epochs", 5))
+    min_epochs = int(rounds_cfg.get("min_epochs", 3))
+    decay_start = int(rounds_cfg.get("epoch_decay_start_round", 4))
+    if round_idx < decay_start:
+        return max_epochs
+    return max(min_epochs, max_epochs - (round_idx - decay_start + 1))
 
 
 def run_command(command: list[str], seed: int, dry_run: bool) -> None:
@@ -344,6 +446,8 @@ def verify_artifacts(
     shared_pair_dir: Path,
     standard_checkpoint_dir: Path,
     wp_checkpoint_dir: Path,
+    expected_epochs: int,
+    samples_per_epoch: int,
 ) -> dict:
     manifests = [
         load_json(shared_pair_dir / "preference_manifest.json"),
@@ -370,6 +474,51 @@ def verify_artifacts(
     if current_checkpoint_sha256 != expected_checkpoint_sha256:
         raise RuntimeError("PepALD_perm checkpoint changed during the ablation run.")
 
+    epoch_sample_outputs = {}
+    for arm_name, arm_dir in (
+        ("standard_dpo", standard_checkpoint_dir),
+        ("wp_dpo", wp_checkpoint_dir),
+    ):
+        sample_dir = arm_dir / "epoch_samples"
+        records = []
+        if samples_per_epoch > 0:
+            manifest_path = sample_dir / "manifest.jsonl"
+            if not manifest_path.exists():
+                raise FileNotFoundError(f"Epoch-sample manifest missing: {manifest_path}")
+            manifest_records = [
+                json.loads(line)
+                for line in manifest_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            if len(manifest_records) != expected_epochs:
+                raise RuntimeError(
+                    f"{arm_name} expected {expected_epochs} epoch-sample records, "
+                    f"found {len(manifest_records)}"
+                )
+            for epoch in range(1, expected_epochs + 1):
+                sample_path = sample_dir / f"epoch_{epoch:03d}.txt"
+                if not sample_path.exists():
+                    raise FileNotFoundError(f"Epoch sample file missing: {sample_path}")
+                sample_count = sum(
+                    1
+                    for line in sample_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                )
+                if sample_count != samples_per_epoch:
+                    raise RuntimeError(
+                        f"{sample_path} expected {samples_per_epoch} samples, "
+                        f"found {sample_count}"
+                    )
+                records.append(
+                    {
+                        "epoch": epoch,
+                        "sample_file": str(sample_path),
+                        "num_samples": sample_count,
+                        "sha256": sha256_file(sample_path),
+                    }
+                )
+        epoch_sample_outputs[arm_name] = records
+
     shared = manifests[0]
     return {
         "initial_checkpoint_sha256": current_checkpoint_sha256,
@@ -379,11 +528,146 @@ def verify_artifacts(
         "pair_jsonl_sha256": shared["pair_jsonl_sha256"],
         "sampling_trace_sha256": standard_trace_hash,
         "sampling_traces_match": True,
+        "epoch_samples": epoch_sample_outputs,
+    }
+
+
+def run_multiround_arm(
+    args: argparse.Namespace,
+    python_command: list[str],
+    config_path: Path,
+    config: dict,
+    generation_gpu_ids: list[str],
+    unidock_gpu_ids: list[str],
+) -> None:
+    rounds_cfg = config["dpo_rounds"]
+    first_checkpoint_dir = (
+        Path(rounds_cfg["checkpoint_root"])
+        / f"{rounds_cfg['run_name']}_r0"
+    )
+    if not args.dry_run and (first_checkpoint_dir / "dpo_latest.pt").exists():
+        raise FileExistsError(
+            f"Multi-round arm already exists at {first_checkpoint_dir}. "
+            "Use a new --run_name."
+        )
+
+    command = python_command + [
+        "scripts/train/run_dpo_rounds.py",
+        "--config", str(config_path),
+        "--start_round", "0",
+        "--num_rounds", str(args.rounds - 1),
+    ]
+    if generation_gpu_ids:
+        command.extend(["--generation_gpu_ids", ",".join(generation_gpu_ids)])
+    if unidock_gpu_ids:
+        command.extend(["--unidock_gpu_ids", ",".join(unidock_gpu_ids)])
+    if args.dry_run:
+        command.append("--dry_run")
+    run_command(command, args.seed, args.dry_run)
+
+
+def verify_multiround_arm(config: dict, rounds: int, samples_per_epoch: int) -> dict:
+    rounds_cfg = config["dpo_rounds"]
+    run_name = str(rounds_cfg["run_name"])
+    output_root = Path(rounds_cfg["output_root"])
+    checkpoint_root = Path(rounds_cfg["checkpoint_root"])
+    round_records = []
+    total_epochs = 0
+    total_epoch_samples = 0
+
+    for round_idx in range(rounds):
+        round_dir = output_root / f"{run_name}_r{round_idx}"
+        checkpoint_dir = checkpoint_root / f"{run_name}_r{round_idx}"
+        required = [
+            round_dir / "round_summary.json",
+            checkpoint_dir / "dpo_latest.pt",
+            checkpoint_dir / "dpo_data" / "preference_manifest.json",
+            checkpoint_dir / "sampling_trace.jsonl",
+            checkpoint_dir / "epoch_metrics.jsonl",
+        ]
+        for path in required:
+            if not path.exists():
+                raise FileNotFoundError(f"Multi-round artifact missing: {path}")
+
+        expected_epochs = configured_round_epochs(rounds_cfg, round_idx)
+        total_epochs += expected_epochs
+        sample_manifest_path = checkpoint_dir / "epoch_samples" / "manifest.jsonl"
+        sample_records = []
+        if samples_per_epoch > 0:
+            if not sample_manifest_path.exists():
+                raise FileNotFoundError(
+                    f"Epoch-sample manifest missing: {sample_manifest_path}"
+                )
+            sample_records = [
+                json.loads(line)
+                for line in sample_manifest_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            if len(sample_records) != expected_epochs:
+                raise RuntimeError(
+                    f"{sample_manifest_path} expected {expected_epochs} records, "
+                    f"found {len(sample_records)}"
+                )
+            for sample_record in sample_records:
+                if int(sample_record["num_samples"]) != samples_per_epoch:
+                    raise RuntimeError(
+                        "Unexpected samples/epoch in "
+                        f"{sample_manifest_path}: {sample_record}"
+                    )
+                sample_path = Path(sample_record["sample_file"])
+                if not sample_path.exists():
+                    raise FileNotFoundError(f"Epoch sample file missing: {sample_path}")
+                line_count = sum(
+                    1
+                    for line in sample_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                )
+                if line_count != samples_per_epoch:
+                    raise RuntimeError(
+                        f"{sample_path} expected {samples_per_epoch} samples, "
+                        f"found {line_count}"
+                    )
+                total_epoch_samples += line_count
+
+        pair_manifest = load_json(
+            checkpoint_dir / "dpo_data" / "preference_manifest.json"
+        )
+        round_records.append(
+            {
+                "round": round_idx,
+                "epochs": expected_epochs,
+                "checkpoint": str(checkpoint_dir / "dpo_latest.pt"),
+                "num_pairs": pair_manifest["num_pairs"],
+                "winner_sha256": pair_manifest["winner_sha256"],
+                "loser_sha256": pair_manifest["loser_sha256"],
+                "epoch_sample_manifest": str(sample_manifest_path),
+            }
+        )
+
+    return {
+        "rounds": rounds,
+        "total_epochs": total_epochs,
+        "total_epoch_samples": total_epoch_samples,
+        "round_records": round_records,
     }
 
 
 def main() -> None:
     args = parse_args()
+    if args.rounds < 1:
+        raise ValueError("--rounds must be >= 1")
+    if args.rounds > 1 and args.stage != "all":
+        raise ValueError("Multi-round mode currently requires --stage all")
+    if args.rounds > 1 and (
+        args.candidate_file_case1
+        or args.candidate_file_case2
+        or args.vina_score_file_case1
+        or args.vina_score_file_case2
+    ):
+        raise ValueError(
+            "Multi-round mode generates and scores independent candidates in every "
+            "arm/round; candidate and Vina file overrides are only valid with --rounds 1."
+        )
     checkpoint_path = resolve_path(args.pepald_perm_checkpoint)
     if not args.dry_run and not checkpoint_path.exists():
         raise FileNotFoundError(f"PepALD_perm checkpoint not found: {checkpoint_path}")
@@ -401,6 +685,7 @@ def main() -> None:
     print(f"PepALD_perm checkpoint: {checkpoint_path}")
     print(f"Cases: {', '.join(selected_cases)}")
     print(f"Seed: {args.seed}")
+    print(f"DPO rounds per arm: {args.rounds}")
 
     for case_name in selected_cases:
         base_config_path = resolve_path(getattr(args, f"{case_name}_config"))
@@ -439,6 +724,135 @@ def main() -> None:
             if wp_alpha_override is not None
             else dpo_cfg.get("dpop_winner_reg_alpha", 0.0)
         )
+        if wp_alpha <= 0:
+            raise ValueError(
+                f"{case_name} WP-DPO alpha_win must be > 0, got {wp_alpha}"
+            )
+
+        if args.rounds > 1:
+            multiround_base = deepcopy(base_config)
+            if args.num_samples is not None:
+                multiround_base.setdefault("generation", {})["num_samples"] = int(
+                    args.num_samples
+                )
+                multiround_base.setdefault("dpo_rounds", {})[
+                    "num_samples_per_round"
+                ] = int(args.num_samples)
+
+            case_round_output_root = output_root / case_name / "rounds"
+            case_round_checkpoint_root = checkpoint_root / case_name / "rounds"
+            standard_config = build_multiround_arm_config(
+                multiround_base,
+                checkpoint_path,
+                args.seed,
+                0.0,
+                args.samples_per_epoch,
+                args.rounds,
+                "standard_dpo",
+                case_round_output_root,
+                case_round_checkpoint_root,
+                generation_gpu_ids,
+                unidock_gpu_ids,
+                args.python,
+            )
+            wp_config = build_multiround_arm_config(
+                multiround_base,
+                checkpoint_path,
+                args.seed,
+                wp_alpha,
+                args.samples_per_epoch,
+                args.rounds,
+                "wp_dpo",
+                case_round_output_root,
+                case_round_checkpoint_root,
+                generation_gpu_ids,
+                unidock_gpu_ids,
+                args.python,
+            )
+            expected_differences = {
+                "dpo.dpop_winner_reg_alpha",
+                "dpo_rounds.run_name",
+            }
+            actual_differences = set(differing_paths(standard_config, wp_config))
+            if actual_differences != expected_differences:
+                raise AssertionError(
+                    "Uncontrolled multi-round config differences: "
+                    f"expected={sorted(expected_differences)}, "
+                    f"actual={sorted(actual_differences)}"
+                )
+
+            standard_config_path = (
+                output_root / case_name / f"standard_dpo_{args.rounds}rounds.json"
+            )
+            wp_config_path = (
+                output_root / case_name / f"wp_dpo_{args.rounds}rounds.json"
+            )
+            save_json(standard_config, standard_config_path)
+            save_json(wp_config, wp_config_path)
+            candidates_per_round = int(
+                standard_config["dpo_rounds"].get("num_samples_per_round", 2000)
+            )
+            manifest = {
+                "case": case_name,
+                "run_name": run_name,
+                "protocol": "independent_multiround",
+                "rounds_per_arm": args.rounds,
+                "round_indices": list(range(args.rounds)),
+                "candidates_per_round": candidates_per_round,
+                "estimated_candidates_both_arms": (
+                    candidates_per_round * args.rounds * 2
+                ),
+                "pepald_perm_checkpoint": str(checkpoint_path),
+                "pepald_perm_checkpoint_sha256": checkpoint_sha256,
+                "seed": args.seed,
+                "standard_alpha_win": 0.0,
+                "wp_alpha_win": wp_alpha,
+                "standard_config": str(standard_config_path),
+                "wp_config": str(wp_config_path),
+                "elite_sft_enabled": False,
+                "elite_replay_enabled": False,
+                "samples_per_epoch": args.samples_per_epoch,
+                "status": "configured",
+            }
+            manifest_path = output_root / case_name / "ablation_manifest.json"
+            save_json(manifest, manifest_path)
+
+            print(f"\n=== {case_name}: Standard DPO, {args.rounds} rounds ===")
+            run_multiround_arm(
+                args,
+                python_command,
+                standard_config_path,
+                standard_config,
+                generation_gpu_ids,
+                unidock_gpu_ids,
+            )
+            print(f"\n=== {case_name}: WP-DPO, {args.rounds} rounds ===")
+            run_multiround_arm(
+                args,
+                python_command,
+                wp_config_path,
+                wp_config,
+                generation_gpu_ids,
+                unidock_gpu_ids,
+            )
+            if not args.dry_run:
+                current_checkpoint_sha256 = sha256_file(checkpoint_path)
+                if current_checkpoint_sha256 != checkpoint_sha256:
+                    raise RuntimeError(
+                        "PepALD_perm checkpoint changed during the multi-round run."
+                    )
+                manifest["verification"] = {
+                    "standard_dpo": verify_multiround_arm(
+                        standard_config, args.rounds, args.samples_per_epoch
+                    ),
+                    "wp_dpo": verify_multiround_arm(
+                        wp_config, args.rounds, args.samples_per_epoch
+                    ),
+                }
+                manifest["status"] = "complete_verified"
+                save_json(manifest, manifest_path)
+                print(f"Verified multi-round ablation: {manifest_path}")
+            continue
 
         prepare_config = build_prepare_config(
             base_config,
@@ -459,6 +873,7 @@ def main() -> None:
             wp_checkpoint_dir,
             args.seed,
             wp_alpha,
+            args.samples_per_epoch,
         )
         standard_config_path = output_root / case_name / "standard_dpo.json"
         wp_config_path = output_root / case_name / "wp_dpo.json"
@@ -490,6 +905,8 @@ def main() -> None:
                 "diffusion_steps": base_config.get("model", {}).get("num_diffusion_steps"),
                 "deterministic": True,
                 "audit_sampling_trace": True,
+                "samples_per_epoch": args.samples_per_epoch,
+                "epoch_sample_seed": args.seed + 1_000_000,
             },
             "status": "configured",
         }
@@ -531,6 +948,8 @@ def main() -> None:
                     shared_pair_dir,
                     standard_checkpoint_dir,
                     wp_checkpoint_dir,
+                    int(dpo_cfg.get("num_epochs", 10)),
+                    args.samples_per_epoch,
                 )
                 manifest["status"] = "complete_verified"
                 save_json(manifest, manifest_path)

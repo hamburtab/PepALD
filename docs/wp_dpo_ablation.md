@@ -1,11 +1,15 @@
 # WP-DPO loss ablation
 
 This runner compares Standard DPO (`alpha_win=0`) with the configured WP-DPO
-loss while holding the initial model, aligned preference pairs, hyperparameters,
-data order, diffusion timesteps, and noise RNG stream fixed.
+loss over eight independent-data optimization rounds. Both arms start from the
+same PepALD_perm checkpoint. Each arm generates, docks, and pairs its own
+candidates in every round; from round 1 onward their datasets may diverge.
 
-The runner starts both arms directly from PepALD_perm. It does not resume an
-older DPO checkpoint and does not insert the multi-round elite-SFT stage.
+The runner starts both arms directly from PepALD_perm, resumes each arm from its
+own previous-round DPO checkpoint, and does not insert elite-SFT or elite replay.
+After every training epoch, each arm generates 100 samples from its current
+model. Epoch generation uses the same seed in both arms and restores all RNG
+states afterward, so it cannot perturb later training steps.
 
 ## Full two-case run
 
@@ -16,49 +20,35 @@ python scripts/train/run_wp_dpo_ablation.py \
   --case all \
   --pepald_perm_checkpoint /absolute/path/to/PepALD_perm.pt \
   --seed 42 \
-  --run_name wp_dpo_seed42
+  --run_name wp_dpo_seed42 \
+  --rounds 8 \
+  --samples_per_epoch 100
 ```
 
-By default, both cases generate 20,000 candidates using the GPU lists in their
-base configs. Case 1 uses its configured WP coefficient (`0.2`) and case 2 uses
-its configured coefficient (`0.8`). Override these with `--wp_alpha_case1` or
-`--wp_alpha_case2` when needed.
+In every round and arm, both cases generate 20,000 candidates using the GPU
+lists in their base configs. Case 1 uses its configured WP coefficient (`0.2`)
+and case 2 uses its configured coefficient (`0.8`). Override these with
+`--wp_alpha_case1` or `--wp_alpha_case2` when needed.
 
-To use already generated candidate pools while still rebuilding docking scores
-and preference pairs:
+Eight rounds are represented as inclusive round directories `r0` through `r7`:
 
-```bash
-python scripts/train/run_wp_dpo_ablation.py \
-  --case all \
-  --pepald_perm_checkpoint /absolute/path/to/PepALD_perm.pt \
-  --candidate_file_case1 /path/to/case1_candidates.txt \
-  --candidate_file_case2 /path/to/case2_candidates.txt \
-  --seed 42 \
-  --run_name wp_dpo_seed42
+```text
+outputs/ablations/wp_dpo/<run>/<case>/rounds/standard_dpo_r0 ... r7
+outputs/ablations/wp_dpo/<run>/<case>/rounds/wp_dpo_r0 ... r7
+checkpoints/ablations/wp_dpo/<run>/<case>/rounds/standard_dpo_r0 ... r7
+checkpoints/ablations/wp_dpo/<run>/<case>/rounds/wp_dpo_r0 ... r7
 ```
 
-## Split preparation and training
+Each round checkpoint contains its own `dpo_data/`, preference-pair hashes,
+training metrics, sampling trace, checkpoints, and epoch samples. A successful
+run ends with `status: complete_verified` in `ablation_manifest.json`.
 
-The shared pair construction and the two training arms can be run separately:
+Per-epoch samples are written under each arm checkpoint directory:
 
-```bash
-python scripts/train/run_wp_dpo_ablation.py \
-  --case all \
-  --stage prepare \
-  --pepald_perm_checkpoint /absolute/path/to/PepALD_perm.pt \
-  --seed 42 \
-  --run_name wp_dpo_seed42
-
-python scripts/train/run_wp_dpo_ablation.py \
-  --case all \
-  --stage train \
-  --pepald_perm_checkpoint /absolute/path/to/PepALD_perm.pt \
-  --seed 42 \
-  --run_name wp_dpo_seed42
+```text
+checkpoints/ablations/wp_dpo/<run>/<case>/rounds/standard_dpo_rN/epoch_samples/
+checkpoints/ablations/wp_dpo/<run>/<case>/rounds/wp_dpo_rN/epoch_samples/
 ```
 
-Each case writes a shared `dpo_data/` directory containing `winners.txt`,
-`losers.txt`, `preference_pairs.jsonl`, and SHA-256 hashes. After both arms
-finish, the runner verifies that their pair hashes and per-step sampling traces
-match. A successful run ends with `status: complete_verified` in
-`ablation_manifest.json`.
+Each file contains 100 HELM sequences. `epoch_samples/manifest.jsonl` records
+the epoch, generation seed, `alpha_win`, generation settings, and sample path.
