@@ -1,10 +1,10 @@
-"""Score a 2,400-line case1 checkpoint curve and aggregate 24 Vina values.
+"""Score a checkpoint sample curve and aggregate one Vina value per group.
 
 The combined input is docked through the existing multi-GPU Vina cache once.
 Scores are then expanded back to the original line order and summarized in
-consecutive 100-sample groups. The primary result file contains exactly one
-number per group, while a companion CSV preserves round/stage metadata and
-additional statistics for plotting and auditing.
+consecutive fixed-size groups. The primary result file contains exactly one
+number per checkpoint group, while a companion CSV preserves round/stage
+metadata and additional statistics for plotting and auditing.
 """
 
 from __future__ import annotations
@@ -32,7 +32,10 @@ else:
         PROJECT_ROOT / "outputs" / "ablations" / "wp_dpo_evaluations"
     )
 
-DEFAULT_CASE1_CONFIG = PROJECT_ROOT / "configs" / "training" / "dpo.json"
+DEFAULT_CONFIGS = {
+    "case1": PROJECT_ROOT / "configs" / "training" / "dpo.json",
+    "case2": PROJECT_ROOT / "configs" / "training" / "dpo_case2.json",
+}
 INVALID_VINA_SCORE = 0.0
 METRIC_CHOICES = ("mean_vina", "median_vina", "best_vina", "top10_mean_vina")
 
@@ -40,17 +43,17 @@ METRIC_CHOICES = ("mean_vina", "median_vina", "best_vina", "top10_mean_vina")
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Evaluate the combined case1 24-checkpoint sample file with Vina "
-            "and write one aggregate value for every consecutive 100 samples."
+            "Evaluate a combined checkpoint sample file with Vina and write one "
+            "aggregate value for every consecutive checkpoint sample group."
         )
     )
     parser.add_argument("--run_name", required=True, help="Ablation run name.")
-    parser.add_argument("--case", choices=["case1"], default="case1")
+    parser.add_argument("--case", choices=["case1", "case2"], default="case1")
     parser.add_argument("--arm", choices=["standard_dpo"], default="standard_dpo")
     parser.add_argument(
         "--sample_file",
         default=None,
-        help="Defaults to checkpoint_curve_samples/all_24epochs_2400.txt.",
+        help="Defaults to combined_sample_file in generation_manifest.json.",
     )
     parser.add_argument(
         "--group_manifest",
@@ -58,12 +61,17 @@ def parse_args() -> argparse.Namespace:
         help="Defaults to sample_groups.jsonl next to --sample_file.",
     )
     parser.add_argument("--group_size", type=int, default=100)
-    parser.add_argument("--expected_groups", type=int, default=24)
+    parser.add_argument(
+        "--expected_groups",
+        type=int,
+        default=None,
+        help="Defaults to num_groups in generation_manifest.json.",
+    )
     parser.add_argument(
         "--metric",
         choices=METRIC_CHOICES,
         default="mean_vina",
-        help="Statistic written to the 24-line values file (default: mean_vina).",
+        help="Statistic written to the per-group values file (default: mean_vina).",
     )
     parser.add_argument(
         "--gpu_ids",
@@ -133,7 +141,7 @@ def infer_vina_config(
         config_path = resolve_path(explicit_config)
     else:
         manifest_path = output_root / run_name / case_name / "ablation_manifest.json"
-        config_path = DEFAULT_CASE1_CONFIG
+        config_path = DEFAULT_CONFIGS[case_name]
         if manifest_path.exists():
             manifest = load_json(manifest_path)
             config_key = "standard_config" if arm == "standard_dpo" else "wp_config"
@@ -349,8 +357,10 @@ def aggregate_results(
 
 def main() -> None:
     args = parse_args()
-    if args.group_size < 1 or args.expected_groups < 1:
-        raise ValueError("--group_size and --expected_groups must both be >= 1")
+    if args.group_size < 1:
+        raise ValueError("--group_size must be >= 1")
+    if args.expected_groups is not None and args.expected_groups < 1:
+        raise ValueError("--expected_groups must be >= 1")
 
     output_root = resolve_path(args.output_root)
     evaluation_root = resolve_path(args.evaluation_root)
@@ -361,10 +371,20 @@ def main() -> None:
         / args.arm
         / "checkpoint_curve_samples"
     )
+    generation_manifest_path = sample_root / "generation_manifest.json"
+    generation_manifest = (
+        load_json(generation_manifest_path)
+        if generation_manifest_path.exists()
+        else None
+    )
     sample_file = (
         resolve_path(args.sample_file)
         if args.sample_file
-        else sample_root / "all_24epochs_2400.txt"
+        else (
+            resolve_path(generation_manifest["combined_sample_file"])
+            if generation_manifest and generation_manifest.get("combined_sample_file")
+            else sample_root / "all_24epochs_2400.txt"
+        )
     )
     group_manifest = (
         resolve_path(args.group_manifest)
@@ -374,17 +394,31 @@ def main() -> None:
     if not sample_file.exists():
         raise FileNotFoundError(f"Combined sample file not found: {sample_file}")
 
-    expected_total = args.group_size * args.expected_groups
+    expected_groups = (
+        int(args.expected_groups)
+        if args.expected_groups is not None
+        else (
+            int(generation_manifest["num_groups"])
+            if generation_manifest and generation_manifest.get("num_groups")
+            else None
+        )
+    )
+    if expected_groups is None:
+        raise ValueError(
+            "Cannot infer the number of groups. Pass --expected_groups or keep "
+            f"the generation manifest at {generation_manifest_path}."
+        )
+    expected_total = args.group_size * expected_groups
     helms = load_nonempty_lines(sample_file)
     if len(helms) != expected_total:
         raise RuntimeError(
             f"Expected exactly {expected_total} non-empty sample lines "
-            f"({args.expected_groups} x {args.group_size}), found {len(helms)} in "
+            f"({expected_groups} x {args.group_size}), found {len(helms)} in "
             f"{sample_file}"
         )
     group_records = load_group_manifest(
         group_manifest,
-        args.expected_groups,
+        expected_groups,
         args.group_size,
     )
 
@@ -405,10 +439,10 @@ def main() -> None:
     gpu_ids = parse_gpu_ids(args.gpu_ids)
 
     vina_dir = sample_file.parent / "vina"
-    score_cache = vina_dir / f"all_24epochs_2400.{docking_mode}.vina.csv"
-    per_sample_csv = vina_dir / "all_2400_sample_vina.csv"
-    results_csv = vina_dir / "vina_24_results.csv"
-    values_file = vina_dir / f"vina_24_{args.metric}.txt"
+    score_cache = vina_dir / f"{sample_file.stem}.{docking_mode}.vina.csv"
+    per_sample_csv = vina_dir / f"all_{expected_total}_sample_vina.csv"
+    results_csv = vina_dir / f"vina_{expected_groups}_results.csv"
+    values_file = vina_dir / f"vina_{expected_groups}_{args.metric}.txt"
     evaluation_manifest = vina_dir / "evaluation_manifest.json"
     vina_command = [
         sys.executable,
@@ -427,7 +461,7 @@ def main() -> None:
 
     print(f"Run:                 {args.run_name}")
     print(f"Combined samples:    {sample_file}")
-    print(f"Groups:              {args.expected_groups} x {args.group_size}")
+    print(f"Groups:              {expected_groups} x {args.group_size}")
     print(f"Total sample lines:  {len(helms)}")
     print(f"Unique HELMs:        {len(set(helms))}")
     print(f"Vina config:         {config_path}")
@@ -450,7 +484,7 @@ def main() -> None:
         docking_mode,
         args.group_size,
     )
-    if len(sample_rows) != expected_total or len(result_rows) != args.expected_groups:
+    if len(sample_rows) != expected_total or len(result_rows) != expected_groups:
         raise RuntimeError(
             f"Aggregation verification failed: sample rows={len(sample_rows)}, "
             f"result rows={len(result_rows)}"
@@ -485,8 +519,8 @@ def main() -> None:
         evaluation_manifest,
     )
 
-    print("\nAll 24 Vina group results completed and verified.")
-    print(f"24 primary values: {values_file}")
+    print(f"\nAll {expected_groups} Vina group results completed and verified.")
+    print(f"{expected_groups} primary values: {values_file}")
     print(f"Plotting CSV:      {results_csv}")
     print(f"Per-sample CSV:    {per_sample_csv}")
 

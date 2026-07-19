@@ -1,14 +1,9 @@
-"""Generate a chronological 24-checkpoint sample curve for case1 ablations.
+"""Generate a chronological checkpoint sample curve for WP-DPO ablations.
 
-For each round r0..r7, samples are generated in the actual training order:
-
-1. elite_sft/checkpoint_epoch_1.pt
-2. elite_sft/checkpoint_epoch_2.pt
-3. dpo_epoch_1.pt
-
-Each checkpoint contributes exactly 100 lines. The resulting 24 groups are
-concatenated without deduplication into one 2,400-line text file. A JSONL
-manifest records the exact checkpoint and line range for every group.
+For every round, all numbered Elite-SFT checkpoints are followed by all
+numbered DPO checkpoints, matching the actual training order. Epoch counts are
+read from the generated ablation config, so case1 yields 24 groups/2,400 lines
+and the current case2 schedule yields 26 groups/2,600 lines.
 """
 
 from __future__ import annotations
@@ -39,7 +34,10 @@ else:
         PROJECT_ROOT / "outputs" / "ablations" / "wp_dpo_evaluations"
     )
 
-DEFAULT_CASE1_CONFIG = PROJECT_ROOT / "configs" / "training" / "dpo.json"
+DEFAULT_CONFIGS = {
+    "case1": PROJECT_ROOT / "configs" / "training" / "dpo.json",
+    "case2": PROJECT_ROOT / "configs" / "training" / "dpo_case2.json",
+}
 
 
 @dataclass(frozen=True)
@@ -63,12 +61,12 @@ class CheckpointSampleTask:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate 100 samples from each case1 r0-r7 Elite-SFT/DPO epoch "
-            "checkpoint and concatenate all 24 groups in chronological order."
+            "Generate samples from every numbered Elite-SFT/DPO epoch checkpoint "
+            "and concatenate all groups in chronological order."
         )
     )
     parser.add_argument("--run_name", required=True, help="Ablation run name.")
-    parser.add_argument("--case", choices=["case1"], default="case1")
+    parser.add_argument("--case", choices=["case1", "case2"], default="case1")
     parser.add_argument("--arm", choices=["standard_dpo"], default="standard_dpo")
     parser.add_argument("--rounds", type=int, default=8)
     parser.add_argument("--samples_per_checkpoint", type=int, default=100)
@@ -102,7 +100,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--dry_run",
         action="store_true",
-        help="Validate all 24 checkpoints and print the plan without generating.",
+        help="Validate all scheduled checkpoints and print the plan without generating.",
     )
     return parser.parse_args()
 
@@ -149,7 +147,7 @@ def infer_generation_config(
         config_path = resolve_path(explicit_config)
     else:
         manifest_path = output_root / run_name / case_name / "ablation_manifest.json"
-        config_path = DEFAULT_CASE1_CONFIG
+        config_path = DEFAULT_CONFIGS[case_name]
         if manifest_path.exists():
             manifest = load_json(manifest_path)
             config_key = "standard_config" if arm == "standard_dpo" else "wp_config"
@@ -168,15 +166,11 @@ def build_tasks(
     case_name: str,
     arm: str,
     rounds: int,
+    rounds_config: dict[str, Any],
 ) -> list[CheckpointSampleTask]:
     if rounds < 1:
         raise ValueError("--rounds must be >= 1")
 
-    checkpoints_by_round = (
-        ("elite_sft", 1, Path("elite_sft/checkpoint_epoch_1.pt")),
-        ("elite_sft", 2, Path("elite_sft/checkpoint_epoch_2.pt")),
-        ("dpo", 1, Path("dpo_epoch_1.pt")),
-    )
     rounds_root = checkpoint_root / run_name / case_name / "rounds"
     per_checkpoint_dir = evaluation_dir / "per_checkpoint"
     config_dir = evaluation_dir / "generation_configs"
@@ -185,6 +179,24 @@ def build_tasks(
 
     for round_idx in range(rounds):
         round_dir = rounds_root / f"{arm}_r{round_idx}"
+        elite_sft_epochs = (
+            int(rounds_config.get("elite_sft_num_epochs", 1))
+            if bool(rounds_config.get("elite_sft_enabled", False))
+            else 0
+        )
+        dpo_epochs = get_round_epochs(rounds_config, round_idx)
+        checkpoints_by_round = [
+            (
+                "elite_sft",
+                epoch,
+                Path(f"elite_sft/checkpoint_epoch_{epoch}.pt"),
+            )
+            for epoch in range(1, elite_sft_epochs + 1)
+        ]
+        checkpoints_by_round.extend(
+            ("dpo", epoch, Path(f"dpo_epoch_{epoch}.pt"))
+            for epoch in range(1, dpo_epochs + 1)
+        )
         for stage, stage_epoch, relative_checkpoint in checkpoints_by_round:
             group_index = len(tasks) + 1
             label = f"r{round_idx:02d}_{stage}_epoch{stage_epoch:02d}"
@@ -196,11 +208,34 @@ def build_tasks(
                     stage_epoch=stage_epoch,
                     checkpoint=round_dir / relative_checkpoint,
                     sample_file=per_checkpoint_dir / f"{label}.txt",
-                    config_file=config_dir / f"dpo_case1_{label}.json",
+                    config_file=config_dir / f"dpo_{case_name}_{label}.json",
                     log_file=log_dir / f"{label}.log",
                 )
             )
     return tasks
+
+
+def get_round_epochs(rounds_config: dict[str, Any], round_idx: int) -> int:
+    """Mirror scripts/train/run_dpo_rounds.py scheduling exactly."""
+    if round_idx == 0:
+        bootstrap_epochs = rounds_config.get("bootstrap_num_epochs")
+        if bootstrap_epochs is not None:
+            return int(bootstrap_epochs)
+        schedule = rounds_config.get("epochs_per_round")
+        if isinstance(schedule, list) and schedule:
+            return int(schedule[0])
+        return int(rounds_config.get("max_epochs", 5))
+
+    schedule = rounds_config.get("epochs_per_round")
+    if isinstance(schedule, list) and schedule:
+        index = min(round_idx - 1, len(schedule) - 1)
+        return int(schedule[index])
+    max_epochs = int(rounds_config.get("max_epochs", 5))
+    min_epochs = int(rounds_config.get("min_epochs", 3))
+    decay_start = int(rounds_config.get("epoch_decay_start_round", 4))
+    if round_idx < decay_start:
+        return max_epochs
+    return max(min_epochs, max_epochs - (round_idx - decay_start + 1))
 
 
 def validate_checkpoints(tasks: Sequence[CheckpointSampleTask]) -> None:
@@ -404,7 +439,6 @@ def main() -> None:
         / args.arm
         / "checkpoint_curve_samples"
     )
-    combined_path = evaluation_dir / "all_24epochs_2400.txt"
     group_manifest_path = evaluation_dir / "sample_groups.jsonl"
     run_manifest_path = evaluation_dir / "generation_manifest.json"
 
@@ -416,6 +450,9 @@ def main() -> None:
         args.arm,
     )
     base_config = load_json(config_path)
+    rounds_config = base_config.get("dpo_rounds", {})
+    if not rounds_config:
+        raise ValueError(f"Config has no dpo_rounds section: {config_path}")
     tasks = build_tasks(
         checkpoint_root,
         evaluation_dir,
@@ -423,16 +460,21 @@ def main() -> None:
         args.case,
         args.arm,
         args.rounds,
+        rounds_config,
     )
     validate_checkpoints(tasks)
 
-    expected_groups = args.rounds * 3
+    expected_groups = len(tasks)
     expected_total = expected_groups * args.samples_per_checkpoint
+    combined_path = (
+        evaluation_dir / f"all_{expected_groups}epochs_{expected_total}.txt"
+    )
     print(f"Run:                    {args.run_name}")
-    print(f"Checkpoint groups:      {len(tasks)} ({args.rounds} rounds x 3)")
+    print(f"Case / arm:             {args.case} / {args.arm}")
+    print(f"Checkpoint groups:      {len(tasks)} across {args.rounds} rounds")
     print(f"Samples per checkpoint: {args.samples_per_checkpoint}")
     print(f"Expected total samples: {expected_total}")
-    print(f"Chronological order:    Elite-SFT e1 -> Elite-SFT e2 -> DPO e1")
+    print(f"Chronological order:    all Elite-SFT epochs -> all DPO epochs per round")
     print(f"Generation GPUs:        {', '.join(gpu_ids)}")
     print(f"Generation config:      {config_path}")
     print(f"Combined output:        {combined_path}")
@@ -476,10 +518,18 @@ def main() -> None:
             "case": args.case,
             "arm": args.arm,
             "rounds": args.rounds,
-            "checkpoint_order_per_round": [
-                "elite_sft/checkpoint_epoch_1.pt",
-                "elite_sft/checkpoint_epoch_2.pt",
-                "dpo_epoch_1.pt",
+            "checkpoint_order": "all Elite-SFT epochs, then all DPO epochs per round",
+            "round_epoch_schedule": [
+                {
+                    "round": round_idx,
+                    "elite_sft_epochs": (
+                        int(rounds_config.get("elite_sft_num_epochs", 1))
+                        if bool(rounds_config.get("elite_sft_enabled", False))
+                        else 0
+                    ),
+                    "dpo_epochs": get_round_epochs(rounds_config, round_idx),
+                }
+                for round_idx in range(args.rounds)
             ],
             "seed_per_checkpoint": args.seed,
             "generation_gpu_ids": gpu_ids,
@@ -493,7 +543,7 @@ def main() -> None:
         run_manifest_path,
     )
     print("\nCheckpoint sample generation complete and verified.")
-    print(f"Combined 2,400 samples: {combined_path}")
+    print(f"Combined {actual_total:,} samples: {combined_path}")
     print(f"Group manifest:          {group_manifest_path}")
     print(f"Generation manifest:     {run_manifest_path}")
 
