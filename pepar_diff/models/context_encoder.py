@@ -5,7 +5,7 @@ for conditioning the diffusion process.
 
 import torch
 import torch.nn as nn
-from typing import Optional, Sequence
+from typing import Dict, Optional
 
 from ..core.layers import CausalTransformerLayer
 from ..core.embeddings import (
@@ -33,20 +33,26 @@ class CausalContextEncoder(nn.Module):
         embeddings_dir: str = "./data/processed/unimol_embeddings",
         freeze_embeddings: bool = True,
         chememb_mode: str = "original",
-        chememb_shuffle_seed: int = 42,
-        shuffle_token_ids: Optional[Sequence[int]] = None,
+        vocab: Optional[Dict[str, int]] = None,
+        fingerprint_token_ids: Optional[list[int]] = None,
+        morgan_radius: int = 2,
+        morgan_n_bits: int = 512,
+        morgan_include_chirality: bool = False,
     ):
         super().__init__()
         
         self.d_model = d_model
         
-        # Uni-Mol embedding layer
+        # Frozen chemical embedding layer (main Uni-Mol or Morgan ablation).
         self.embedding = UniMolEmbeddingLoader(
             embeddings_dir=embeddings_dir,
             freeze_embeddings=freeze_embeddings,
             chememb_mode=chememb_mode,
-            chememb_shuffle_seed=chememb_shuffle_seed,
-            shuffle_token_ids=shuffle_token_ids,
+            vocab=vocab,
+            fingerprint_token_ids=fingerprint_token_ids,
+            morgan_radius=morgan_radius,
+            morgan_n_bits=morgan_n_bits,
+            morgan_include_chirality=morgan_include_chirality,
         )
         self.embedding_dim = self.embedding.embedding_dim
         
@@ -143,5 +149,5 @@ class CausalContextEncoder(nn.Module):
         return self._get_last_context(contexts, history_mask)
     
     def get_token_embedding(self, token_ids: torch.Tensor) -> torch.Tensor:
-        """Get Uni-Mol embeddings for token IDs."""
+        """Get the configured frozen chemical embeddings for token IDs."""
         return self.embedding(token_ids)

@@ -11,10 +11,12 @@ Contains:
 import torch
 import torch.nn as nn
 import numpy as np
+import csv
+import hashlib
 import json
 import math
 from pathlib import Path
-from typing import Optional, Dict, Tuple, Sequence
+from typing import Optional
 
 
 class SinusoidalPositionalEncoding(nn.Module):
@@ -199,27 +201,33 @@ class UniMolEmbeddingLoader(nn.Module):
         freeze_embeddings: bool = True,
         r_weight: float = 0.0,
         chememb_mode: str = "original",
-        chememb_shuffle_seed: int = 42,
-        shuffle_token_ids: Optional[Sequence[int]] = None,
+        vocab: Optional[dict[str, int]] = None,
+        fingerprint_token_ids: Optional[list[int]] = None,
+        morgan_radius: int = 2,
+        morgan_n_bits: int = 512,
+        morgan_include_chirality: bool = False,
     ):
         super().__init__()
 
-        if chememb_mode not in ("original", "shuffled"):
+        if chememb_mode not in ("original", "morgan"):
             raise ValueError(
-                f"chememb_mode must be 'original' or 'shuffled', got {chememb_mode!r}"
+                f"chememb_mode must be 'original' or 'morgan', got {chememb_mode!r}"
             )
-        if chememb_mode == "shuffled" and not freeze_embeddings:
-            raise ValueError("Shuffled ChemEmb must remain frozen")
+        if chememb_mode == "morgan" and not freeze_embeddings:
+            raise ValueError("Morgan fingerprint ChemEmb must remain frozen")
 
         self.embeddings_dir = Path(embeddings_dir)
         self.freeze_embeddings = freeze_embeddings
         self.r_weight = r_weight
         self.chememb_mode = chememb_mode
-        self.chememb_shuffle_seed = int(chememb_shuffle_seed)
-        self.shuffle_token_ids = (
-            tuple(sorted(int(token_id) for token_id in shuffle_token_ids))
-            if shuffle_token_ids is not None else None
+        self.vocab = dict(vocab) if vocab is not None else None
+        self.fingerprint_token_ids = (
+            tuple(sorted(int(token_id) for token_id in fingerprint_token_ids))
+            if fingerprint_token_ids is not None else None
         )
+        self.morgan_radius = int(morgan_radius)
+        self.morgan_n_bits = int(morgan_n_bits)
+        self.morgan_include_chirality = bool(morgan_include_chirality)
         
         self._load_embeddings()
         
@@ -247,25 +255,22 @@ class UniMolEmbeddingLoader(nn.Module):
         self.vocab_size = self.num_monomers + 1
         self.pad_idx = self.num_monomers
 
-        # permutation[target_token_id] = source_token_id. Only the molecule-level
-        # CLS slot is shuffled; R1/R2/R3 and all excluded special tokens stay intact.
+        # Keep the legacy identity buffer so existing main-model checkpoints load
+        # with exactly the same state-dict schema. Non-identity (old shuffled)
+        # checkpoints are rejected by _load_from_state_dict below.
         permutation = torch.arange(self.vocab_size, dtype=torch.long)
-        ordinary_ids = self._validate_shuffle_token_ids()
-        if self.chememb_mode == "shuffled":
-            generator = torch.Generator(device="cpu")
-            generator.manual_seed(self.chememb_shuffle_seed)
-            source_ids = ordinary_ids[
-                torch.randperm(ordinary_ids.numel(), generator=generator)
-            ]
-            permutation[ordinary_ids] = source_ids
-            shuffled_embeddings = full_embeddings.clone()
-            shuffled_embeddings[ordinary_ids, 0, :] = full_embeddings[source_ids, 0, :]
-            full_embeddings = shuffled_embeddings
+        if self.chememb_mode == "morgan":
+            full_embeddings = self._replace_cls_with_morgan_fingerprints(
+                full_embeddings
+            )
 
-        # Persistent frozen buffers: both the codebook and its permutation are saved
-        # in checkpoints. They are never optimizer parameters.
+        # Persistent frozen buffers are saved in checkpoints and never optimized.
         self.register_buffer('_embeddings', full_embeddings)
         self.register_buffer('chememb_permutation', permutation)
+        if self.chememb_mode == "morgan":
+            self.register_buffer(
+                'morgan_signature', self._compute_morgan_signature(full_embeddings)
+            )
         
         print(f"[UniMolEmbeddingLoader] Loaded embeddings:")
         print(f"  - Embedding dim: {self.embedding_dim}")
@@ -274,31 +279,111 @@ class UniMolEmbeddingLoader(nn.Module):
         print(f"  - Frozen: {self.freeze_embeddings}")
         print(f"  - Fusion: CLS + {self.r_weight} * (R1 + R2 + R3)")
         print(f"  - ChemEmb mode: {self.chememb_mode}")
-        if self.chememb_mode == "shuffled":
-            preview = self.chememb_permutation[ordinary_ids[:8]].tolist()
-            print(f"  - Shuffle seed: {self.chememb_shuffle_seed}")
-            print(f"  - Shuffled ordinary monomers: {ordinary_ids.numel()}")
-            print(f"  - Permutation preview: {preview}")
-
-    def _validate_shuffle_token_ids(self) -> torch.Tensor:
-        """Return validated IDs eligible for CLS shuffling."""
-        if self.shuffle_token_ids is None:
-            # Backward-compatible direct use: all real monomer rows, never PAD.
-            token_ids = torch.arange(self.num_monomers, dtype=torch.long)
-        else:
-            token_ids = torch.tensor(self.shuffle_token_ids, dtype=torch.long)
-
-        if token_ids.numel() == 0:
-            if self.chememb_mode == "shuffled":
-                raise ValueError("No ordinary monomer IDs were provided for ChemEmb shuffling")
-            return token_ids
-        if token_ids.unique().numel() != token_ids.numel():
-            raise ValueError("shuffle_token_ids contains duplicate token IDs")
-        if token_ids.min().item() < 0 or token_ids.max().item() >= self.vocab_size:
-            raise ValueError(
-                f"shuffle_token_ids must be within [0, {self.vocab_size - 1}]"
+        if self.chememb_mode == "morgan":
+            print(f"  - Morgan radius: {self.morgan_radius}")
+            print(f"  - Morgan bits: {self.morgan_n_bits}")
+            print(f"  - Morgan chirality: {self.morgan_include_chirality}")
+            print(
+                "  - R-site features: original Uni-Mol "
+                "(only molecule/CLS ground truth is replaced)"
             )
-        return token_ids
+
+    def _replace_cls_with_morgan_fingerprints(
+        self, full_embeddings: torch.Tensor
+    ) -> torch.Tensor:
+        """Replace ordinary-token CLS vectors with deterministic Morgan bits."""
+        if self.morgan_n_bits != self.embedding_dim:
+            raise ValueError(
+                "For the isolated ChemEmb ablation, morgan_n_bits must equal the "
+                f"existing Uni-Mol embedding dimension ({self.embedding_dim}); got "
+                f"{self.morgan_n_bits}. This keeps the model architecture unchanged."
+            )
+        if self.vocab is None:
+            raise ValueError("chememb_mode='morgan' requires the model vocabulary")
+
+        mapping_path = self.embeddings_dir / "monomer_mapping.csv"
+        if not mapping_path.exists():
+            raise FileNotFoundError(
+                "Morgan ChemEmb requires the Uni-Mol monomer mapping at "
+                f"{mapping_path}"
+            )
+
+        mapping_by_symbol = {}
+        with mapping_path.open("r", encoding="utf-8", newline="") as handle:
+            for row in csv.DictReader(handle):
+                symbol = str(row.get("symbol", "")).strip()
+                smiles = str(row.get("smiles", "")).strip()
+                if not symbol or not smiles:
+                    raise ValueError(
+                        f"Invalid symbol/SMILES row in Morgan mapping: {row!r}"
+                    )
+                if symbol in mapping_by_symbol:
+                    raise ValueError(f"Duplicate monomer symbol in {mapping_path}: {symbol}")
+                mapping_by_symbol[symbol] = smiles
+
+        token_ids = self.fingerprint_token_ids
+        if token_ids is None:
+            token_ids = tuple(
+                sorted(
+                    token_id
+                    for symbol, token_id in self.vocab.items()
+                    if symbol in mapping_by_symbol
+                )
+            )
+        if not token_ids:
+            raise ValueError("No ordinary monomer IDs were provided for Morgan ChemEmb")
+        if len(set(token_ids)) != len(token_ids):
+            raise ValueError("fingerprint_token_ids contains duplicate token IDs")
+        if min(token_ids) < 0 or max(token_ids) >= self.vocab_size:
+            raise ValueError(
+                f"fingerprint_token_ids must be within [0, {self.vocab_size - 1}]"
+            )
+
+        id_to_symbol = {token_id: symbol for symbol, token_id in self.vocab.items()}
+        missing = [
+            id_to_symbol.get(token_id, f"<id:{token_id}>")
+            for token_id in token_ids
+            if id_to_symbol.get(token_id) not in mapping_by_symbol
+        ]
+        if missing:
+            raise ValueError(
+                f"Morgan mapping is missing {len(missing)} vocabulary monomers; "
+                f"examples: {missing[:5]}"
+            )
+
+        try:
+            from ..embeddings.morgan_fingerprint import get_morgan_fingerprints
+        except ImportError as exc:
+            raise ImportError(
+                "chememb_mode='morgan' requires RDKit in the active environment"
+            ) from exc
+
+        replaced = full_embeddings.clone()
+        for token_id in token_ids:
+            symbol = id_to_symbol[token_id]
+            molecule_fp, _ = get_morgan_fingerprints(
+                mapping_by_symbol[symbol],
+                input_idxs=(),
+                radius=self.morgan_radius,
+                n_bits=self.morgan_n_bits,
+                include_chirality=self.morgan_include_chirality,
+            )
+            replaced[token_id, 0, :] = torch.from_numpy(molecule_fp).float()
+        return replaced
+
+    def _compute_morgan_signature(self, embeddings: torch.Tensor) -> torch.Tensor:
+        """Hash the complete mixed codebook plus Morgan extraction parameters."""
+        digest = hashlib.sha256()
+        digest.update(
+            (
+                f"morgan|radius={self.morgan_radius}|bits={self.morgan_n_bits}|"
+                f"chirality={int(self.morgan_include_chirality)}"
+            ).encode("utf-8")
+        )
+        digest.update(
+            embeddings.detach().cpu().contiguous().numpy().astype(np.float32).tobytes()
+        )
+        return torch.tensor(list(digest.digest()), dtype=torch.uint8)
 
     def _load_from_state_dict(
         self,
@@ -310,22 +395,52 @@ class UniMolEmbeddingLoader(nn.Module):
         unexpected_keys,
         error_msgs,
     ):
-        """Restore and validate the checkpointed permutation.
-
-        Old checkpoints have no permutation tensor. They are accepted only in
-        original mode, where the implied permutation is identity. A shuffled
-        run must always restore the exact saved permutation.
-        """
+        """Reject cross-mode checkpoints while preserving old main checkpoints."""
+        embeddings_key = prefix + "_embeddings"
         permutation_key = prefix + "chememb_permutation"
+        signature_key = prefix + "morgan_signature"
+        saved_embeddings = state_dict.get(embeddings_key)
         saved_permutation = state_dict.get(permutation_key)
+        saved_signature = state_dict.get(signature_key)
+
+        if self.chememb_mode == "morgan":
+            if saved_signature is None:
+                error_msgs.append(
+                    "Cannot load an original Uni-Mol or legacy shuffled checkpoint "
+                    "into chememb_mode='morgan'. Morgan pretraining must start from "
+                    "scratch, and Morgan finetuning must use a Morgan checkpoint."
+                )
+            elif (
+                saved_signature.shape != self.morgan_signature.shape
+                or not torch.equal(
+                    saved_signature.detach().cpu(),
+                    self.morgan_signature.detach().cpu(),
+                )
+            ):
+                error_msgs.append(
+                    "Checkpoint Morgan fingerprint signature does not match the "
+                    "configured mapping/radius/bit-count/chirality."
+                )
+            elif saved_embeddings is None or not torch.equal(
+                self._compute_morgan_signature(saved_embeddings).cpu(),
+                saved_signature.detach().cpu(),
+            ):
+                error_msgs.append(
+                    "Checkpoint Morgan codebook contents do not match its saved "
+                    "fingerprint signature."
+                )
+        elif saved_signature is not None:
+            error_msgs.append(
+                "Cannot load a Morgan ChemEmb checkpoint into the main "
+                "chememb_mode='original' model."
+            )
+
         if saved_permutation is None:
             if self.chememb_mode == "original":
                 state_dict[permutation_key] = self.chememb_permutation.detach().clone()
             else:
                 error_msgs.append(
-                    "Cannot load a checkpoint without a saved ChemEmb permutation "
-                    "into chememb_mode='shuffled'. Use the shuffled pretraining "
-                    "checkpoint and the same chememb_shuffle_seed."
+                    "Morgan checkpoint is missing the ChemEmb compatibility marker."
                 )
         elif (
             saved_permutation.shape != self.chememb_permutation.shape
@@ -335,9 +450,9 @@ class UniMolEmbeddingLoader(nn.Module):
             )
         ):
             error_msgs.append(
-                "Checkpoint ChemEmb permutation does not match the configured "
-                f"mode={self.chememb_mode!r}, seed={self.chememb_shuffle_seed}. "
-                "Use the same ChemEmb configuration as the checkpoint."
+                "Checkpoint contains a non-identity legacy ChemEmb permutation. "
+                "The shuffled Uni-Mol ablation has been removed and must be retrained "
+                "with chememb_mode='morgan'."
             )
 
         super()._load_from_state_dict(

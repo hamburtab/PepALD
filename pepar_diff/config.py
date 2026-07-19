@@ -21,9 +21,11 @@ class ALDModelConfig:
     embedding_dim: int = 512  # Will be auto-updated from Uni-Mol embeddings
     d_model: int = 512
 
-    # Chemical embedding ablation
-    chememb_mode: Literal['original', 'shuffled'] = 'original'
-    chememb_shuffle_seed: int = 42
+    # Chemical embedding ablation. The default Uni-Mol path remains unchanged.
+    chememb_mode: Literal['original', 'morgan'] = 'original'
+    morgan_radius: int = 2
+    morgan_n_bits: int = 512
+    morgan_include_chirality: bool = False
     
     # Attention configuration
     n_heads: int = 8
@@ -191,9 +193,14 @@ class ALDConfig:
         """Load configuration from JSON file."""
         with open(path, 'r') as f:
             config_dict = json.load(f)
+
+        # Compatibility only: older original-model JSON files may still carry
+        # this now-removed, behavior-free shuffled-ablation setting.
+        model_dict = dict(config_dict.get('model', {}))
+        model_dict.pop('chememb_shuffle_seed', None)
         
         return cls(
-            model=ALDModelConfig(**config_dict.get('model', {})),
+            model=ALDModelConfig(**model_dict),
             training=ALDTrainingConfig(**config_dict.get('training', {})),
             generation=ALDGenerationConfig(**config_dict.get('generation', {}))
         )
@@ -208,7 +215,10 @@ class ALDConfig:
         print(f"  model_variant:      {self.model.model_variant}")
         print(f"  d_model:            {self.model.d_model}")
         print(f"  chememb_mode:       {self.model.chememb_mode}")
-        print(f"  chememb_seed:       {self.model.chememb_shuffle_seed}")
+        if self.model.chememb_mode == "morgan":
+            print(f"  morgan_radius:      {self.model.morgan_radius}")
+            print(f"  morgan_n_bits:      {self.model.morgan_n_bits}")
+            print(f"  morgan_chirality:   {self.model.morgan_include_chirality}")
         print(f"  ring_features:      {self.model.ring_feature_mode}")
         print(f"  n_heads:            {self.model.n_heads}")
         print(f"  context_layers:     {self.model.context_layers}")

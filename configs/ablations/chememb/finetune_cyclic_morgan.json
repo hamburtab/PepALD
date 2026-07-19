@@ -2,8 +2,10 @@
   "model": {
     "embedding_dim": 512,
     "d_model": 512,
-    "chememb_mode": "shuffled",
-    "chememb_shuffle_seed": 42,
+    "chememb_mode": "morgan",
+    "morgan_radius": 2,
+    "morgan_n_bits": 512,
+    "morgan_include_chirality": false,
     "n_heads": 8,
     "context_layers": 6,
     "denoiser_layers": 6,
@@ -32,12 +34,12 @@
     "sample_positions": 45,
     "log_interval": 50,
     "save_interval": 500,
-    "checkpoint_dir": "./checkpoints/ablations/chememb_shuffled/finetune",
+    "checkpoint_dir": "./checkpoints/ablations/chememb_morgan/finetune",
     "device": "cuda",
     "use_amp": false,
     "num_workers": 4,
     "finetune_mode": true,
-    "pretrained_checkpoint": "./checkpoints/ablations/chememb_shuffled/pretrain/checkpoint_epoch_99.pt",
+    "pretrained_checkpoint": "./checkpoints/ablations/chememb_morgan/pretrain/checkpoint_epoch_99.pt",
     "cyclic_only": true,
     "ring_loss_weight": 0.5,
     "ce_loss_weight": 0.5,
@@ -46,7 +48,7 @@
     "freeze_diffusion": false
   },
   "generation": {
-    "checkpoint_path": "./checkpoints/ablations/chememb_shuffled/finetune/checkpoint_epoch_40.pt",
+    "checkpoint_path": "./checkpoints/ablations/chememb_morgan/finetune/checkpoint_epoch_40.pt",
     "num_samples": 1000,
     "max_length": 12,
     "min_length": 7,
@@ -58,7 +60,7 @@
     "ring_top_k": 1,
     "use_embedding_norm": true,
     "history_embedding_mode": "token",
-    "output_file": "./outputs/samples/ablations/chememb_shuffled_finetune.txt",
+    "output_file": "./outputs/samples/ablations/chememb_morgan_finetune.txt",
     "verbose": true,
     "seed": null
   }

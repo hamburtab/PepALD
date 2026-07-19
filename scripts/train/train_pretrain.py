@@ -6,7 +6,7 @@ Modify that file to change training settings.
 
 Usage:
     python scripts/train/train_pretrain.py
-    python scripts/train/train_pretrain.py --config configs/ablations/chememb/pretrain_shuffled.json
+    python scripts/train/train_pretrain.py --config configs/ablations/chememb/pretrain_morgan.json
 """
 
 import os

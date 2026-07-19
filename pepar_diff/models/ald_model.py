@@ -93,8 +93,13 @@ class AutoregressiveLatentDiffusion(nn.Module):
             embeddings_dir=embeddings_dir,
             freeze_embeddings=True,
             chememb_mode=model_cfg.chememb_mode,
-            chememb_shuffle_seed=model_cfg.chememb_shuffle_seed,
-            shuffle_token_ids=ordinary_token_ids,
+            vocab=vocab,
+            fingerprint_token_ids=ordinary_token_ids,
+            morgan_radius=getattr(model_cfg, 'morgan_radius', 2),
+            morgan_n_bits=getattr(model_cfg, 'morgan_n_bits', 512),
+            morgan_include_chirality=getattr(
+                model_cfg, 'morgan_include_chirality', False
+            ),
         )
         
         # Update embedding_dim from actual loaded embeddings
@@ -175,7 +180,7 @@ class AutoregressiveLatentDiffusion(nn.Module):
 
     @staticmethod
     def _is_special_token(token: str) -> bool:
-        """Identify vocabulary control tokens that must not be shuffled."""
+        """Identify vocabulary control tokens excluded from monomer codebooks."""
         normalized = token.strip().upper()
         named_specials = {
             'PAD', 'BOS', 'EOS', 'UNK', 'MASK',
