@@ -68,7 +68,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run_name", required=True, help="Ablation run name.")
     parser.add_argument("--case", choices=["case1", "case2"], default="case1")
     parser.add_argument("--arm", choices=["standard_dpo"], default="standard_dpo")
-    parser.add_argument("--rounds", type=int, default=8)
+    parser.add_argument(
+        "--start_round",
+        type=int,
+        default=0,
+        help="First round index to sample (default: 0).",
+    )
+    parser.add_argument(
+        "--rounds",
+        type=int,
+        default=8,
+        help="Number of consecutive rounds to sample (default: 8).",
+    )
     parser.add_argument("--samples_per_checkpoint", type=int, default=100)
     parser.add_argument(
         "--seed",
@@ -165,11 +176,14 @@ def build_tasks(
     run_name: str,
     case_name: str,
     arm: str,
+    start_round: int,
     rounds: int,
     rounds_config: dict[str, Any],
 ) -> list[CheckpointSampleTask]:
     if rounds < 1:
         raise ValueError("--rounds must be >= 1")
+    if start_round < 0:
+        raise ValueError("--start_round must be >= 0")
 
     rounds_root = checkpoint_root / run_name / case_name / "rounds"
     per_checkpoint_dir = evaluation_dir / "per_checkpoint"
@@ -177,7 +191,7 @@ def build_tasks(
     log_dir = evaluation_dir / "logs"
     tasks: list[CheckpointSampleTask] = []
 
-    for round_idx in range(rounds):
+    for round_idx in range(start_round, start_round + rounds):
         round_dir = rounds_root / f"{arm}_r{round_idx}"
         elite_sft_epochs = (
             int(rounds_config.get("elite_sft_num_epochs", 1))
@@ -459,6 +473,7 @@ def main() -> None:
         args.run_name,
         args.case,
         args.arm,
+        args.start_round,
         args.rounds,
         rounds_config,
     )
@@ -471,6 +486,10 @@ def main() -> None:
     )
     print(f"Run:                    {args.run_name}")
     print(f"Case / arm:             {args.case} / {args.arm}")
+    print(
+        f"Round range:            r{args.start_round}.."
+        f"r{args.start_round + args.rounds - 1}"
+    )
     print(f"Checkpoint groups:      {len(tasks)} across {args.rounds} rounds")
     print(f"Samples per checkpoint: {args.samples_per_checkpoint}")
     print(f"Expected total samples: {expected_total}")
@@ -518,6 +537,8 @@ def main() -> None:
             "case": args.case,
             "arm": args.arm,
             "rounds": args.rounds,
+            "start_round": args.start_round,
+            "end_round": args.start_round + args.rounds - 1,
             "checkpoint_order": "all Elite-SFT epochs, then all DPO epochs per round",
             "round_epoch_schedule": [
                 {
@@ -529,7 +550,9 @@ def main() -> None:
                     ),
                     "dpo_epochs": get_round_epochs(rounds_config, round_idx),
                 }
-                for round_idx in range(args.rounds)
+                for round_idx in range(
+                    args.start_round, args.start_round + args.rounds
+                )
             ],
             "seed_per_checkpoint": args.seed,
             "generation_gpu_ids": gpu_ids,
